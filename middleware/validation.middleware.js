@@ -524,6 +524,20 @@ export const enrollmentSchemas = {
   }),
 
   /**
+   * Create mock enrollment schema (for testing without payment)
+   */
+  mockCreate: Joi.object({
+    eventId: schemas.mongoId.required(),
+    phones: Joi.array()
+      .items(schemas.phone)
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one phone number is required",
+      }),
+  }),
+
+  /**
    * Query parameters for listing enrollments
    */
   list: Joi.object({

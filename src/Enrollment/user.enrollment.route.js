@@ -9,7 +9,8 @@ import {
   getUserEnrollments,
   getEnrollmentById,
   cancelEnrollment,
-  checkEnrollmentStatus
+  checkEnrollmentStatus,
+  createMockEnrollment
 } from './eventEnrollment.controller.js';
 import { authenticate } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, enrollmentSchemas } from '../../middleware/validation.middleware.js';
@@ -20,6 +21,17 @@ const router = express.Router();
  * All routes require authentication
  */
 router.use(authenticate);
+
+/**
+ * @route   POST /api/app/enrollments/mock-enrollment
+ * @desc    Create mock enrollment without payment flow (for testing)
+ * @access  Authenticated User
+ */
+router.post(
+  '/mock-enrollment',
+  validateBody(enrollmentSchemas.mockCreate),
+  createMockEnrollment
+);
 
 /**
  * @route   POST /api/app/enrollments

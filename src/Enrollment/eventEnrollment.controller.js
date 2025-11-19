@@ -429,7 +429,7 @@ export const checkEnrollmentStatus = async (req, res) => {
     let activeTicketCount = 0;
 
     if (enrollment && enrollment.tickets) {
-      for (const [phone, ticket] of enrollment.tickets) {
+      for (const [, ticket] of enrollment.tickets) {
         if (ticket.status === 'ACTIVE') {
           hasActiveTicket = true;
           activeTicketCount++;
@@ -449,6 +449,105 @@ export const checkEnrollmentStatus = async (req, res) => {
   }
 };
 
+/**
+ * Create mock enrollment without payment flow (Testing/Admin only)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with enrollment details
+ */
+export const createMockEnrollment = async (req, res) => {
+  try {
+    const { eventId, phones } = req.body;
+    const userId = req.user.id;
+
+    // Validate phones array
+    if (!phones || !Array.isArray(phones) || phones.length === 0) {
+      return responseUtil.badRequest(res, 'Phone numbers array is required and must contain at least one phone number');
+    }
+
+    // Verify event exists
+    const event = await Event.findById(eventId);
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found');
+    }
+
+    // Check if enrollment already exists
+    const existingEnrollment = await EventEnrollment.findOne({
+      userId,
+      eventId
+    });
+
+    if (existingEnrollment) {
+      return responseUtil.conflict(res, 'You are already enrolled in this event');
+    }
+
+    // Check if event has enough seats
+    if (event.availableSeats < phones.length) {
+      return responseUtil.badRequest(res, `Not enough seats available. Only ${event.availableSeats} seats remaining.`);
+    }
+
+    // Create mock payment ID and order ID
+    const mockPaymentId = `MOCK_PAYMENT_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const mockOrderId = `MOCK_ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create tickets map from phone numbers
+    const ticketsMap = new Map();
+    phones.forEach(phone => {
+      ticketsMap.set(phone, {
+        status: 'ACTIVE',
+        cancelledAt: null,
+        cancellationReason: null,
+        isTicketScanned: false,
+        ticketScannedAt: null,
+        ticketScannedBy: null
+      });
+    });
+
+    // Create enrollment with mock payment data
+    const enrollment = new EventEnrollment({
+      paymentId: mockPaymentId,
+      orderId: mockOrderId,
+      userId,
+      eventId,
+      ticketCount: phones.length,
+      tickets: ticketsMap
+    });
+
+    await enrollment.save();
+
+    // Decrement available seats
+    await Event.findByIdAndUpdate(
+      eventId,
+      { $inc: { availableSeats: -phones.length } }
+    );
+
+    const populatedEnrollment = await EventEnrollment.findById(enrollment._id)
+      .populate('eventId', 'name startDate endDate mode city price')
+      .populate('userId', 'name email phone');
+
+    return responseUtil.created(res, 'Mock enrollment created successfully', {
+      enrollment: populatedEnrollment,
+      isMock: true
+    });
+  } catch (error) {
+    console.error('Create mock enrollment error:', error);
+
+    if (error.code === 11000) {
+      return responseUtil.conflict(res, 'You are already enrolled in this event');
+    }
+
+    if (error.name === 'ValidationError') {
+      const errors = Object.keys(error.errors).map(key => ({
+        field: key,
+        message: error.errors[key].message
+      }));
+      return responseUtil.validationError(res, 'Validation failed', errors);
+    }
+
+    return responseUtil.internalError(res, 'Failed to create mock enrollment', error.message);
+  }
+};
+
 export default {
   createEnrollment,
   getUserEnrollments,
@@ -456,5 +555,6 @@ export default {
   getEventAttendees,
   getAllEnrollments,
   cancelEnrollment,
-  checkEnrollmentStatus
+  checkEnrollmentStatus,
+  createMockEnrollment
 };

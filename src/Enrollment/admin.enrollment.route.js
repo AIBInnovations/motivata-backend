@@ -8,7 +8,8 @@ import {
   getAllEnrollments,
   getEnrollmentById,
   getEventAttendees,
-  cancelEnrollment
+  cancelEnrollment,
+  createMockEnrollment
 } from './eventEnrollment.controller.js';
 import { authenticate, isAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, enrollmentSchemas } from '../../middleware/validation.middleware.js';
@@ -20,6 +21,17 @@ const router = express.Router();
  */
 router.use(authenticate);
 router.use(isAdmin);
+
+/**
+ * @route   POST /api/web/enrollments/mock-enrollment
+ * @desc    Create mock enrollment without payment flow (for testing)
+ * @access  Admin
+ */
+router.post(
+  '/mock-enrollment',
+  validateBody(enrollmentSchemas.mockCreate),
+  createMockEnrollment
+);
 
 /**
  * @route   GET /api/web/enrollments
