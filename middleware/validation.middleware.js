@@ -288,11 +288,22 @@ export const eventSchemas = {
       .required(),
     startDate: Joi.date().iso().greater("now").required(),
     endDate: Joi.date().iso().greater(Joi.ref("startDate")).required(),
-    price: Joi.number().min(0).required(),
+    price: Joi.number().min(0).optional(),
     compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+    pricingTiers: Joi.array()
+      .items(
+        Joi.object({
+          name: Joi.string().trim().max(100).required(),
+          price: Joi.number().min(0).required(),
+          compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+          shortDescription: Joi.string().trim().max(500).optional(),
+          notes: Joi.string().trim().max(1000).optional(),
+        })
+      )
+      .optional(),
     availableSeats: Joi.number().integer().min(1).required(),
     coupons: Joi.array().items(schemas.mongoId).optional(),
-  }),
+  }).or("price", "pricingTiers"),
 
   /**
    * Update event schema
@@ -331,6 +342,17 @@ export const eventSchemas = {
     endDate: Joi.date().iso().greater(Joi.ref("startDate")).optional(),
     price: Joi.number().min(0).optional(),
     compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+    pricingTiers: Joi.array()
+      .items(
+        Joi.object({
+          name: Joi.string().trim().max(100).required(),
+          price: Joi.number().min(0).required(),
+          compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+          shortDescription: Joi.string().trim().max(500).optional(),
+          notes: Joi.string().trim().max(1000).optional(),
+        })
+      )
+      .optional(),
     availableSeats: Joi.number().integer().min(1).optional(),
     coupons: Joi.array().items(schemas.mongoId).optional(),
     isLive: Joi.boolean().optional(),
@@ -466,6 +488,7 @@ export const paymentSchemas = {
       otherwise: Joi.optional(),
     }),
     amount: Joi.number().min(0).required(),
+    tierName: Joi.string().trim().optional(),
     couponCode: Joi.string().trim().uppercase().optional(),
     metadata: Joi.object().optional(),
   }),
@@ -521,6 +544,7 @@ export const enrollmentSchemas = {
       .messages({
         "array.min": "At least one phone number is required",
       }),
+    tierName: Joi.string().trim().optional(),
   }),
 
   /**
@@ -535,6 +559,7 @@ export const enrollmentSchemas = {
       .messages({
         "array.min": "At least one phone number is required",
       }),
+    tierName: Joi.string().trim().optional(),
   }),
 
   /**

@@ -5,6 +5,7 @@ import adminCouponRoutes from "../src/Enrollment/admin.coupon.route.js";
 import adminPaymentRoutes from "../src/Enrollment/admin.payment.route.js";
 import adminEnrollmentRoutes from "../src/Enrollment/admin.enrollment.route.js";
 import adminTicketRoutes from "../src/Enrollment/admin.ticket.route.js";
+import razorpayRoutes from "../src/razorpay/razorpay.route.js";
 
 const router = express.Router();
 
@@ -30,6 +31,9 @@ router.use("/enrollments", adminEnrollmentRoutes);
 
 // Ticket routes - /api/web/tickets
 router.use("/tickets", adminTicketRoutes);
+
+// Razorpay routes - /api/web/razorpay
+router.use("/razorpay", razorpayRoutes);
 
 // Add more admin routes here as needed
 // Example:

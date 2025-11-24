@@ -138,12 +138,21 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
-     * Event pricing
+     * Event pricing (simple pricing - use this OR pricingTiers, not both)
      */
     price: {
       type: Number,
-      required: [true, "Event price is required"],
       min: [0, "Price cannot be negative"],
+      validate: {
+        validator: function (value) {
+          // Price is required only if pricingTiers is not provided
+          if (!this.pricingTiers || this.pricingTiers.length === 0) {
+            return value != null;
+          }
+          return true;
+        },
+        message: "Event price is required when not using multi-tier pricing",
+      },
     },
 
     /**
@@ -162,11 +171,51 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
+     * Multi-tier pricing (use this OR simple price, not both)
+     */
+    pricingTiers: [
+      {
+        name: {
+          type: String,
+          required: [true, "Tier name is required"],
+          trim: true,
+          maxlength: [100, "Tier name cannot exceed 100 characters"],
+        },
+        price: {
+          type: Number,
+          required: [true, "Tier price is required"],
+          min: [0, "Tier price cannot be negative"],
+        },
+        compareAtPrice: {
+          type: Number,
+          min: [0, "Compare at price cannot be negative"],
+          validate: {
+            validator: function (value) {
+              return !value || value >= this.price;
+            },
+            message:
+              "Tier compare at price must be greater than or equal to tier price",
+          },
+        },
+        shortDescription: {
+          type: String,
+          trim: true,
+          maxlength: [500, "Short description cannot exceed 500 characters"],
+        },
+        notes: {
+          type: String,
+          trim: true,
+          maxlength: [1000, "Notes cannot exceed 1000 characters"],
+        },
+      },
+    ],
+
+    /**
      * Available seats/slots
      */
     availableSeats: {
       type: Number,
-      required: [true, "Available seats is required"],
+      required: false,
       min: [1, "At least 1 seat must be available"],
     },
 
@@ -253,12 +302,30 @@ eventSchema.pre(/^find/, function () {
 });
 
 /**
- * Pre-save middleware to auto-update isLive status
+ * Pre-save middleware to auto-update isLive status and validate pricing
  */
 eventSchema.pre("save", function (next) {
   if (this.endDate <= new Date()) {
     this.isLive = false;
   }
+
+  // Validate that at least one pricing method is provided
+  const hasSimplePricing = this.price != null;
+  const hasTieredPricing = this.pricingTiers && this.pricingTiers.length > 0;
+
+  if (!hasSimplePricing && !hasTieredPricing) {
+    return next(
+      new Error("Event must have either simple pricing or multi-tier pricing")
+    );
+  }
+
+  // Warn if both are provided (allow it but log)
+  if (hasSimplePricing && hasTieredPricing) {
+    console.warn(
+      "Event has both simple and tiered pricing. Tiered pricing will take precedence."
+    );
+  }
+
   next();
 });
 

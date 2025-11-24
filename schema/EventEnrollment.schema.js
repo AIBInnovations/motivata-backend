@@ -55,6 +55,26 @@ const eventEnrollmentSchema = new mongoose.Schema(
     },
 
     /**
+     * Pricing tier name (for multi-tier pricing events)
+     * Null for legacy single-price events
+     */
+    tierName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    /**
+     * Actual price paid per ticket at the time of enrollment
+     * Stored for historical accuracy (prices may change later)
+     */
+    ticketPrice: {
+      type: Number,
+      required: [true, "Ticket price is required"],
+      min: [0, "Ticket price cannot be negative"],
+    },
+
+    /**
      * Tickets - Map of phone numbers to ticket details
      * Each key is a phone number, value contains ticket-specific data
      * Example: {

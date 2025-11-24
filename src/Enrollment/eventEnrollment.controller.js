@@ -16,7 +16,7 @@ import responseUtil from '../../utils/response.util.js';
  */
 export const createEnrollment = async (req, res) => {
   try {
-    const { paymentId, phones } = req.body;
+    const { paymentId, phones, tierName } = req.body;
     const userId = req.user.id;
 
     // Validate phones array
@@ -38,6 +38,37 @@ export const createEnrollment = async (req, res) => {
 
     if (!payment.eventId) {
       return responseUtil.badRequest(res, 'Payment is not associated with an event');
+    }
+
+    // Fetch event to determine pricing structure
+    const event = await Event.findById(payment.eventId);
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found');
+    }
+
+    // Determine pricing based on event type
+    let ticketPrice;
+    let selectedTierName = null;
+
+    if (event.pricingTiers && event.pricingTiers.length > 0) {
+      // Multi-tier pricing event
+      if (!tierName) {
+        return responseUtil.badRequest(res, 'Tier name is required for multi-tier pricing events');
+      }
+
+      const selectedTier = event.pricingTiers.find(tier => tier.name === tierName);
+      if (!selectedTier) {
+        return responseUtil.badRequest(res, `Invalid tier name. Available tiers: ${event.pricingTiers.map(t => t.name).join(', ')}`);
+      }
+
+      ticketPrice = selectedTier.price;
+      selectedTierName = tierName;
+    } else {
+      // Legacy single-price event
+      if (event.price == null) {
+        return responseUtil.badRequest(res, 'Event does not have valid pricing information');
+      }
+      ticketPrice = event.price;
     }
 
     // Check if enrollment already exists
@@ -70,6 +101,8 @@ export const createEnrollment = async (req, res) => {
       userId,
       eventId: payment.eventId,
       ticketCount: phones.length,
+      tierName: selectedTierName,
+      ticketPrice,
       tickets: ticketsMap
     });
 
@@ -457,7 +490,7 @@ export const checkEnrollmentStatus = async (req, res) => {
  */
 export const createMockEnrollment = async (req, res) => {
   try {
-    const { eventId, phones } = req.body;
+    const { eventId, phones, tierName } = req.body;
     const userId = req.user.id;
 
     // Validate phones array
@@ -469,6 +502,31 @@ export const createMockEnrollment = async (req, res) => {
     const event = await Event.findById(eventId);
     if (!event) {
       return responseUtil.notFound(res, 'Event not found');
+    }
+
+    // Determine pricing based on event type
+    let ticketPrice;
+    let selectedTierName = null;
+
+    if (event.pricingTiers && event.pricingTiers.length > 0) {
+      // Multi-tier pricing event
+      if (!tierName) {
+        return responseUtil.badRequest(res, 'Tier name is required for multi-tier pricing events');
+      }
+
+      const selectedTier = event.pricingTiers.find(tier => tier.name === tierName);
+      if (!selectedTier) {
+        return responseUtil.badRequest(res, `Invalid tier name. Available tiers: ${event.pricingTiers.map(t => t.name).join(', ')}`);
+      }
+
+      ticketPrice = selectedTier.price;
+      selectedTierName = tierName;
+    } else {
+      // Legacy single-price event
+      if (event.price == null) {
+        return responseUtil.badRequest(res, 'Event does not have valid pricing information');
+      }
+      ticketPrice = event.price;
     }
 
     // Check if enrollment already exists
@@ -510,6 +568,8 @@ export const createMockEnrollment = async (req, res) => {
       userId,
       eventId,
       ticketCount: phones.length,
+      tierName: selectedTierName,
+      ticketPrice,
       tickets: ticketsMap
     });
 
