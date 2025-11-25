@@ -19,7 +19,10 @@ const corsOptions = {
     // In production, check against allowed origins from .env
     const allowedOrigins = process.env.ALLOWED_ORIGINS
       ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
-      : [];
+      : [
+          "https://mediumpurple-dotterel-484503.hostingersite.com",
+          "https://mediumpurple-dotterel-484503.hostingersite.com/",
+        ];
 
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);

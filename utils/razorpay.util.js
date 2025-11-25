@@ -11,8 +11,15 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 
 /**
- * Razorpay SDK instance
- * Initialized with credentials from environment variables
+ * Lazily initialized Razorpay instance
+ * @type {Razorpay|null}
+ * @private
+ */
+let _razorpayInstance = null;
+
+/**
+ * Get Razorpay SDK instance
+ * Initialized with credentials from environment variables (lazy initialization)
  *
  * @type {Razorpay}
  * @constant
@@ -22,6 +29,8 @@ import crypto from 'crypto';
  * Requires the following environment variables:
  * - RAZORPAY_KEY_ID: Your Razorpay API key ID (starts with 'rzp_test_' or 'rzp_live_')
  * - RAZORPAY_KEY_SECRET: Your Razorpay API key secret
+ *
+ * Uses lazy initialization to ensure environment variables are loaded before accessing them.
  *
  * @example
  * // Create an order
@@ -37,9 +46,26 @@ import crypto from 'crypto';
  *
  * @see {@link https://razorpay.com/docs/api/} Razorpay API Documentation
  */
-export const razorpayInstance = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+export const razorpayInstance = new Proxy({}, {
+  get(target, prop) {
+    // Lazy initialization on first access
+    if (!_razorpayInstance) {
+      if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+        throw new Error(
+          'Razorpay credentials not found. Please set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env file'
+        );
+      }
+
+      _razorpayInstance = new Razorpay({
+        key_id: process.env.RAZORPAY_KEY_ID,
+        key_secret: process.env.RAZORPAY_KEY_SECRET,
+      });
+
+      console.log('✓ Razorpay SDK initialized');
+    }
+
+    return _razorpayInstance[prop];
+  }
 });
 
 /**
