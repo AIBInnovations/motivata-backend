@@ -118,7 +118,12 @@ import responseUtil from '../../utils/response.util.js';
 export const handleWebhook = async (req, res) => {
   try {
     const signature = req.headers['x-razorpay-signature'];
-    const payload = req.body;
+
+    // Get raw body (Buffer) for signature verification
+    const rawBody = req.body;
+
+    // Parse the body to JSON for processing
+    const payload = JSON.parse(rawBody.toString());
 
     // Log incoming webhook
     console.log('=== Razorpay Webhook Received ===');
@@ -127,8 +132,8 @@ export const handleWebhook = async (req, res) => {
     console.log('Payload:', JSON.stringify(payload, null, 2));
     console.log('Signature:', signature);
 
-    // Verify webhook signature
-    const isValid = verifyWebhookSignature(signature, payload);
+    // Verify webhook signature using raw body
+    const isValid = verifyWebhookSignature(signature, rawBody);
 
     if (!isValid) {
       console.error('Invalid webhook signature');

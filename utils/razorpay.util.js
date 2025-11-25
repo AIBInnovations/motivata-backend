@@ -73,7 +73,7 @@ export const razorpayInstance = new Proxy({}, {
  * Validates that webhook request is genuinely from Razorpay by verifying HMAC signature
  *
  * @param {string} signature - Webhook signature from 'x-razorpay-signature' header
- * @param {Object} payload - Complete webhook payload body
+ * @param {Buffer|string} rawBody - Raw webhook payload body (before JSON parsing)
  *
  * @returns {boolean} True if signature is valid, false otherwise
  *
@@ -82,35 +82,44 @@ export const razorpayInstance = new Proxy({}, {
  * This function recreates the signature and compares it with the received signature
  * to ensure the webhook is authentic and hasn't been tampered with.
  *
+ * IMPORTANT: Must use the RAW body (before JSON parsing) for verification.
  * The signature is created by:
- * 1. Converting the entire payload to JSON string
- * 2. Creating HMAC-SHA256 hash using RAZORPAY_KEY_SECRET
+ * 1. Using the raw request body exactly as received
+ * 2. Creating HMAC-SHA256 hash using RAZORPAY_WEBHOOK_SECRET (or RAZORPAY_KEY_SECRET as fallback)
  * 3. Comparing with signature from header
+ *
+ * Configuration:
+ * - Set RAZORPAY_WEBHOOK_SECRET in .env with the secret from Razorpay Dashboard > Webhooks
+ * - Falls back to RAZORPAY_KEY_SECRET if webhook secret is not configured
  *
  * @example
  * // In webhook handler
  * const signature = req.headers['x-razorpay-signature'];
- * const payload = req.body;
+ * const rawBody = req.body; // Buffer from express.raw()
  *
- * const isValid = verifyWebhookSignature(signature, payload);
+ * const isValid = verifyWebhookSignature(signature, rawBody);
  * if (!isValid) {
  *   return res.status(401).json({ error: 'Invalid signature' });
  * }
  *
- * @example
- * // Returns true for valid signature
- * verifyWebhookSignature('abc123...', {
- *   event: 'payment.captured',
- *   payload: { ... }
- * }); // true
- *
  * @see {@link https://razorpay.com/docs/webhooks/validate-test/} Razorpay Webhook Validation
  */
-export const verifyWebhookSignature = (signature, payload) => {
+export const verifyWebhookSignature = (signature, rawBody) => {
   try {
+    // Use webhook secret if available, otherwise fall back to key secret
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
+
+    if (!secret) {
+      console.error('No webhook secret configured. Set RAZORPAY_WEBHOOK_SECRET or RAZORPAY_KEY_SECRET in .env');
+      return false;
+    }
+
+    // Convert Buffer to string if needed
+    const bodyString = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
+
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(JSON.stringify(payload))
+      .createHmac('sha256', secret)
+      .update(bodyString)
       .digest('hex');
 
     return signature === expectedSignature;

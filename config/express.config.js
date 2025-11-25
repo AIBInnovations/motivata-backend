@@ -36,6 +36,11 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
+
+// Webhook endpoint needs raw body for signature verification
+// Must come BEFORE express.json()
+app.use('/api/web/razorpay/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
