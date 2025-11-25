@@ -154,8 +154,8 @@ const paymentSchema = new mongoose.Schema({
 
 /**
  * Indexes for improving query performance
+ * Note: orderId already has unique: true which creates an index automatically
  */
-paymentSchema.index({ orderId: 1 });
 paymentSchema.index({ paymentId: 1 });
 paymentSchema.index({ userId: 1, status: 1 });
 paymentSchema.index({ type: 1, status: 1 });

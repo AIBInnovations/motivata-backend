@@ -106,25 +106,39 @@ export const razorpayInstance = new Proxy({}, {
  */
 export const verifyWebhookSignature = (signature, rawBody) => {
   try {
+    console.log('=== Webhook Signature Verification Debug ===');
+
     // Use webhook secret if available, otherwise fall back to key secret
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
 
     if (!secret) {
-      console.error('No webhook secret configured. Set RAZORPAY_WEBHOOK_SECRET or RAZORPAY_KEY_SECRET in .env');
+      console.error('❌ No webhook secret configured. Set RAZORPAY_WEBHOOK_SECRET or RAZORPAY_KEY_SECRET in .env');
       return false;
     }
 
+    console.log('✓ Webhook secret loaded:', secret ? `${secret.substring(0, 8)}...` : 'NOT FOUND');
+    console.log('✓ Using secret type:', process.env.RAZORPAY_WEBHOOK_SECRET ? 'RAZORPAY_WEBHOOK_SECRET' : 'RAZORPAY_KEY_SECRET');
+    console.log('✓ Received signature:', signature ? `${signature.substring(0, 16)}...` : 'NOT FOUND');
+    console.log('✓ Raw body type:', rawBody ? (Buffer.isBuffer(rawBody) ? 'Buffer' : typeof rawBody) : 'undefined');
+    console.log('✓ Raw body length:', rawBody ? (Buffer.isBuffer(rawBody) ? rawBody.length : rawBody.length) : 0);
+
     // Convert Buffer to string if needed
     const bodyString = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
+    console.log('✓ Body string preview:', bodyString.substring(0, 100) + '...');
 
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(bodyString)
       .digest('hex');
 
+    console.log('✓ Expected signature:', expectedSignature.substring(0, 16) + '...');
+    console.log('✓ Signatures match:', signature === expectedSignature);
+    console.log('===========================================\n');
+
     return signature === expectedSignature;
   } catch (error) {
-    console.error('Webhook signature verification error:', error);
+    console.error('❌ Webhook signature verification error:', error);
+    console.error('Stack trace:', error.stack);
     return false;
   }
 };

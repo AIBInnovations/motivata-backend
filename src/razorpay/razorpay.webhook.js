@@ -117,17 +117,31 @@ import responseUtil from '../../utils/response.util.js';
  */
 export const handleWebhook = async (req, res) => {
   try {
+    console.log('=== Razorpay Webhook Received ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body type:', req.body ? (Buffer.isBuffer(req.body) ? 'Buffer' : typeof req.body) : 'undefined');
+    console.log('Body length:', req.body ? req.body.length : 0);
+
     const signature = req.headers['x-razorpay-signature'];
+
+    if (!signature) {
+      console.error('❌ No signature header found in request');
+      return responseUtil.unauthorized(res, 'Missing signature');
+    }
 
     // Get raw body (Buffer) for signature verification
     const rawBody = req.body;
+
+    if (!rawBody) {
+      console.error('❌ No body found in request');
+      return responseUtil.badRequest(res, 'Missing body');
+    }
 
     // Parse the body to JSON for processing
     const payload = JSON.parse(rawBody.toString());
 
     // Log incoming webhook
-    console.log('=== Razorpay Webhook Received ===');
-    console.log('Timestamp:', new Date().toISOString());
     console.log('Event:', payload.event);
     console.log('Payload:', JSON.stringify(payload, null, 2));
     console.log('Signature:', signature);

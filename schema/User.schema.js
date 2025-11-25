@@ -110,7 +110,7 @@ userSchema.methods.softDelete = function () {
 };
 
 // Index for faster queries
-userSchema.index({ email: 1 });
+// Note: email already has unique: true which creates an index automatically
 userSchema.index({ isDeleted: 1 });
 
 export default mongoose.model("User", userSchema);
