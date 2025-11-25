@@ -35,12 +35,13 @@ const paymentSchema = new mongoose.Schema({
   },
 
   /**
-   * User who made the payment
+   * User who made the payment (optional for guest checkout)
    */
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'User ID is required']
+    required: false,
+    default: null
   },
 
   /**
