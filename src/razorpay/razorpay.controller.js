@@ -235,8 +235,9 @@ export const createOrder = async (req, res) => {
       callback_url:
         metadata.callbackUrl ||
         `${
-          process.env.FRONTEND_URL ||
-          "https://mediumpurple-dotterel-484503.hostingersite.com"
+          process.env.WORDPRESS_FRONTEND_URL + "/payment-success" ||
+          "https://mediumpurple-dotterel-484503.hostingersite.com" +
+            "/payment-success"
         }`,
       callback_method: "get",
       customer: {
