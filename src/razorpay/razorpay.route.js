@@ -8,35 +8,30 @@
  * @requires express
  * @requires ./razorpay.controller
  * @requires ./razorpay.webhook
- * @requires ../../middleware/auth.middleware
  */
 
 import express from 'express';
 import { createOrder, getPaymentStatus } from './razorpay.controller.js';
 import { handleWebhook } from './razorpay.webhook.js';
-import { optionalAuth } from '../../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 /**
  * @route POST /api/web/razorpay/create-order
  * @group Razorpay Payment - Razorpay payment operations
- * @access Public (with optional authentication)
+ * @access Public
  *
  * @description
  * Creates a new Razorpay payment order and payment link.
  * Returns a short URL that can be used to redirect the user to Razorpay's payment page.
- * Supports both authenticated users and guest checkout.
  * Supports club/combo purchases with multiple customers (SMS/email notifications disabled).
  *
- * @middleware {Function} optionalAuth - Optional authentication middleware
  * @handler {Function} createOrder - Controller function to create payment order
  *
  * @example
  * // Single Purchase
  * POST /api/web/razorpay/create-order
  * Content-Type: application/json
- * Authorization: Bearer <token> (optional)
  *
  * Request Body:
  * {
@@ -96,12 +91,12 @@ const router = express.Router();
  *   }
  * }
  */
-router.post('/create-order', optionalAuth, createOrder);
+router.post('/create-order', createOrder);
 
 /**
  * @route GET /api/web/razorpay/status/:orderId
  * @group Razorpay Payment - Razorpay payment operations
- * @access Public (with optional authentication)
+ * @access Public
  *
  * @description
  * Retrieves the current status of a payment by order ID.
@@ -111,12 +106,10 @@ router.post('/create-order', optionalAuth, createOrder);
  *
  * @param {string} orderId.path.required - Razorpay order ID
  *
- * @middleware {Function} optionalAuth - Optional authentication middleware
  * @handler {Function} getPaymentStatus - Controller function to get payment status
  *
  * @example
  * GET /api/web/razorpay/status/order_MhXXXXXXXXXX
- * Authorization: Bearer <token> (optional)
  *
  * Response (200 OK):
  * {
@@ -148,7 +141,7 @@ router.post('/create-order', optionalAuth, createOrder);
  *   }, 3000); // Poll every 3 seconds
  * };
  */
-router.get('/status/:orderId', optionalAuth, getPaymentStatus);
+router.get('/status/:orderId', getPaymentStatus);
 
 /**
  * @route POST /api/web/razorpay/webhook

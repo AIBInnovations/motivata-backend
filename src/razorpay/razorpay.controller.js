@@ -3,9 +3,9 @@
  * @module controllers/razorpay
  */
 
-import { razorpayInstance } from '../../utils/razorpay.util.js';
-import Payment from '../../schema/Payment.schema.js';
-import responseUtil from '../../utils/response.util.js';
+import { razorpayInstance } from "../../utils/razorpay.util.js";
+import Payment from "../../schema/Payment.schema.js";
+import responseUtil from "../../utils/response.util.js";
 
 /**
  * @typedef {Object} CreateOrderRequest
@@ -49,16 +49,10 @@ import responseUtil from '../../utils/response.util.js';
  * Returns payment link URL that can be used to redirect user for payment
  *
  * @route POST /api/web/razorpay/create-order
- * @access Public (with optional authentication)
+ * @access Public
  *
  * @param {import('express').Request} req - Express request object
  * @param {CreateOrderRequest} req.body - Request body with payment details
- * @param {Object} [req.user] - Authenticated user object (if using optionalAuth)
- * @param {string} [req.user.id] - User ID
- * @param {string} [req.user.name] - User name
- * @param {string} [req.user.email] - User email
- * @param {string} [req.user.phone] - User phone
- *
  * @param {import('express').Response} res - Express response object
  *
  * @returns {Promise<CreateOrderResponse>} JSON response with order details and payment URL
@@ -136,22 +130,20 @@ export const createOrder = async (req, res) => {
   try {
     const {
       amount,
-      currency = 'INR',
+      currency = "INR",
       type,
       eventId,
       sessionId,
-      metadata = {}
+      metadata = {},
     } = req.body;
-
-    const userId = req.user?.id;
 
     // Validate required fields
     if (!amount || amount <= 0) {
-      return responseUtil.badRequest(res, 'Valid amount is required');
+      return responseUtil.badRequest(res, "Valid amount is required");
     }
 
     if (!type) {
-      return responseUtil.badRequest(res, 'Payment type is required');
+      return responseUtil.badRequest(res, "Payment type is required");
     }
 
     // Prepare customer details for club/combo purchases
@@ -160,32 +152,31 @@ export const createOrder = async (req, res) => {
 
     // Log customer information
     if (isMultiCustomer) {
-      console.log('=== Club/Combo Purchase - Multiple Customers ===');
+      console.log("=== Club/Combo Purchase - Multiple Customers ===");
       console.log(`Number of customers: ${customers.length}`);
       customers.forEach((customer, index) => {
         console.log(`Customer ${index + 1}:`, {
-          name: customer.name || 'N/A',
-          email: customer.email || 'N/A',
-          phone: customer.phone || 'N/A'
+          name: customer.name || "N/A",
+          email: customer.email || "N/A",
+          phone: customer.phone || "N/A",
         });
       });
     }
 
     // Prepare notes with customer details
     const orderNotes = {
-      userId: userId || '',
       type,
-      eventId: eventId || '',
-      sessionId: sessionId || '',
+      eventId: eventId || "",
+      sessionId: sessionId || "",
     };
 
     // Add customer details to notes
     if (isMultiCustomer) {
       orderNotes.customerCount = customers.length;
       customers.forEach((customer, index) => {
-        orderNotes[`customer_${index + 1}_name`] = customer.name || '';
-        orderNotes[`customer_${index + 1}_email`] = customer.email || '';
-        orderNotes[`customer_${index + 1}_phone`] = customer.phone || '';
+        orderNotes[`customer_${index + 1}_name`] = customer.name || "";
+        orderNotes[`customer_${index + 1}_email`] = customer.email || "";
+        orderNotes[`customer_${index + 1}_phone`] = customer.phone || "";
       });
     }
 
@@ -193,27 +184,26 @@ export const createOrder = async (req, res) => {
     const razorpayOrder = await razorpayInstance.orders.create({
       amount: Math.round(amount * 100), // Convert to paise
       currency: currency,
-      receipt: `order_${Date.now()}_${userId || 'guest'}`,
-      notes: orderNotes
+      receipt: `order_${Date.now()}`,
+      notes: orderNotes,
     });
 
     // Create payment record in database
     const payment = new Payment({
       orderId: razorpayOrder.id,
-      userId: userId || null,
       type,
       eventId: eventId || null,
       sessionId: sessionId || null,
       amount: amount,
       discountAmount: 0,
       finalAmount: amount,
-      status: 'PENDING',
+      status: "PENDING",
       metadata: {
         ...metadata,
         razorpayOrderStatus: razorpayOrder.status,
         // Store customer details in payment metadata
-        ...(isMultiCustomer && { customers })
-      }
+        ...(isMultiCustomer && { customers }),
+      },
     });
 
     await payment.save();
@@ -221,17 +211,16 @@ export const createOrder = async (req, res) => {
     // Prepare payment link notes
     const paymentLinkNotes = {
       orderId: razorpayOrder.id,
-      userId: userId || '',
-      type
+      type,
     };
 
     // Add customer details to payment link notes
     if (isMultiCustomer) {
       paymentLinkNotes.customerCount = customers.length;
       customers.forEach((customer, index) => {
-        paymentLinkNotes[`customer_${index + 1}_name`] = customer.name || '';
-        paymentLinkNotes[`customer_${index + 1}_email`] = customer.email || '';
-        paymentLinkNotes[`customer_${index + 1}_phone`] = customer.phone || '';
+        paymentLinkNotes[`customer_${index + 1}_name`] = customer.name || "";
+        paymentLinkNotes[`customer_${index + 1}_email`] = customer.email || "";
+        paymentLinkNotes[`customer_${index + 1}_phone`] = customer.phone || "";
       });
     }
 
@@ -239,24 +228,40 @@ export const createOrder = async (req, res) => {
     const paymentLink = await razorpayInstance.paymentLink.create({
       amount: Math.round(amount * 100), // Convert to paise
       currency: currency,
-      description: `Payment for ${type}${isMultiCustomer ? ` (${customers.length} customers)` : ''}`,
+      description: `Payment for ${type}${
+        isMultiCustomer ? ` (${customers.length} customers)` : ""
+      }`,
       reference_id: razorpayOrder.id,
-      callback_url: metadata.callbackUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment/callback`,
-      callback_method: 'get',
+      callback_url:
+        metadata.callbackUrl ||
+        `${
+          process.env.FRONTEND_URL ||
+          "https://mediumpurple-dotterel-484503.hostingersite.com"
+        }`,
+      callback_method: "get",
       customer: {
-        name: req.user?.name || metadata.customerName || (isMultiCustomer ? customers[0]?.name : '') || '',
-        email: req.user?.email || metadata.customerEmail || (isMultiCustomer ? customers[0]?.email : '') || '',
-        contact: req.user?.phone || metadata.customerPhone || (isMultiCustomer ? customers[0]?.phone : '') || ''
+        name:
+          metadata.customerName ||
+          (isMultiCustomer ? customers[0]?.name : "") ||
+          "",
+        email:
+          metadata.customerEmail ||
+          (isMultiCustomer ? customers[0]?.email : "") ||
+          "",
+        contact:
+          metadata.customerPhone ||
+          (isMultiCustomer ? customers[0]?.phone : "") ||
+          "",
       },
       notify: {
         sms: false,
-        email: false
+        email: false,
       },
       reminder_enable: false,
-      notes: paymentLinkNotes
+      notes: paymentLinkNotes,
     });
 
-    return responseUtil.created(res, 'Payment order created successfully', {
+    return responseUtil.created(res, "Payment order created successfully", {
       orderId: razorpayOrder.id,
       amount: amount,
       currency: currency,
@@ -265,15 +270,15 @@ export const createOrder = async (req, res) => {
       status: razorpayOrder.status,
       createdAt: razorpayOrder.created_at,
       gateway: {
-        name: 'razorpay',
-        keyId: process.env.RAZORPAY_KEY_ID
-      }
+        name: "razorpay",
+        keyId: process.env.RAZORPAY_KEY_ID,
+      },
     });
   } catch (error) {
-    console.error('Create order error:', error);
+    console.error("Create order error:", error);
     return responseUtil.internalError(
       res,
-      'Failed to create payment order',
+      "Failed to create payment order",
       error.message
     );
   }
@@ -310,14 +315,11 @@ export const createOrder = async (req, res) => {
  * Supports long polling pattern for checking payment completion
  *
  * @route GET /api/web/razorpay/status/:orderId
- * @access Public (with optional authentication)
+ * @access Public
  *
  * @param {import('express').Request} req - Express request object
  * @param {Object} req.params - URL parameters
  * @param {string} req.params.orderId - Razorpay order ID to check status for (required)
- * @param {Object} [req.user] - Authenticated user object (if using optionalAuth)
- * @param {string} [req.user.id] - User ID (if provided, only returns user's own payment)
- *
  * @param {import('express').Response} res - Express response object
  *
  * @returns {Promise<PaymentStatusResponse>} JSON response with payment status details
@@ -404,40 +406,38 @@ export const createOrder = async (req, res) => {
 export const getPaymentStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const userId = req.user?.id;
 
     if (!orderId) {
-      return responseUtil.badRequest(res, 'Order ID is required');
+      return responseUtil.badRequest(res, "Order ID is required");
     }
 
     // Find payment in database
-    const query = userId ? { orderId, userId } : { orderId };
-    const payment = await Payment.findOne(query)
-      .populate('eventId', 'name startDate endDate')
-      .populate('sessionId', 'name startDate endDate');
+    const payment = await Payment.findOne({ orderId })
+      .populate("eventId", "name startDate endDate")
+      .populate("sessionId", "name startDate endDate");
 
     if (!payment) {
-      return responseUtil.notFound(res, 'Payment not found');
+      return responseUtil.notFound(res, "Payment not found");
     }
 
     // If payment is still pending, check with Razorpay
-    if (payment.status === 'PENDING') {
+    if (payment.status === "PENDING") {
       try {
         const razorpayOrder = await razorpayInstance.orders.fetch(orderId);
 
         // If order status changed, update our record
-        if (razorpayOrder.status === 'paid') {
-          payment.status = 'SUCCESS';
+        if (razorpayOrder.status === "paid") {
+          payment.status = "SUCCESS";
           payment.purchaseDateTime = new Date(razorpayOrder.created_at * 1000);
           await payment.save();
         }
       } catch (rzError) {
-        console.error('Razorpay fetch error:', rzError);
+        console.error("Razorpay fetch error:", rzError);
         // Continue with database status if Razorpay fetch fails
       }
     }
 
-    return responseUtil.success(res, 'Payment status retrieved', {
+    return responseUtil.success(res, "Payment status retrieved", {
       orderId: payment.orderId,
       paymentId: payment.paymentId,
       status: payment.status,
@@ -448,13 +448,13 @@ export const getPaymentStatus = async (req, res) => {
       event: payment.eventId,
       session: payment.sessionId,
       createdAt: payment.createdAt,
-      updatedAt: payment.updatedAt
+      updatedAt: payment.updatedAt,
     });
   } catch (error) {
-    console.error('Get payment status error:', error);
+    console.error("Get payment status error:", error);
     return responseUtil.internalError(
       res,
-      'Failed to retrieve payment status',
+      "Failed to retrieve payment status",
       error.message
     );
   }
@@ -462,5 +462,5 @@ export const getPaymentStatus = async (req, res) => {
 
 export default {
   createOrder,
-  getPaymentStatus
+  getPaymentStatus,
 };
