@@ -5,24 +5,26 @@
 
 import { razorpayInstance } from "../../utils/razorpay.util.js";
 import Payment from "../../schema/Payment.schema.js";
+import Event from "../../schema/Event.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
  * @typedef {Object} CreateOrderRequest
- * @property {number} amount - Payment amount in INR (required, must be > 0)
  * @property {string} [currency='INR'] - Payment currency (default: INR)
  * @property {string} type - Payment type: 'EVENT', 'SESSION', 'OTHER', 'PRODUCT' (required)
- * @property {string} [eventId] - MongoDB ObjectId of the event (required if type is EVENT)
- * @property {string} [sessionId] - MongoDB ObjectId of the session (required if type is SESSION)
+ * @property {string} eventId - MongoDB ObjectId of the event (required)
+ * @property {string} [priceTierId] - MongoDB ObjectId of the pricing tier (optional, uses default pricing if not provided)
+ * @property {string} [sessionId] - MongoDB ObjectId of the session (optional, for future use)
  * @property {Object} [metadata] - Additional metadata for the payment
  * @property {string} [metadata.callbackUrl] - Custom callback URL after payment completion
- * @property {string} [metadata.customerName] - Customer name for payment link (single purchase)
- * @property {string} [metadata.customerEmail] - Customer email for payment link (single purchase)
- * @property {string} [metadata.customerPhone] - Customer phone for payment link (single purchase)
- * @property {Array<Object>} [metadata.customers] - Array of customers for club/combo purchases
- * @property {string} [metadata.customers[].name] - Customer name
- * @property {string} [metadata.customers[].email] - Customer email
- * @property {string} [metadata.customers[].phone] - Customer phone
+ * @property {Object} metadata.buyer - Buyer information (required)
+ * @property {string} metadata.buyer.name - Buyer's name
+ * @property {string} metadata.buyer.email - Buyer's email
+ * @property {string} metadata.buyer.phone - Buyer's phone number
+ * @property {Array<Object>} [metadata.others] - Array of other ticket holders for multi-ticket purchases
+ * @property {string} metadata.others[].name - Ticket holder's name
+ * @property {string} metadata.others[].email - Ticket holder's email
+ * @property {string} metadata.others[].phone - Ticket holder's phone number
  */
 
 /**
@@ -57,41 +59,61 @@ import responseUtil from "../../utils/response.util.js";
  *
  * @returns {Promise<CreateOrderResponse>} JSON response with order details and payment URL
  *
- * @throws {400} Bad Request - If amount is invalid or type is missing
+ * @throws {400} Bad Request - If type or eventId is missing, invalid pricing tier, event not live, or booking period ended
+ * @throws {404} Not Found - If event doesn't exist
  * @throws {500} Internal Server Error - If order creation fails
  *
  * @example
- * // Request - Single Purchase
+ * // Request - Single Ticket Purchase (Default Pricing)
  * POST /api/web/razorpay/create-order
  * {
- *   "amount": 1500,
  *   "currency": "INR",
  *   "type": "EVENT",
  *   "eventId": "507f1f77bcf86cd799439011",
  *   "metadata": {
  *     "callbackUrl": "https://myapp.com/payment/success",
- *     "customerName": "John Doe",
- *     "customerEmail": "john@example.com",
- *     "customerPhone": "+919876543210"
+ *     "buyer": {
+ *       "name": "John Doe",
+ *       "email": "john@example.com",
+ *       "phone": "+919876543210"
+ *     }
  *   }
  * }
  *
  * @example
- * // Request - Club/Combo Purchase (Multiple Customers)
+ * // Request - Single Ticket Purchase (With Pricing Tier)
  * POST /api/web/razorpay/create-order
  * {
- *   "amount": 4500,
  *   "currency": "INR",
  *   "type": "EVENT",
  *   "eventId": "507f1f77bcf86cd799439011",
+ *   "priceTierId": "507f1f77bcf86cd799439099",
  *   "metadata": {
  *     "callbackUrl": "https://myapp.com/payment/success",
- *     "customers": [
- *       {
- *         "name": "John Doe",
- *         "email": "john@example.com",
- *         "phone": "+919876543210"
- *       },
+ *     "buyer": {
+ *       "name": "John Doe",
+ *       "email": "john@example.com",
+ *       "phone": "+919876543210"
+ *     }
+ *   }
+ * }
+ *
+ * @example
+ * // Request - Multi-Ticket Purchase (Multiple Attendees)
+ * POST /api/web/razorpay/create-order
+ * {
+ *   "currency": "INR",
+ *   "type": "EVENT",
+ *   "eventId": "507f1f77bcf86cd799439011",
+ *   "priceTierId": "507f1f77bcf86cd799439099",
+ *   "metadata": {
+ *     "callbackUrl": "https://myapp.com/payment/success",
+ *     "buyer": {
+ *       "name": "John Doe",
+ *       "email": "john@example.com",
+ *       "phone": "+919876543210"
+ *     },
+ *     "others": [
  *       {
  *         "name": "Jane Smith",
  *         "email": "jane@example.com",
@@ -129,33 +151,92 @@ import responseUtil from "../../utils/response.util.js";
 export const createOrder = async (req, res) => {
   try {
     const {
-      amount,
       currency = "INR",
       type,
       eventId,
+      priceTierId,
       sessionId,
       metadata = {},
     } = req.body;
 
     // Validate required fields
-    if (!amount || amount <= 0) {
-      return responseUtil.badRequest(res, "Valid amount is required");
-    }
-
     if (!type) {
       return responseUtil.badRequest(res, "Payment type is required");
     }
 
-    // Prepare customer details for club/combo purchases
-    const customers = metadata.customers || [];
-    const isMultiCustomer = customers.length > 0;
+    if (!eventId) {
+      return responseUtil.badRequest(res, "Event ID is required");
+    }
+
+    // Fetch event from database to get pricing
+    const event = await Event.findById(eventId);
+    if (!event) {
+      return responseUtil.notFound(res, "Event not found");
+    }
+
+    // Check if event is live and bookings are open
+    if (!event.isLive) {
+      return responseUtil.badRequest(res, "Event is not currently available for booking");
+    }
+
+    // Check if event has ended
+    if (event.endDate <= new Date()) {
+      return responseUtil.badRequest(res, "Event booking period has ended");
+    }
+
+    // Determine price based on pricing tier or default pricing
+    let amount;
+    let compareAtPrice;
+    let tierName = null;
+
+    if (priceTierId) {
+      // Use pricing tier
+      const tier = event.pricingTiers?.find(
+        (t) => t._id.toString() === priceTierId
+      );
+
+      if (!tier) {
+        return responseUtil.badRequest(res, "Invalid pricing tier ID");
+      }
+
+      amount = tier.price;
+      compareAtPrice = tier.compareAtPrice;
+      tierName = tier.name;
+    } else {
+      // Use default pricing
+      if (event.price == null) {
+        return responseUtil.badRequest(
+          res,
+          "Event does not have default pricing. Please specify a pricing tier."
+        );
+      }
+
+      amount = event.price;
+      compareAtPrice = event.compareAtPrice;
+    }
+
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return responseUtil.badRequest(res, "Invalid event pricing");
+    }
+
+    // Prepare customer details for multi-ticket purchases
+    const others = metadata.others || [];
+    const isMultiTicket = others.length > 0;
+    const totalTickets = isMultiTicket ? others.length + 1 : 1; // +1 for buyer
 
     // Log customer information
-    if (isMultiCustomer) {
-      console.log("=== Club/Combo Purchase - Multiple Customers ===");
-      console.log(`Number of customers: ${customers.length}`);
-      customers.forEach((customer, index) => {
-        console.log(`Customer ${index + 1}:`, {
+    if (isMultiTicket) {
+      console.log("=== Multi-Ticket Purchase ===");
+      console.log(`Total tickets: ${totalTickets}`);
+      console.log("Buyer:", {
+        name: metadata.buyer?.name || "N/A",
+        email: metadata.buyer?.email || "N/A",
+        phone: metadata.buyer?.phone || "N/A",
+      });
+      console.log(`Additional tickets: ${others.length}`);
+      others.forEach((customer, index) => {
+        console.log(`Ticket ${index + 2}:`, {
           name: customer.name || "N/A",
           email: customer.email || "N/A",
           phone: customer.phone || "N/A",
@@ -168,15 +249,24 @@ export const createOrder = async (req, res) => {
       type,
       eventId: eventId || "",
       sessionId: sessionId || "",
+      eventName: event.name,
+      totalTickets: totalTickets,
+      ...(tierName && { tierName }),
     };
 
-    // Add customer details to notes
-    if (isMultiCustomer) {
-      orderNotes.customerCount = customers.length;
-      customers.forEach((customer, index) => {
-        orderNotes[`customer_${index + 1}_name`] = customer.name || "";
-        orderNotes[`customer_${index + 1}_email`] = customer.email || "";
-        orderNotes[`customer_${index + 1}_phone`] = customer.phone || "";
+    // Add buyer details to notes
+    if (metadata.buyer) {
+      orderNotes.buyer_name = metadata.buyer.name || "";
+      orderNotes.buyer_email = metadata.buyer.email || "";
+      orderNotes.buyer_phone = metadata.buyer.phone || "";
+    }
+
+    // Add other ticket holders to notes
+    if (isMultiTicket) {
+      others.forEach((customer, index) => {
+        orderNotes[`ticket_${index + 2}_name`] = customer.name || "";
+        orderNotes[`ticket_${index + 2}_email`] = customer.email || "";
+        orderNotes[`ticket_${index + 2}_phone`] = customer.phone || "";
       });
     }
 
@@ -201,8 +291,11 @@ export const createOrder = async (req, res) => {
       metadata: {
         ...metadata,
         razorpayOrderStatus: razorpayOrder.status,
-        // Store customer details in payment metadata
-        ...(isMultiCustomer && { customers }),
+        // Store pricing information
+        ...(priceTierId && { priceTierId, tierName }),
+        ...(compareAtPrice && { compareAtPrice }),
+        // Store ticket count
+        totalTickets: totalTickets,
       },
     });
 
@@ -212,15 +305,24 @@ export const createOrder = async (req, res) => {
     const paymentLinkNotes = {
       orderId: razorpayOrder.id,
       type,
+      eventName: event.name,
+      totalTickets: totalTickets,
+      ...(tierName && { tierName }),
     };
 
-    // Add customer details to payment link notes
-    if (isMultiCustomer) {
-      paymentLinkNotes.customerCount = customers.length;
-      customers.forEach((customer, index) => {
-        paymentLinkNotes[`customer_${index + 1}_name`] = customer.name || "";
-        paymentLinkNotes[`customer_${index + 1}_email`] = customer.email || "";
-        paymentLinkNotes[`customer_${index + 1}_phone`] = customer.phone || "";
+    // Add buyer details to payment link notes
+    if (metadata.buyer) {
+      paymentLinkNotes.buyer_name = metadata.buyer.name || "";
+      paymentLinkNotes.buyer_email = metadata.buyer.email || "";
+      paymentLinkNotes.buyer_phone = metadata.buyer.phone || "";
+    }
+
+    // Add other ticket holders to payment link notes
+    if (isMultiTicket) {
+      others.forEach((customer, index) => {
+        paymentLinkNotes[`ticket_${index + 2}_name`] = customer.name || "";
+        paymentLinkNotes[`ticket_${index + 2}_email`] = customer.email || "";
+        paymentLinkNotes[`ticket_${index + 2}_phone`] = customer.phone || "";
       });
     }
 
@@ -228,8 +330,8 @@ export const createOrder = async (req, res) => {
     const paymentLink = await razorpayInstance.paymentLink.create({
       amount: Math.round(amount * 100), // Convert to paise
       currency: currency,
-      description: `Payment for ${type}${
-        isMultiCustomer ? ` (${customers.length} customers)` : ""
+      description: `Payment for ${event.name}${tierName ? ` - ${tierName}` : ""}${
+        isMultiTicket ? ` (${totalTickets} tickets)` : ""
       }`,
       reference_id: razorpayOrder.id,
       callback_url:
@@ -241,18 +343,9 @@ export const createOrder = async (req, res) => {
         }`,
       callback_method: "get",
       customer: {
-        name:
-          metadata.customerName ||
-          (isMultiCustomer ? customers[0]?.name : "") ||
-          "",
-        email:
-          metadata.customerEmail ||
-          (isMultiCustomer ? customers[0]?.email : "") ||
-          "",
-        contact:
-          metadata.customerPhone ||
-          (isMultiCustomer ? customers[0]?.phone : "") ||
-          "",
+        name: metadata.buyer?.name || "",
+        email: metadata.buyer?.email || "",
+        contact: metadata.buyer?.phone || "",
       },
       notify: {
         sms: false,

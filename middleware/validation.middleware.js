@@ -301,7 +301,7 @@ export const eventSchemas = {
         })
       )
       .optional(),
-    availableSeats: Joi.number().integer().min(1).required(),
+    availableSeats: Joi.number().integer().min(0).optional(),
     coupons: Joi.array().items(schemas.mongoId).optional(),
   }).or("price", "pricingTiers"),
 
@@ -353,7 +353,7 @@ export const eventSchemas = {
         })
       )
       .optional(),
-    availableSeats: Joi.number().integer().min(1).optional(),
+    availableSeats: Joi.number().integer().min(0).optional(),
     coupons: Joi.array().items(schemas.mongoId).optional(),
     isLive: Joi.boolean().optional(),
   }),

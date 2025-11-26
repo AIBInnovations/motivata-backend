@@ -8,7 +8,8 @@ import {
   getAllEvents,
   getEventById,
   getUpcomingEvents,
-  getEventsByCategory
+  getEventsByCategory,
+  getEventTicketStats
 } from './event.controller.js';
 import { optionalAuth } from '../../middleware/auth.middleware.js';
 import { validateParams, validateQuery, eventSchemas, schemas } from '../../middleware/validation.middleware.js';
@@ -68,6 +69,17 @@ router.get(
     limit: Joi.number().integer().min(1).max(100).default(10)
   })),
   getEventsByCategory
+);
+
+/**
+ * @route   GET /api/app/events/:id/ticket-stats
+ * @desc    Get event ticket statistics
+ * @access  Public
+ */
+router.get(
+  '/:id/ticket-stats',
+  validateParams(eventSchemas.eventId),
+  getEventTicketStats
 );
 
 /**

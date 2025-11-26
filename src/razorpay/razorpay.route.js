@@ -24,48 +24,70 @@ const router = express.Router();
  * @description
  * Creates a new Razorpay payment order and payment link.
  * Returns a short URL that can be used to redirect the user to Razorpay's payment page.
- * Supports club/combo purchases with multiple customers (SMS/email notifications disabled).
+ * Supports single ticket purchase (buyer only) and multi-ticket purchase (buyer + others).
  *
  * @handler {Function} createOrder - Controller function to create payment order
  *
  * @example
- * // Single Purchase
+ * // Single Ticket Purchase (Default Pricing)
  * POST /api/web/razorpay/create-order
  * Content-Type: application/json
  *
  * Request Body:
  * {
- *   "amount": 1500,
  *   "currency": "INR",
  *   "type": "EVENT",
  *   "eventId": "507f1f77bcf86cd799439011",
  *   "metadata": {
  *     "callbackUrl": "https://myapp.com/payment/success",
- *     "customerName": "John Doe",
- *     "customerEmail": "john@example.com",
- *     "customerPhone": "+919876543210"
+ *     "buyer": {
+ *       "name": "John Doe",
+ *       "email": "john@example.com",
+ *       "phone": "+919876543210"
+ *     }
  *   }
  * }
  *
  * @example
- * // Club/Combo Purchase (Multiple Customers)
+ * // Single Ticket Purchase (With Pricing Tier)
  * POST /api/web/razorpay/create-order
  * Content-Type: application/json
  *
  * Request Body:
  * {
- *   "amount": 4500,
  *   "currency": "INR",
  *   "type": "EVENT",
  *   "eventId": "507f1f77bcf86cd799439011",
+ *   "priceTierId": "507f1f77bcf86cd799439099",
  *   "metadata": {
  *     "callbackUrl": "https://myapp.com/payment/success",
- *     "customers": [
- *       {
- *         "name": "John Doe",
- *         "email": "john@example.com",
- *         "phone": "+919876543210"
- *       },
+ *     "buyer": {
+ *       "name": "John Doe",
+ *       "email": "john@example.com",
+ *       "phone": "+919876543210"
+ *     }
+ *   }
+ * }
+ *
+ * @example
+ * // Multi-Ticket Purchase (Multiple Attendees)
+ * POST /api/web/razorpay/create-order
+ * Content-Type: application/json
+ *
+ * Request Body:
+ * {
+ *   "currency": "INR",
+ *   "type": "EVENT",
+ *   "eventId": "507f1f77bcf86cd799439011",
+ *   "priceTierId": "507f1f77bcf86cd799439099",
+ *   "metadata": {
+ *     "callbackUrl": "https://myapp.com/payment/success",
+ *     "buyer": {
+ *       "name": "John Doe",
+ *       "email": "john@example.com",
+ *       "phone": "+919876543210"
+ *     },
+ *     "others": [
  *       {
  *         "name": "Jane Smith",
  *         "email": "jane@example.com",

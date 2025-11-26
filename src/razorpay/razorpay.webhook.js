@@ -6,8 +6,11 @@
 
 import { verifyWebhookSignature } from '../../utils/razorpay.util.js';
 import Payment from '../../schema/Payment.schema.js';
-import Event from '../../schema/Event.schema.js';
 import Coupon from '../../schema/Coupon.schema.js';
+import User from '../../schema/User.schema.js';
+import Event from '../../schema/Event.schema.js';
+import EventEnrollment from '../../schema/EventEnrollment.schema.js';
+import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 
 /**
@@ -334,6 +337,7 @@ const handleOrderPaid = async (orderEntity) => {
  *
  * @param {Object} paymentLinkEntity - Razorpay payment link entity
  * @param {string} paymentLinkEntity.reference_id - Reference ID (orderId)
+ * @param {string} paymentLinkEntity.order_id - Razorpay order ID for the payment link
  *
  * @returns {Promise<void>}
  * @private
@@ -341,7 +345,7 @@ const handleOrderPaid = async (orderEntity) => {
 const handlePaymentLinkPaid = async (paymentLinkEntity) => {
   console.log('Processing payment_link.paid event');
 
-  const { reference_id: orderId } = paymentLinkEntity;
+  const { reference_id: orderId, order_id: razorpayOrderId } = paymentLinkEntity;
 
   const payment = await Payment.findOne({ orderId });
 
@@ -355,12 +359,56 @@ const handlePaymentLinkPaid = async (paymentLinkEntity) => {
     return;
   }
 
+  // Fetch the Razorpay order to get payment details
+  try {
+    const { razorpayInstance } = await import('../../utils/razorpay.util.js');
+    const razorpayOrder = await razorpayInstance.orders.fetch(razorpayOrderId);
+
+    console.log('✓ Fetched Razorpay order:', razorpayOrderId);
+
+    // Get payment ID from order payments
+    let paymentId = null;
+    if (razorpayOrder.payments && razorpayOrder.payments.length > 0) {
+      // Get the first (or latest) payment ID
+      paymentId = razorpayOrder.payments[0].id;
+      console.log('✓ Extracted payment ID:', paymentId);
+
+      // Optionally fetch full payment details
+      try {
+        const paymentEntity = await razorpayInstance.payments.fetch(paymentId);
+        payment.metadata = {
+          ...payment.metadata,
+          razorpayPaymentLinkEntity: paymentLinkEntity,
+          razorpayPaymentEntity: paymentEntity
+        };
+        console.log('✓ Fetched and stored payment entity');
+      } catch (paymentFetchError) {
+        console.warn('Could not fetch payment entity:', paymentFetchError.message);
+        payment.metadata = {
+          ...payment.metadata,
+          razorpayPaymentLinkEntity: paymentLinkEntity
+        };
+      }
+    } else {
+      console.warn('No payments found in order, storing payment link entity only');
+      payment.metadata = {
+        ...payment.metadata,
+        razorpayPaymentLinkEntity: paymentLinkEntity
+      };
+    }
+
+    payment.paymentId = paymentId;
+  } catch (fetchError) {
+    console.error('Error fetching Razorpay order details:', fetchError.message);
+    // Continue with payment link entity only
+    payment.metadata = {
+      ...payment.metadata,
+      razorpayPaymentLinkEntity: paymentLinkEntity
+    };
+  }
+
   payment.status = 'SUCCESS';
   payment.purchaseDateTime = new Date();
-  payment.metadata = {
-    ...payment.metadata,
-    razorpayPaymentLinkEntity: paymentLinkEntity
-  };
   await payment.save();
 
   console.log(`✓ Payment link paid for order: ${orderId}`);
@@ -494,6 +542,223 @@ const handleRefundProcessed = async (refundEntity) => {
 };
 
 /**
+ * Find or create user by phone number
+ * If user doesn't exist, creates a new user with the provided details
+ *
+ * @param {Object} userData - User data
+ * @param {string} userData.name - User's name
+ * @param {string} userData.email - User's email
+ * @param {string} userData.phone - User's phone number
+ *
+ * @returns {Promise<Object>} User document
+ * @private
+ */
+const findOrCreateUser = async (userData) => {
+  const { name, email, phone } = userData;
+
+  console.log(`[USER-CREATION] Checking if user exists with phone: ${phone}`);
+
+  // Try to find user by phone number
+  let user = await User.findOne({ phone, isDeleted: false });
+
+  if (user) {
+    console.log(`[USER-CREATION] User found with phone ${phone}:`, {
+      userId: user._id,
+      name: user.name,
+      email: user.email
+    });
+    return user;
+  }
+
+  // User doesn't exist, create new user
+  console.log(`[USER-CREATION] User not found with phone ${phone}, creating new user`);
+
+  try {
+    // Generate a random password for the new user
+    const randomPassword = `TEMP_${Math.random().toString(36).slice(-8).toUpperCase()}${Date.now()}`;
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(randomPassword, salt);
+
+    user = new User({
+      name,
+      email,
+      phone,
+      password: hashedPassword
+    });
+
+    await user.save();
+
+    console.log(`[USER-CREATION] New user created successfully:`, {
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone
+    });
+
+    return user;
+  } catch (error) {
+    // Handle duplicate email or phone error
+    if (error.code === 11000) {
+      console.warn(`[USER-CREATION] Duplicate key error. Trying to find existing user by email or phone`);
+
+      // Try to find by email or phone
+      user = await User.findOne({
+        $or: [{ email }, { phone }],
+        isDeleted: false
+      });
+
+      if (user) {
+        console.log(`[USER-CREATION] Found existing user:`, {
+          userId: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone
+        });
+        return user;
+      }
+    }
+
+    // If still failed, throw error
+    console.error(`[USER-CREATION] Failed to create/find user:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Create event enrollment and update event ticket counts
+ * Creates an enrollment record for the buyer with all tickets (buyer + others)
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const createEventEnrollment = async (payment) => {
+  try {
+    console.log('[ENROLLMENT] Starting enrollment creation for payment:', payment.orderId);
+
+    // Extract buyer and others from metadata
+    const { buyer, others = [], priceTierId, tierName, totalTickets = 1 } = payment.metadata;
+
+    if (!buyer) {
+      console.error('[ENROLLMENT] No buyer information found in payment metadata');
+      return;
+    }
+
+    console.log('[ENROLLMENT] Buyer details:', {
+      name: buyer.name,
+      email: buyer.email,
+      phone: buyer.phone
+    });
+
+    if (others.length > 0) {
+      console.log(`[ENROLLMENT] Found ${others.length} additional ticket holder(s)`);
+    }
+
+    // Create/get buyer user
+    const buyerUser = await findOrCreateUser(buyer);
+
+    // Create/get users for all other ticket holders
+    const otherUsers = [];
+    for (const other of others) {
+      console.log('[ENROLLMENT] Processing additional ticket holder:', {
+        name: other.name,
+        email: other.email,
+        phone: other.phone
+      });
+      const otherUser = await findOrCreateUser(other);
+      otherUsers.push({ user: otherUser, details: other });
+    }
+
+    // Check if enrollment already exists for this user and event
+    const existingEnrollment = await EventEnrollment.findOne({
+      userId: buyerUser._id,
+      eventId: payment.eventId
+    });
+
+    if (existingEnrollment) {
+      console.log('[ENROLLMENT] Enrollment already exists for this user and event');
+      return;
+    }
+
+    // Calculate price per ticket
+    const ticketPrice = payment.finalAmount / totalTickets;
+
+    // Create tickets Map with phone numbers as keys
+    const ticketsMap = new Map();
+
+    // Add buyer's ticket
+    ticketsMap.set(buyer.phone, {
+      status: 'ACTIVE',
+      cancelledAt: null,
+      cancellationReason: null,
+      isTicketScanned: false,
+      ticketScannedAt: null,
+      ticketScannedBy: null
+    });
+
+    // Add other tickets
+    for (const other of others) {
+      ticketsMap.set(other.phone, {
+        status: 'ACTIVE',
+        cancelledAt: null,
+        cancellationReason: null,
+        isTicketScanned: false,
+        ticketScannedAt: null,
+        ticketScannedBy: null
+      });
+    }
+
+    // Create enrollment
+    const enrollment = new EventEnrollment({
+      paymentId: payment.paymentId || payment.orderId,
+      orderId: payment.orderId,
+      userId: buyerUser._id,
+      eventId: payment.eventId,
+      ticketCount: totalTickets,
+      tierName: tierName || null,
+      ticketPrice: ticketPrice,
+      tickets: ticketsMap
+    });
+
+    await enrollment.save();
+
+    console.log('[ENROLLMENT] Enrollment created successfully:', {
+      enrollmentId: enrollment._id,
+      buyerId: buyerUser._id,
+      eventId: payment.eventId,
+      ticketCount: totalTickets,
+      tickets: Array.from(ticketsMap.keys())
+    });
+
+    // Update event ticketsSold count
+    if (payment.eventId) {
+      const event = await Event.findById(payment.eventId);
+      if (event) {
+        event.ticketsSold = (event.ticketsSold || 0) + totalTickets;
+
+        // Decrement availableSeats if it exists
+        if (event.availableSeats != null && event.availableSeats > 0) {
+          event.availableSeats = Math.max(0, event.availableSeats - totalTickets);
+        }
+
+        await event.save();
+
+        console.log('[ENROLLMENT] Event ticket counts updated:', {
+          eventId: event._id,
+          ticketsSold: event.ticketsSold,
+          availableSeats: event.availableSeats
+        });
+      }
+    }
+
+  } catch (error) {
+    console.error('[ENROLLMENT] Error creating enrollment:', error);
+    // Don't throw error - webhook should still succeed even if enrollment fails
+  }
+};
+
+/**
  * Log customer details from payment metadata
  * Logs all customer information for club/combo purchases
  *
@@ -522,12 +787,10 @@ const logCustomerDetails = (payment) => {
 
 /**
  * Update related entities after successful payment
- * Increments coupon usage count and decrements event available seats
+ * Increments coupon usage count and creates event enrollment
  *
  * @param {Object} payment - Payment document from database
  * @param {string} [payment.couponCode] - Coupon code used (if any)
- * @param {string} payment.type - Payment type
- * @param {string} [payment.eventId] - Event ID (if type is EVENT)
  *
  * @returns {Promise<void>}
  * @private
@@ -535,6 +798,10 @@ const logCustomerDetails = (payment) => {
 const updateRelatedEntities = async (payment) => {
   // Log customer details if present
   logCustomerDetails(payment);
+
+  // Create users and event enrollment
+  await createEventEnrollment(payment);
+
   // Increment coupon usage if coupon was used
   if (payment.couponCode) {
     await Coupon.findOneAndUpdate(
@@ -544,24 +811,86 @@ const updateRelatedEntities = async (payment) => {
     console.log(`✓ Coupon usage incremented: ${payment.couponCode}`);
   }
 
-  // Decrement available seats if event payment
-  if (payment.type === 'EVENT' && payment.eventId) {
-    await Event.findByIdAndUpdate(
-      payment.eventId,
-      { $inc: { availableSeats: -1 } }
-    );
-    console.log(`✓ Event seats decremented for event: ${payment.eventId}`);
+  console.log('✓ Payment processed. Users and enrollment created successfully.');
+};
+
+/**
+ * Handle enrollment refund
+ * Marks all tickets as REFUNDED and reverses event ticket counts
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handleEnrollmentRefund = async (payment) => {
+  try {
+    console.log('[REFUND] Starting enrollment refund for payment:', payment.orderId);
+
+    // Find enrollment by orderId
+    const enrollment = await EventEnrollment.findOne({ orderId: payment.orderId });
+
+    if (!enrollment) {
+      console.warn('[REFUND] No enrollment found for order:', payment.orderId);
+      return;
+    }
+
+    console.log('[REFUND] Found enrollment:', {
+      enrollmentId: enrollment._id,
+      userId: enrollment.userId,
+      eventId: enrollment.eventId,
+      ticketCount: enrollment.ticketCount
+    });
+
+    // Mark all tickets as REFUNDED
+    const ticketsMap = enrollment.tickets;
+    for (const [phone, ticketData] of ticketsMap.entries()) {
+      ticketsMap.set(phone, {
+        ...ticketData,
+        status: 'REFUNDED',
+        cancelledAt: new Date(),
+        cancellationReason: 'Payment refunded'
+      });
+    }
+
+    enrollment.tickets = ticketsMap;
+    await enrollment.save();
+
+    console.log('[REFUND] All tickets marked as REFUNDED');
+
+    // Reverse event ticket counts
+    if (payment.eventId) {
+      const event = await Event.findById(payment.eventId);
+      if (event) {
+        event.ticketsSold = Math.max(0, (event.ticketsSold || 0) - enrollment.ticketCount);
+
+        // Increment availableSeats if it exists
+        if (event.availableSeats != null) {
+          event.availableSeats = event.availableSeats + enrollment.ticketCount;
+        }
+
+        await event.save();
+
+        console.log('[REFUND] Event ticket counts reversed:', {
+          eventId: event._id,
+          ticketsSold: event.ticketsSold,
+          availableSeats: event.availableSeats
+        });
+      }
+    }
+
+  } catch (error) {
+    console.error('[REFUND] Error handling enrollment refund:', error);
+    // Don't throw error - webhook should still succeed
   }
 };
 
 /**
  * Reverse related entity updates after refund
- * Decrements coupon usage count and increments event available seats
+ * Decrements coupon usage count and handles enrollment refund
  *
  * @param {Object} payment - Payment document from database
  * @param {string} [payment.couponCode] - Coupon code used (if any)
- * @param {string} payment.type - Payment type
- * @param {string} [payment.eventId] - Event ID (if type is EVENT)
  *
  * @returns {Promise<void>}
  * @private
@@ -569,6 +898,9 @@ const updateRelatedEntities = async (payment) => {
 const reverseRelatedEntities = async (payment) => {
   // Log customer details if present
   logCustomerDetails(payment);
+
+  // Handle enrollment refund
+  await handleEnrollmentRefund(payment);
 
   // Decrement coupon usage if coupon was used
   if (payment.couponCode) {
@@ -579,14 +911,7 @@ const reverseRelatedEntities = async (payment) => {
     console.log(`✓ Coupon usage decremented: ${payment.couponCode}`);
   }
 
-  // Increment available seats if event payment
-  if (payment.type === 'EVENT' && payment.eventId) {
-    await Event.findByIdAndUpdate(
-      payment.eventId,
-      { $inc: { availableSeats: 1 } }
-    );
-    console.log(`✓ Event seats incremented for event: ${payment.eventId}`);
-  }
+  console.log('✓ Refund processed. Enrollment cancelled and ticket counts reversed.');
 };
 
 export default {

@@ -430,6 +430,56 @@ export const getEventsByCategory = async (req, res) => {
   }
 };
 
+/**
+ * Get event tickets sold statistics
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with tickets sold statistics
+ */
+export const getEventTicketStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const event = await Event.findById(id)
+      .select('name ticketsSold availableSeats pricingTiers price');
+
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found');
+    }
+
+    const stats = {
+      eventId: event._id,
+      eventName: event.name,
+      ticketsSold: event.ticketsSold || 0,
+      availableSeats: event.availableSeats,
+      hasAvailableSeatsTracking: event.availableSeats != null
+    };
+
+    // Calculate tier-based stats if multi-tier pricing
+    if (event.pricingTiers && event.pricingTiers.length > 0) {
+      stats.pricingType = 'multi-tier';
+      stats.tiers = event.pricingTiers.map(tier => ({
+        tierId: tier._id,
+        name: tier.name,
+        price: tier.price
+      }));
+    } else {
+      stats.pricingType = 'single';
+      stats.price = event.price;
+    }
+
+    return responseUtil.success(res, 'Event ticket statistics retrieved successfully', { stats });
+  } catch (error) {
+    console.error('Get event ticket stats error:', error);
+
+    if (error.name === 'CastError') {
+      return responseUtil.badRequest(res, 'Invalid event ID');
+    }
+
+    return responseUtil.internalError(res, 'Failed to fetch event ticket statistics', error.message);
+  }
+};
+
 export default {
   createEvent,
   getAllEvents,
@@ -441,5 +491,6 @@ export default {
   permanentDeleteEvent,
   updateExpiredEvents,
   getUpcomingEvents,
-  getEventsByCategory
+  getEventsByCategory,
+  getEventTicketStats
 };

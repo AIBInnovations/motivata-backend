@@ -13,7 +13,8 @@ import {
   restoreEvent,
   getDeletedEvents,
   permanentDeleteEvent,
-  updateExpiredEvents
+  updateExpiredEvents,
+  getEventTicketStats
 } from './event.controller.js';
 import { authenticate, isAdmin, isSuperAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, eventSchemas } from '../../middleware/validation.middleware.js';
@@ -67,6 +68,17 @@ router.get(
 router.post(
   '/update-expired',
   updateExpiredEvents
+);
+
+/**
+ * @route   GET /api/web/events/:id/ticket-stats
+ * @desc    Get event ticket statistics
+ * @access  Admin
+ */
+router.get(
+  '/:id/ticket-stats',
+  validateParams(eventSchemas.eventId),
+  getEventTicketStats
 );
 
 /**

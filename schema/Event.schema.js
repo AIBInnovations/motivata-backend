@@ -172,9 +172,12 @@ const eventSchema = new mongoose.Schema(
 
     /**
      * Multi-tier pricing (use this OR simple price, not both)
+     * Note: Each tier automatically gets a unique MongoDB ObjectId (_id field)
+     * This _id can be used to identify specific tiers in enrollments and payments
      */
     pricingTiers: [
       {
+        // MongoDB automatically adds _id field to each subdocument
         name: {
           type: String,
           required: [true, "Tier name is required"],
@@ -211,12 +214,22 @@ const eventSchema = new mongoose.Schema(
     ],
 
     /**
-     * Available seats/slots
+     * Available seats/slots (optional)
      */
     availableSeats: {
       type: Number,
       required: false,
-      min: [1, "At least 1 seat must be available"],
+      min: [0, "Available seats cannot be negative"],
+    },
+
+    /**
+     * Number of tickets sold
+     */
+    ticketsSold: {
+      type: Number,
+      required: false,
+      default: 0,
+      min: [0, "Tickets sold cannot be negative"],
     },
 
     /**

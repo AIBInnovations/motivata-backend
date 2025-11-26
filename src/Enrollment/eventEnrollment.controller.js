@@ -108,6 +108,16 @@ export const createEnrollment = async (req, res) => {
 
     await enrollment.save();
 
+    // Update event: increment tickets sold and decrement available seats (if exists)
+    const updateFields = { $inc: { ticketsSold: phones.length } };
+
+    // Only decrement available seats if the field exists and has value
+    if (event.availableSeats != null && event.availableSeats >= phones.length) {
+      updateFields.$inc.availableSeats = -phones.length;
+    }
+
+    await Event.findByIdAndUpdate(payment.eventId, updateFields);
+
     const populatedEnrollment = await EventEnrollment.findById(enrollment._id)
       .populate('eventId', 'name startDate endDate mode city price')
       .populate('userId', 'name email phone');
@@ -423,12 +433,18 @@ export const cancelEnrollment = async (req, res) => {
 
     await enrollment.save();
 
-    // Increment available seats by number of cancelled tickets
+    // Update event: decrement tickets sold and increment available seats (if exists)
     if (cancelledCount > 0) {
-      await Event.findByIdAndUpdate(
-        enrollment.eventId._id,
-        { $inc: { availableSeats: cancelledCount } }
-      );
+      const event = await Event.findById(enrollment.eventId._id);
+
+      const updateFields = { $inc: { ticketsSold: -cancelledCount } };
+
+      // Only increment available seats if the field exists
+      if (event && event.availableSeats != null) {
+        updateFields.$inc.availableSeats = cancelledCount;
+      }
+
+      await Event.findByIdAndUpdate(enrollment.eventId._id, updateFields);
     }
 
     return responseUtil.success(res, `${cancelledCount} ticket(s) cancelled successfully`, {
@@ -539,14 +555,14 @@ export const createMockEnrollment = async (req, res) => {
       return responseUtil.conflict(res, 'You are already enrolled in this event');
     }
 
-    // Check if event has enough seats
-    if (event.availableSeats < phones.length) {
+    // Check if event has enough seats (only if availableSeats is tracked)
+    if (event.availableSeats != null && event.availableSeats < phones.length) {
       return responseUtil.badRequest(res, `Not enough seats available. Only ${event.availableSeats} seats remaining.`);
     }
 
     // Create mock payment ID and order ID
-    const mockPaymentId = `MOCK_PAYMENT_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const mockOrderId = `MOCK_ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const mockPaymentId = `MOCK_PAYMENT_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    const mockOrderId = `MOCK_ORDER_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
     // Create tickets map from phone numbers
     const ticketsMap = new Map();
@@ -575,11 +591,15 @@ export const createMockEnrollment = async (req, res) => {
 
     await enrollment.save();
 
-    // Decrement available seats
-    await Event.findByIdAndUpdate(
-      eventId,
-      { $inc: { availableSeats: -phones.length } }
-    );
+    // Update event: increment tickets sold and decrement available seats (if exists)
+    const updateFields = { $inc: { ticketsSold: phones.length } };
+
+    // Only decrement available seats if the field exists and has value
+    if (event.availableSeats != null && event.availableSeats >= phones.length) {
+      updateFields.$inc.availableSeats = -phones.length;
+    }
+
+    await Event.findByIdAndUpdate(eventId, updateFields);
 
     const populatedEnrollment = await EventEnrollment.findById(enrollment._id)
       .populate('eventId', 'name startDate endDate mode city price')

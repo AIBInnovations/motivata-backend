@@ -40,7 +40,8 @@ export const createPaymentOrder = async (req, res) => {
         return responseUtil.badRequest(res, 'Event is not available for booking');
       }
 
-      if (event.availableSeats <= 0) {
+      // Check available seats only if the event tracks them
+      if (event.availableSeats != null && event.availableSeats <= 0) {
         return responseUtil.badRequest(res, 'No seats available for this event');
       }
 
@@ -221,13 +222,8 @@ export const verifyPayment = async (req, res) => {
       );
     }
 
-    // Decrement available seats if event payment
-    if (payment.type === 'EVENT' && payment.eventId) {
-      await Event.findByIdAndUpdate(
-        payment.eventId,
-        { $inc: { availableSeats: -1 } }
-      );
-    }
+    // Note: Event ticket counts (ticketsSold, availableSeats) are updated
+    // when enrollment is created, not during payment verification
 
     return responseUtil.success(res, 'Payment verified successfully', {
       payment: {
