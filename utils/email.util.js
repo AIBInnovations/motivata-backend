@@ -10,15 +10,19 @@ import nodemailer from 'nodemailer';
  * @returns {nodemailer.Transporter} Configured transporter instance
  */
 const createTransporter = () => {
-  return nodemailer.createTransport({
+  const config = {
     host: process.env.EMAIL_HOST,
     port: parseInt(process.env.EMAIL_PORT || '587'),
-    secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
+    secure: process.env.EMAIL_SECURE === 'true',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASSWORD
     }
-  });
+  };
+
+  console.log(`[EMAIL] Configuring transporter: ${config.host}:${config.port} (secure: ${config.secure})`);
+
+  return nodemailer.createTransport(config);
 };
 
 /**
@@ -33,6 +37,8 @@ const createTransporter = () => {
  */
 export const sendEmail = async ({ to, subject, html, text }) => {
   try {
+    console.log(`[EMAIL] Preparing to send: "${subject}" → ${to}`);
+
     const transporter = createTransporter();
 
     const mailOptions = {
@@ -43,12 +49,9 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       text: text || '' // Plain text fallback
     };
 
-    console.log(`[EMAIL] Sending email to: ${to}`);
-    console.log(`[EMAIL] Subject: ${subject}`);
-
     const info = await transporter.sendMail(mailOptions);
 
-    console.log(`[EMAIL] Email sent successfully to ${to}:`, info.messageId);
+    console.log(`[EMAIL] ✓ Sent successfully to ${to} (ID: ${info.messageId})`);
 
     return {
       success: true,
@@ -56,7 +59,7 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       recipient: to
     };
   } catch (error) {
-    console.error(`[EMAIL] Error sending email to ${to}:`, error);
+    console.error(`[EMAIL] ✗ Failed to send to ${to}: ${error.message}`);
     throw new Error(`Failed to send email: ${error.message}`);
   }
 };
@@ -68,7 +71,7 @@ export const sendEmail = async ({ to, subject, html, text }) => {
  */
 export const sendBulkEmails = async (emails) => {
   try {
-    console.log(`[EMAIL] Sending ${emails.length} emails...`);
+    console.log(`[EMAIL] Starting bulk send: ${emails.length} email(s) queued`);
 
     const results = await Promise.allSettled(
       emails.map(emailOptions => sendEmail(emailOptions))
@@ -77,7 +80,18 @@ export const sendBulkEmails = async (emails) => {
     const successful = results.filter(r => r.status === 'fulfilled').length;
     const failed = results.filter(r => r.status === 'rejected').length;
 
-    console.log(`[EMAIL] Bulk send complete: ${successful} successful, ${failed} failed`);
+    if (failed === 0) {
+      console.log(`[EMAIL] ✓ Bulk send complete: All ${successful} email(s) sent successfully`);
+    } else {
+      console.log(`[EMAIL] ⚠ Bulk send complete: ${successful} succeeded, ${failed} failed`);
+
+      // Log failed recipients
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`[EMAIL]   ✗ ${emails[index].to}: ${result.reason.message}`);
+        }
+      });
+    }
 
     return results.map((result, index) => ({
       recipient: emails[index].to,
@@ -86,7 +100,7 @@ export const sendBulkEmails = async (emails) => {
       error: result.status === 'rejected' ? result.reason.message : null
     }));
   } catch (error) {
-    console.error('[EMAIL] Error in bulk email sending:', error);
+    console.error(`[EMAIL] ✗ Critical error in bulk email sending: ${error.message}`);
     throw error;
   }
 };

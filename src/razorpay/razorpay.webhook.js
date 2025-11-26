@@ -785,7 +785,7 @@ const createEventEnrollment = async (payment) => {
  */
 const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, event) => {
   try {
-    console.log('[EMAIL] Preparing enrollment confirmation emails');
+    console.log(`[WEBHOOK-EMAIL] Preparing emails for ${1 + otherUsers.length} ticket holder(s)`);
 
     const emails = [];
 
@@ -812,8 +812,6 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
       text: generateEnrollmentEmailText(buyerEmailData)
     });
 
-    console.log('[EMAIL] Added buyer email to queue:', buyerEmailData.email);
-
     // Prepare emails for other ticket holders
     for (const { user, details } of otherUsers) {
       const emailData = {
@@ -837,28 +835,15 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
         html: generateEnrollmentEmail(emailData),
         text: generateEnrollmentEmailText(emailData)
       });
-
-      console.log('[EMAIL] Added ticket holder email to queue:', emailData.email);
     }
 
     // Send all emails in bulk
-    console.log(`[EMAIL] Sending ${emails.length} enrollment confirmation email(s)...`);
-    const results = await sendBulkEmails(emails);
+    await sendBulkEmails(emails);
 
-    // Log results
-    const successful = results.filter(r => r.status === 'fulfilled').length;
-    const failed = results.filter(r => r.status === 'rejected').length;
-
-    console.log(`[EMAIL] Enrollment emails sent: ${successful} successful, ${failed} failed`);
-
-    if (failed > 0) {
-      console.warn('[EMAIL] Some emails failed to send:',
-        results.filter(r => r.status === 'rejected')
-      );
-    }
+    console.log('[WEBHOOK-EMAIL] ✓ Enrollment email process completed');
 
   } catch (error) {
-    console.error('[EMAIL] Error sending enrollment emails:', error);
+    console.error(`[WEBHOOK-EMAIL] ✗ Error in enrollment email process: ${error.message}`);
     // Don't throw error - webhook should still succeed even if emails fail
   }
 };

@@ -28,6 +28,8 @@ export const generateEnrollmentEmail = (data) => {
     eventDate = ''
   } = data;
 
+  console.log(`[EMAIL-TEMPLATE] Generating HTML enrollment email for ${name} (${email})`);
+
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -193,6 +195,8 @@ export const generateEnrollmentEmailText = (data) => {
     eventName = 'Event',
     eventDate = ''
   } = data;
+
+  console.log(`[EMAIL-TEMPLATE] Generating plain text enrollment email for ${name} (${email})`);
 
   return `
 Hello ${name},
