@@ -12,6 +12,8 @@ import Event from '../../schema/Event.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
+import { sendBulkEmails } from '../../utils/email.util.js';
+import { generateEnrollmentEmail, generateEnrollmentEmailText } from '../../utils/emailTemplate.util.js';
 
 /**
  * @typedef {Object} RazorpayWebhookPayload
@@ -630,7 +632,7 @@ const findOrCreateUser = async (userData) => {
  *
  * @param {Object} payment - Payment document from database
  *
- * @returns {Promise<void>}
+ * @returns {Promise<Object>} Object containing enrollment, users, and event data
  * @private
  */
 const createEventEnrollment = async (payment) => {
@@ -731,9 +733,10 @@ const createEventEnrollment = async (payment) => {
       tickets: Array.from(ticketsMap.keys())
     });
 
-    // Update event ticketsSold count
+    // Fetch event details for email
+    let event = null;
     if (payment.eventId) {
-      const event = await Event.findById(payment.eventId);
+      event = await Event.findById(payment.eventId);
       if (event) {
         event.ticketsSold = (event.ticketsSold || 0) + totalTickets;
 
@@ -752,9 +755,111 @@ const createEventEnrollment = async (payment) => {
       }
     }
 
+    // Return enrollment data for email sending
+    return {
+      enrollment,
+      buyerUser,
+      otherUsers,
+      event
+    };
+
   } catch (error) {
     console.error('[ENROLLMENT] Error creating enrollment:', error);
     // Don't throw error - webhook should still succeed even if enrollment fails
+    return null;
+  }
+};
+
+/**
+ * Send enrollment confirmation emails to all ticket holders
+ * Sends personalized emails with enrollment details to buyer and other ticket holders
+ *
+ * @param {Object} payment - Payment document from database
+ * @param {Object} enrollment - Enrollment document from database
+ * @param {Object} buyerUser - Buyer user document
+ * @param {Array<Object>} otherUsers - Array of other ticket holder users with details
+ * @param {Object} event - Event document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, event) => {
+  try {
+    console.log('[EMAIL] Preparing enrollment confirmation emails');
+
+    const emails = [];
+
+    // Prepare buyer email
+    const buyerEmailData = {
+      email: payment.metadata.buyer.email,
+      phone: payment.metadata.buyer.phone,
+      userId: buyerUser._id.toString(),
+      eventId: payment.eventId.toString(),
+      enrollmentId: enrollment._id.toString(),
+      name: payment.metadata.buyer.name,
+      eventName: event?.title || 'Event',
+      eventDate: event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      }) : ''
+    };
+
+    emails.push({
+      to: buyerEmailData.email,
+      subject: `Enrollment Confirmed - ${buyerEmailData.eventName}`,
+      html: generateEnrollmentEmail(buyerEmailData),
+      text: generateEnrollmentEmailText(buyerEmailData)
+    });
+
+    console.log('[EMAIL] Added buyer email to queue:', buyerEmailData.email);
+
+    // Prepare emails for other ticket holders
+    for (const { user, details } of otherUsers) {
+      const emailData = {
+        email: details.email,
+        phone: details.phone,
+        userId: user._id.toString(),
+        eventId: payment.eventId.toString(),
+        enrollmentId: enrollment._id.toString(),
+        name: details.name,
+        eventName: event?.title || 'Event',
+        eventDate: event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }) : ''
+      };
+
+      emails.push({
+        to: emailData.email,
+        subject: `Enrollment Confirmed - ${emailData.eventName}`,
+        html: generateEnrollmentEmail(emailData),
+        text: generateEnrollmentEmailText(emailData)
+      });
+
+      console.log('[EMAIL] Added ticket holder email to queue:', emailData.email);
+    }
+
+    // Send all emails in bulk
+    console.log(`[EMAIL] Sending ${emails.length} enrollment confirmation email(s)...`);
+    const results = await sendBulkEmails(emails);
+
+    // Log results
+    const successful = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+
+    console.log(`[EMAIL] Enrollment emails sent: ${successful} successful, ${failed} failed`);
+
+    if (failed > 0) {
+      console.warn('[EMAIL] Some emails failed to send:',
+        results.filter(r => r.status === 'rejected')
+      );
+    }
+
+  } catch (error) {
+    console.error('[EMAIL] Error sending enrollment emails:', error);
+    // Don't throw error - webhook should still succeed even if emails fail
   }
 };
 
@@ -787,7 +892,7 @@ const logCustomerDetails = (payment) => {
 
 /**
  * Update related entities after successful payment
- * Increments coupon usage count and creates event enrollment
+ * Increments coupon usage count, creates event enrollment, and sends confirmation emails
  *
  * @param {Object} payment - Payment document from database
  * @param {string} [payment.couponCode] - Coupon code used (if any)
@@ -800,7 +905,13 @@ const updateRelatedEntities = async (payment) => {
   logCustomerDetails(payment);
 
   // Create users and event enrollment
-  await createEventEnrollment(payment);
+  const enrollmentData = await createEventEnrollment(payment);
+
+  // Send enrollment confirmation emails if enrollment was created successfully
+  if (enrollmentData) {
+    const { enrollment, buyerUser, otherUsers, event } = enrollmentData;
+    await sendEnrollmentEmails(payment, enrollment, buyerUser, otherUsers, event);
+  }
 
   // Increment coupon usage if coupon was used
   if (payment.couponCode) {
@@ -811,7 +922,7 @@ const updateRelatedEntities = async (payment) => {
     console.log(`✓ Coupon usage incremented: ${payment.couponCode}`);
   }
 
-  console.log('✓ Payment processed. Users and enrollment created successfully.');
+  console.log('✓ Payment processed. Users, enrollment, and emails sent successfully.');
 };
 
 /**
