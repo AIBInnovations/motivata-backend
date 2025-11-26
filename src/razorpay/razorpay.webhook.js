@@ -680,7 +680,21 @@ const createEventEnrollment = async (payment) => {
 
     if (existingEnrollment) {
       console.log('[ENROLLMENT] Enrollment already exists for this user and event');
-      return;
+      console.log('[ENROLLMENT] Returning existing enrollment data for email sending');
+
+      // Fetch event details for email
+      let event = null;
+      if (payment.eventId) {
+        event = await Event.findById(payment.eventId);
+      }
+
+      // Return existing enrollment data so emails can still be sent
+      return {
+        enrollment: existingEnrollment,
+        buyerUser,
+        otherUsers,
+        event
+      };
     }
 
     // Calculate price per ticket

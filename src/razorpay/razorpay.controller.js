@@ -6,6 +6,8 @@
 import { razorpayInstance } from "../../utils/razorpay.util.js";
 import Payment from "../../schema/Payment.schema.js";
 import Event from "../../schema/Event.schema.js";
+import User from "../../schema/User.schema.js";
+import EventEnrollment from "../../schema/EventEnrollment.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
@@ -20,11 +22,7 @@ import responseUtil from "../../utils/response.util.js";
  * @property {Object} metadata.buyer - Buyer information (required)
  * @property {string} metadata.buyer.name - Buyer's name
  * @property {string} metadata.buyer.email - Buyer's email
- * @property {string} metadata.buyer.phone - Buyer's phone number
- * @property {Array<Object>} [metadata.others] - Array of other ticket holders for multi-ticket purchases
- * @property {string} metadata.others[].name - Ticket holder's name
- * @property {string} metadata.others[].email - Ticket holder's email
- * @property {string} metadata.others[].phone - Ticket holder's phone number
+ * @property {string} metadata.buyer.phone - Buyer's phone number (required for duplicate enrollment check)
  */
 
 /**
@@ -50,6 +48,11 @@ import responseUtil from "../../utils/response.util.js";
  * Creates both a Razorpay order and payment link, stores payment record in database
  * Returns payment link URL that can be used to redirect user for payment
  *
+ * IMPORTANT: Enforces one user, one enrollment, one ticket policy
+ * - Each user (identified by phone number) can only purchase ONE ticket per event
+ * - Multi-ticket purchases are NOT allowed
+ * - If user already has an enrollment, request will be rejected before payment
+ *
  * @route POST /api/web/razorpay/create-order
  * @access Public
  *
@@ -59,7 +62,7 @@ import responseUtil from "../../utils/response.util.js";
  *
  * @returns {Promise<CreateOrderResponse>} JSON response with order details and payment URL
  *
- * @throws {400} Bad Request - If type or eventId is missing, invalid pricing tier, event not live, or booking period ended
+ * @throws {400} Bad Request - If type/eventId missing, invalid pricing tier, event not live, booking period ended, buyer already enrolled, or multi-ticket attempted
  * @throws {404} Not Found - If event doesn't exist
  * @throws {500} Internal Server Error - If order creation fails
  *
@@ -95,36 +98,6 @@ import responseUtil from "../../utils/response.util.js";
  *       "email": "john@example.com",
  *       "phone": "+919876543210"
  *     }
- *   }
- * }
- *
- * @example
- * // Request - Multi-Ticket Purchase (Multiple Attendees)
- * POST /api/web/razorpay/create-order
- * {
- *   "currency": "INR",
- *   "type": "EVENT",
- *   "eventId": "507f1f77bcf86cd799439011",
- *   "priceTierId": "507f1f77bcf86cd799439099",
- *   "metadata": {
- *     "callbackUrl": "https://myapp.com/payment/success",
- *     "buyer": {
- *       "name": "John Doe",
- *       "email": "john@example.com",
- *       "phone": "+919876543210"
- *     },
- *     "others": [
- *       {
- *         "name": "Jane Smith",
- *         "email": "jane@example.com",
- *         "phone": "+919876543211"
- *       },
- *       {
- *         "name": "Bob Johnson",
- *         "email": "bob@example.com",
- *         "phone": "+919876543212"
- *       }
- *     ]
  *   }
  * }
  *
@@ -184,6 +157,63 @@ export const createOrder = async (req, res) => {
       return responseUtil.badRequest(res, "Event booking period has ended");
     }
 
+    // === DUPLICATE ENROLLMENT PREVENTION ===
+    // Validate buyer information exists
+    if (!metadata.buyer || !metadata.buyer.phone) {
+      return responseUtil.badRequest(res, "Buyer information with phone number is required");
+    }
+
+    // Enforce one user, one enrollment, one ticket policy
+    // Check if multi-ticket purchase is being attempted
+    const others = metadata.others || [];
+    if (others.length > 0) {
+      return responseUtil.badRequest(
+        res,
+        "Multi-ticket purchases are not allowed. Each user must purchase their own ticket separately."
+      );
+    }
+
+    // Check if buyer already has an enrollment for this event
+    const buyerPhone = metadata.buyer.phone;
+    console.log(`[DUPLICATE-CHECK] Checking if buyer with phone ${buyerPhone} already enrolled in event ${eventId}`);
+
+    // Find user by phone number
+    const existingUser = await User.findOne({
+      phone: buyerPhone,
+      isDeleted: false
+    });
+
+    if (existingUser) {
+      console.log(`[DUPLICATE-CHECK] Found existing user:`, {
+        userId: existingUser._id,
+        name: existingUser.name,
+        phone: existingUser.phone
+      });
+
+      // Check if this user already has an enrollment for this event
+      const existingEnrollment = await EventEnrollment.findOne({
+        userId: existingUser._id,
+        eventId: eventId
+      });
+
+      if (existingEnrollment) {
+        console.log(`[DUPLICATE-CHECK] User already enrolled in this event:`, {
+          enrollmentId: existingEnrollment._id,
+          userId: existingUser._id,
+          eventId: eventId
+        });
+        return responseUtil.badRequest(
+          res,
+          "You have already purchased a ticket for this event. Each user can only purchase one ticket per event."
+        );
+      }
+
+      console.log(`[DUPLICATE-CHECK] User exists but not enrolled in this event - allowing purchase`);
+    } else {
+      console.log(`[DUPLICATE-CHECK] No existing user found with phone ${buyerPhone} - allowing purchase`);
+    }
+    // === END DUPLICATE ENROLLMENT PREVENTION ===
+
     // Determine price based on pricing tier or default pricing
     let amount;
     let compareAtPrice;
@@ -220,29 +250,16 @@ export const createOrder = async (req, res) => {
       return responseUtil.badRequest(res, "Invalid event pricing");
     }
 
-    // Prepare customer details for multi-ticket purchases
-    const others = metadata.others || [];
-    const isMultiTicket = others.length > 0;
-    const totalTickets = isMultiTicket ? others.length + 1 : 1; // +1 for buyer
+    // Single ticket purchase only (enforced by duplicate check above)
+    const totalTickets = 1;
 
-    // Log customer information
-    if (isMultiTicket) {
-      console.log("=== Multi-Ticket Purchase ===");
-      console.log(`Total tickets: ${totalTickets}`);
-      console.log("Buyer:", {
-        name: metadata.buyer?.name || "N/A",
-        email: metadata.buyer?.email || "N/A",
-        phone: metadata.buyer?.phone || "N/A",
-      });
-      console.log(`Additional tickets: ${others.length}`);
-      others.forEach((customer, index) => {
-        console.log(`Ticket ${index + 2}:`, {
-          name: customer.name || "N/A",
-          email: customer.email || "N/A",
-          phone: customer.phone || "N/A",
-        });
-      });
-    }
+    // Log buyer information
+    console.log("=== Single Ticket Purchase ===");
+    console.log("Buyer:", {
+      name: metadata.buyer?.name || "N/A",
+      email: metadata.buyer?.email || "N/A",
+      phone: metadata.buyer?.phone || "N/A",
+    });
 
     // Prepare notes with customer details
     const orderNotes = {
@@ -259,15 +276,6 @@ export const createOrder = async (req, res) => {
       orderNotes.buyer_name = metadata.buyer.name || "";
       orderNotes.buyer_email = metadata.buyer.email || "";
       orderNotes.buyer_phone = metadata.buyer.phone || "";
-    }
-
-    // Add other ticket holders to notes
-    if (isMultiTicket) {
-      others.forEach((customer, index) => {
-        orderNotes[`ticket_${index + 2}_name`] = customer.name || "";
-        orderNotes[`ticket_${index + 2}_email`] = customer.email || "";
-        orderNotes[`ticket_${index + 2}_phone`] = customer.phone || "";
-      });
     }
 
     // Create Razorpay order
@@ -317,22 +325,11 @@ export const createOrder = async (req, res) => {
       paymentLinkNotes.buyer_phone = metadata.buyer.phone || "";
     }
 
-    // Add other ticket holders to payment link notes
-    if (isMultiTicket) {
-      others.forEach((customer, index) => {
-        paymentLinkNotes[`ticket_${index + 2}_name`] = customer.name || "";
-        paymentLinkNotes[`ticket_${index + 2}_email`] = customer.email || "";
-        paymentLinkNotes[`ticket_${index + 2}_phone`] = customer.phone || "";
-      });
-    }
-
     // Create payment link for redirect
     const paymentLink = await razorpayInstance.paymentLink.create({
       amount: Math.round(amount * 100), // Convert to paise
       currency: currency,
-      description: `Payment for ${event.name}${tierName ? ` - ${tierName}` : ""}${
-        isMultiTicket ? ` (${totalTickets} tickets)` : ""
-      }`,
+      description: `Payment for ${event.name}${tierName ? ` - ${tierName}` : ""}`,
       reference_id: razorpayOrder.id,
       callback_url:
         metadata.callbackUrl ||
