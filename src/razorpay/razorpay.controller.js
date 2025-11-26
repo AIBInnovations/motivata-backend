@@ -201,8 +201,11 @@ export const createOrder = async (req, res) => {
     const others = metadata.others || [];
     const totalTickets = 1 + others.length; // 1 for buyer + number of others
 
-    // Calculate total amount (per ticket price * number of tickets)
-    const totalAmount = amount * totalTickets;
+    // Use the tier price as the total amount (don't multiply by tickets)
+    const totalAmount = amount;
+
+    // Calculate per-ticket price for metadata
+    const perTicketPrice = totalAmount / totalTickets;
 
     // Log purchase information
     console.log(`=== ${totalTickets === 1 ? 'Single' : 'Multi'} Ticket Purchase ===`);
@@ -258,7 +261,7 @@ export const createOrder = async (req, res) => {
         ...(compareAtPrice && { compareAtPrice }),
         // Store ticket count
         totalTickets: totalTickets,
-        perTicketPrice: amount,
+        perTicketPrice: perTicketPrice,
       },
     });
 
@@ -310,7 +313,7 @@ export const createOrder = async (req, res) => {
     return responseUtil.created(res, "Payment order created successfully", {
       orderId: razorpayOrder.id,
       amount: totalAmount,
-      perTicketPrice: amount,
+      perTicketPrice: perTicketPrice,
       totalTickets: totalTickets,
       currency: currency,
       paymentUrl: paymentLink.short_url, // Redirect URL
