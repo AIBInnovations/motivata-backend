@@ -6,10 +6,31 @@
 import nodemailer from 'nodemailer';
 
 /**
+ * Validate email configuration
+ * @throws {Error} If email configuration is invalid
+ */
+const validateEmailConfig = () => {
+  const requiredVars = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASSWORD', 'EMAIL_FROM'];
+  const missing = requiredVars.filter(varName => !process.env[varName]);
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required email configuration: ${missing.join(', ')}`);
+  }
+
+  // Warn about placeholder values
+  if (process.env.EMAIL_FROM.includes('yourdomain.com')) {
+    console.warn('[EMAIL] ⚠ WARNING: EMAIL_FROM contains placeholder "yourdomain.com" - emails may fail!');
+    console.warn('[EMAIL] Please update EMAIL_FROM in .env with a verified sender email from Brevo');
+  }
+};
+
+/**
  * Create and configure nodemailer transporter
  * @returns {nodemailer.Transporter} Configured transporter instance
  */
 const createTransporter = () => {
+  validateEmailConfig();
+
   const config = {
     host: process.env.EMAIL_HOST,
     port: parseInt(process.env.EMAIL_PORT || '587'),
@@ -21,6 +42,7 @@ const createTransporter = () => {
   };
 
   console.log(`[EMAIL] Configuring transporter: ${config.host}:${config.port} (secure: ${config.secure})`);
+  console.log(`[EMAIL] Using sender: ${process.env.EMAIL_FROM_NAME || 'Motivata'} <${process.env.EMAIL_FROM}>`);
 
   return nodemailer.createTransport(config);
 };
@@ -37,6 +59,11 @@ const createTransporter = () => {
  */
 export const sendEmail = async ({ to, subject, html, text }) => {
   try {
+    // Validate recipient email
+    if (!to || typeof to !== 'string' || !to.includes('@')) {
+      throw new Error(`Invalid recipient email: ${to}`);
+    }
+
     console.log(`[EMAIL] Preparing to send: "${subject}" → ${to}`);
 
     const transporter = createTransporter();
@@ -49,6 +76,8 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       text: text || '' // Plain text fallback
     };
 
+    console.log(`[EMAIL] Sending from: ${mailOptions.from}`);
+
     const info = await transporter.sendMail(mailOptions);
 
     console.log(`[EMAIL] ✓ Sent successfully to ${to} (ID: ${info.messageId})`);
@@ -59,8 +88,15 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       recipient: to
     };
   } catch (error) {
-    console.error(`[EMAIL] ✗ Failed to send to ${to}: ${error.message}`);
-    throw new Error(`Failed to send email: ${error.message}`);
+    console.error(`[EMAIL] ✗ Failed to send to ${to}`);
+    console.error(`[EMAIL] Error details:`, {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode
+    });
+    throw new Error(`Failed to send email to ${to}: ${error.message}`);
   }
 };
 

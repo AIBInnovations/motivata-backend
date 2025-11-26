@@ -786,34 +786,50 @@ const createEventEnrollment = async (payment) => {
 const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, event) => {
   try {
     console.log(`[WEBHOOK-EMAIL] Preparing emails for ${1 + otherUsers.length} ticket holder(s)`);
+    console.log(`[WEBHOOK-EMAIL] Buyer info:`, {
+      name: payment.metadata?.buyer?.name,
+      email: payment.metadata?.buyer?.email,
+      phone: payment.metadata?.buyer?.phone
+    });
 
     const emails = [];
 
-    // Prepare buyer email
-    const buyerEmailData = {
-      email: payment.metadata.buyer.email,
-      phone: payment.metadata.buyer.phone,
-      userId: buyerUser._id.toString(),
-      eventId: payment.eventId.toString(),
-      enrollmentId: enrollment._id.toString(),
-      name: payment.metadata.buyer.name,
-      eventName: event?.title || 'Event',
-      eventDate: event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      }) : ''
-    };
+    // Validate and prepare buyer email
+    if (!payment.metadata?.buyer?.email) {
+      console.error('[WEBHOOK-EMAIL] ✗ Buyer email is missing from payment metadata!');
+    } else {
+      console.log(`[WEBHOOK-EMAIL] Preparing buyer email to: ${payment.metadata.buyer.email}`);
 
-    emails.push({
-      to: buyerEmailData.email,
-      subject: `Enrollment Confirmed - ${buyerEmailData.eventName}`,
-      html: generateEnrollmentEmail(buyerEmailData),
-      text: generateEnrollmentEmailText(buyerEmailData)
-    });
+      const buyerEmailData = {
+        email: payment.metadata.buyer.email,
+        phone: payment.metadata.buyer.phone,
+        userId: buyerUser._id.toString(),
+        eventId: payment.eventId.toString(),
+        enrollmentId: enrollment._id.toString(),
+        name: payment.metadata.buyer.name,
+        eventName: event?.title || 'Event',
+        eventDate: event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }) : ''
+      };
+
+      emails.push({
+        to: buyerEmailData.email,
+        subject: `Enrollment Confirmed - ${buyerEmailData.eventName}`,
+        html: generateEnrollmentEmail(buyerEmailData),
+        text: generateEnrollmentEmailText(buyerEmailData)
+      });
+
+      console.log(`[WEBHOOK-EMAIL] ✓ Buyer email added to queue (${buyerEmailData.email})`);
+    }
 
     // Prepare emails for other ticket holders
+    console.log(`[WEBHOOK-EMAIL] Processing ${otherUsers.length} other ticket holder(s)`);
     for (const { user, details } of otherUsers) {
+      console.log(`[WEBHOOK-EMAIL] Preparing other ticket holder email to: ${details.email}`);
+
       const emailData = {
         email: details.email,
         phone: details.phone,
@@ -837,13 +853,20 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
       });
     }
 
-    // Send all emails in bulk
-    await sendBulkEmails(emails);
+    console.log(`[WEBHOOK-EMAIL] Total emails in queue: ${emails.length}`);
+    console.log(`[WEBHOOK-EMAIL] Email recipients:`, emails.map(e => e.to));
 
-    console.log('[WEBHOOK-EMAIL] ✓ Enrollment email process completed');
+    // Send all emails in bulk
+    if (emails.length > 0) {
+      await sendBulkEmails(emails);
+      console.log('[WEBHOOK-EMAIL] ✓ Enrollment email process completed');
+    } else {
+      console.warn('[WEBHOOK-EMAIL] ⚠ No emails to send!');
+    }
 
   } catch (error) {
     console.error(`[WEBHOOK-EMAIL] ✗ Error in enrollment email process: ${error.message}`);
+    console.error(`[WEBHOOK-EMAIL] Error stack:`, error.stack);
     // Don't throw error - webhook should still succeed even if emails fail
   }
 };
