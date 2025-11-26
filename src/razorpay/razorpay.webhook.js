@@ -13,7 +13,13 @@ import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
-import { generateEnrollmentEmail, generateEnrollmentEmailText } from '../../utils/emailTemplate.util.js';
+import {
+  generateEnrollmentEmail,
+  generateEnrollmentEmailText,
+  generateTicketEmail,
+  generateTicketEmailText
+} from '../../utils/emailTemplate.util.js';
+import { generateTicketQRCode, generateQRFilename } from '../../utils/qrcode.util.js';
 
 /**
  * @typedef {Object} RazorpayWebhookPayload
@@ -785,8 +791,8 @@ const createEventEnrollment = async (payment) => {
 };
 
 /**
- * Send enrollment confirmation emails to all ticket holders
- * Sends personalized emails with enrollment details to buyer and other ticket holders
+ * Send enrollment confirmation emails with QR code tickets to all ticket holders
+ * Generates individual QR codes and sends personalized emails to buyer and other ticket holders
  *
  * @param {Object} payment - Payment document from database
  * @param {Object} enrollment - Enrollment document from database
@@ -799,7 +805,7 @@ const createEventEnrollment = async (payment) => {
  */
 const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, event) => {
   try {
-    console.log(`[WEBHOOK-EMAIL] Preparing emails for ${1 + otherUsers.length} ticket holder(s)`);
+    console.log(`[WEBHOOK-EMAIL] Preparing ticket emails with QR codes for ${1 + otherUsers.length} ticket holder(s)`);
     console.log(`[WEBHOOK-EMAIL] Buyer info:`, {
       name: payment.metadata?.buyer?.name,
       email: payment.metadata?.buyer?.email,
@@ -807,79 +813,138 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
     });
 
     const emails = [];
+    const eventName = event?.title || event?.name || 'Event';
+    const eventDate = event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }) : '';
+    const eventLocation = event?.location || event?.city || '';
 
-    // Validate and prepare buyer email
+    // Validate and prepare buyer email with QR code
     if (!payment.metadata?.buyer?.email) {
       console.error('[WEBHOOK-EMAIL] ✗ Buyer email is missing from payment metadata!');
     } else {
-      console.log(`[WEBHOOK-EMAIL] Preparing buyer email to: ${payment.metadata.buyer.email}`);
+      try {
+        console.log(`[WEBHOOK-EMAIL] Preparing buyer ticket email to: ${payment.metadata.buyer.email}`);
 
-      const buyerEmailData = {
-        email: payment.metadata.buyer.email,
-        phone: payment.metadata.buyer.phone,
-        userId: buyerUser._id.toString(),
-        eventId: payment.eventId.toString(),
-        enrollmentId: enrollment._id.toString(),
-        name: payment.metadata.buyer.name,
-        eventName: event?.title || 'Event',
-        eventDate: event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        }) : ''
-      };
+        // Generate QR code for buyer's ticket
+        const buyerQRBuffer = await generateTicketQRCode({
+          enrollmentId: enrollment._id.toString(),
+          userId: buyerUser._id.toString(),
+          eventId: payment.eventId.toString(),
+          phone: payment.metadata.buyer.phone
+        });
 
-      emails.push({
-        to: buyerEmailData.email,
-        subject: `Enrollment Confirmed - ${buyerEmailData.eventName}`,
-        html: generateEnrollmentEmail(buyerEmailData),
-        text: generateEnrollmentEmailText(buyerEmailData)
-      });
+        const buyerQRFilename = generateQRFilename({
+          eventName,
+          phone: payment.metadata.buyer.phone
+        });
 
-      console.log(`[WEBHOOK-EMAIL] ✓ Buyer email added to queue (${buyerEmailData.email})`);
+        console.log(`[WEBHOOK-EMAIL] ✓ Buyer QR code generated: ${buyerQRFilename} (${buyerQRBuffer.length} bytes)`);
+
+        const buyerEmailData = {
+          email: payment.metadata.buyer.email,
+          phone: payment.metadata.buyer.phone,
+          userId: buyerUser._id.toString(),
+          eventId: payment.eventId.toString(),
+          enrollmentId: enrollment._id.toString(),
+          name: payment.metadata.buyer.name,
+          eventName,
+          eventDate,
+          eventLocation,
+          isBuyer: true
+        };
+
+        emails.push({
+          to: buyerEmailData.email,
+          subject: `Your Ticket - ${eventName}`,
+          html: generateTicketEmail(buyerEmailData),
+          text: generateTicketEmailText(buyerEmailData),
+          attachments: [
+            {
+              filename: buyerQRFilename,
+              content: buyerQRBuffer,
+              contentType: 'image/png'
+            }
+          ]
+        });
+
+        console.log(`[WEBHOOK-EMAIL] ✓ Buyer ticket email added to queue (${buyerEmailData.email})`);
+      } catch (error) {
+        console.error(`[WEBHOOK-EMAIL] ✗ Failed to prepare buyer email: ${error.message}`);
+        // Continue with other emails even if buyer email fails
+      }
     }
 
-    // Prepare emails for other ticket holders
+    // Prepare emails for other ticket holders with their QR codes
     console.log(`[WEBHOOK-EMAIL] Processing ${otherUsers.length} other ticket holder(s)`);
     for (const { user, details } of otherUsers) {
-      console.log(`[WEBHOOK-EMAIL] Preparing other ticket holder email to: ${details.email}`);
+      try {
+        console.log(`[WEBHOOK-EMAIL] Preparing ticket email to: ${details.email}`);
 
-      const emailData = {
-        email: details.email,
-        phone: details.phone,
-        userId: user._id.toString(),
-        eventId: payment.eventId.toString(),
-        enrollmentId: enrollment._id.toString(),
-        name: details.name,
-        eventName: event?.title || 'Event',
-        eventDate: event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        }) : ''
-      };
+        // Generate QR code for this ticket holder
+        const qrBuffer = await generateTicketQRCode({
+          enrollmentId: enrollment._id.toString(),
+          userId: user._id.toString(),
+          eventId: payment.eventId.toString(),
+          phone: details.phone
+        });
 
-      emails.push({
-        to: emailData.email,
-        subject: `Enrollment Confirmed - ${emailData.eventName}`,
-        html: generateEnrollmentEmail(emailData),
-        text: generateEnrollmentEmailText(emailData)
-      });
+        const qrFilename = generateQRFilename({
+          eventName,
+          phone: details.phone
+        });
+
+        console.log(`[WEBHOOK-EMAIL] ✓ QR code generated for ${details.phone}: ${qrFilename} (${qrBuffer.length} bytes)`);
+
+        const emailData = {
+          email: details.email,
+          phone: details.phone,
+          userId: user._id.toString(),
+          eventId: payment.eventId.toString(),
+          enrollmentId: enrollment._id.toString(),
+          name: details.name,
+          eventName,
+          eventDate,
+          eventLocation,
+          isBuyer: false
+        };
+
+        emails.push({
+          to: emailData.email,
+          subject: `Your Ticket - ${eventName}`,
+          html: generateTicketEmail(emailData),
+          text: generateTicketEmailText(emailData),
+          attachments: [
+            {
+              filename: qrFilename,
+              content: qrBuffer,
+              contentType: 'image/png'
+            }
+          ]
+        });
+
+        console.log(`[WEBHOOK-EMAIL] ✓ Ticket email added to queue for ${details.email}`);
+      } catch (error) {
+        console.error(`[WEBHOOK-EMAIL] ✗ Failed to prepare email for ${details.email}: ${error.message}`);
+        // Continue with other emails even if one fails
+      }
     }
 
-    console.log(`[WEBHOOK-EMAIL] Total emails in queue: ${emails.length}`);
+    console.log(`[WEBHOOK-EMAIL] Total ticket emails in queue: ${emails.length}`);
     console.log(`[WEBHOOK-EMAIL] Email recipients:`, emails.map(e => e.to));
 
     // Send all emails in bulk
     if (emails.length > 0) {
       await sendBulkEmails(emails);
-      console.log('[WEBHOOK-EMAIL] ✓ Enrollment email process completed');
+      console.log('[WEBHOOK-EMAIL] ✓ Ticket email process completed successfully');
     } else {
       console.warn('[WEBHOOK-EMAIL] ⚠ No emails to send!');
     }
 
   } catch (error) {
-    console.error(`[WEBHOOK-EMAIL] ✗ Error in enrollment email process: ${error.message}`);
+    console.error(`[WEBHOOK-EMAIL] ✗ Error in ticket email process: ${error.message}`);
     console.error(`[WEBHOOK-EMAIL] Error stack:`, error.stack);
     // Don't throw error - webhook should still succeed even if emails fail
   }

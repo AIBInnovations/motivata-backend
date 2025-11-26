@@ -54,17 +54,24 @@ const createTransporter = () => {
  * @param {string} options.subject - Email subject
  * @param {string} options.html - Email HTML content
  * @param {string} [options.text] - Plain text version (optional)
+ * @param {Array<Object>} [options.attachments] - Email attachments (optional)
+ * @param {string} options.attachments[].filename - Attachment filename
+ * @param {Buffer} options.attachments[].content - Attachment content as Buffer
+ * @param {string} [options.attachments[].contentType] - MIME type (optional)
  * @returns {Promise<Object>} Nodemailer send result
  * @throws {Error} If email sending fails
  */
-export const sendEmail = async ({ to, subject, html, text }) => {
+export const sendEmail = async ({ to, subject, html, text, attachments }) => {
   try {
     // Validate recipient email
     if (!to || typeof to !== 'string' || !to.includes('@')) {
       throw new Error(`Invalid recipient email: ${to}`);
     }
 
-    console.log(`[EMAIL] Preparing to send: "${subject}" → ${to}`);
+    const attachmentInfo = attachments && attachments.length > 0
+      ? ` with ${attachments.length} attachment(s)`
+      : '';
+    console.log(`[EMAIL] Preparing to send: "${subject}" → ${to}${attachmentInfo}`);
 
     const transporter = createTransporter();
 
@@ -75,6 +82,12 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       html,
       text: text || '' // Plain text fallback
     };
+
+    // Add attachments if provided
+    if (attachments && attachments.length > 0) {
+      mailOptions.attachments = attachments;
+      console.log(`[EMAIL] Attachments:`, attachments.map(a => `${a.filename} (${a.content?.length || 0} bytes)`));
+    }
 
     console.log(`[EMAIL] Sending from: ${mailOptions.from}`);
 
