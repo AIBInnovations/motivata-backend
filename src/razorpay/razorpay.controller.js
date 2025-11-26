@@ -48,10 +48,7 @@ import responseUtil from "../../utils/response.util.js";
  * Creates both a Razorpay order and payment link, stores payment record in database
  * Returns payment link URL that can be used to redirect user for payment
  *
- * IMPORTANT: Enforces one user, one enrollment, one ticket policy
- * - Each user (identified by phone number) can only purchase ONE ticket per event
- * - Multi-ticket purchases are NOT allowed
- * - If user already has an enrollment, request will be rejected before payment
+ * Supports both single ticket purchase (buyer only) and multi-ticket purchase (buyer + others)
  *
  * @route POST /api/web/razorpay/create-order
  * @access Public
@@ -62,7 +59,7 @@ import responseUtil from "../../utils/response.util.js";
  *
  * @returns {Promise<CreateOrderResponse>} JSON response with order details and payment URL
  *
- * @throws {400} Bad Request - If type/eventId missing, invalid pricing tier, event not live, booking period ended, buyer already enrolled, or multi-ticket attempted
+ * @throws {400} Bad Request - If type/eventId missing, invalid pricing tier, event not live, or booking period ended
  * @throws {404} Not Found - If event doesn't exist
  * @throws {500} Internal Server Error - If order creation fails
  *
@@ -157,62 +154,12 @@ export const createOrder = async (req, res) => {
       return responseUtil.badRequest(res, "Event booking period has ended");
     }
 
-    // === DUPLICATE ENROLLMENT PREVENTION ===
+    // === BUYER VALIDATION ===
     // Validate buyer information exists
     if (!metadata.buyer || !metadata.buyer.phone) {
       return responseUtil.badRequest(res, "Buyer information with phone number is required");
     }
-
-    // Enforce one user, one enrollment, one ticket policy
-    // Check if multi-ticket purchase is being attempted
-    const others = metadata.others || [];
-    if (others.length > 0) {
-      return responseUtil.badRequest(
-        res,
-        "Multi-ticket purchases are not allowed. Each user must purchase their own ticket separately."
-      );
-    }
-
-    // Check if buyer already has an enrollment for this event
-    const buyerPhone = metadata.buyer.phone;
-    console.log(`[DUPLICATE-CHECK] Checking if buyer with phone ${buyerPhone} already enrolled in event ${eventId}`);
-
-    // Find user by phone number
-    const existingUser = await User.findOne({
-      phone: buyerPhone,
-      isDeleted: false
-    });
-
-    if (existingUser) {
-      console.log(`[DUPLICATE-CHECK] Found existing user:`, {
-        userId: existingUser._id,
-        name: existingUser.name,
-        phone: existingUser.phone
-      });
-
-      // Check if this user already has an enrollment for this event
-      const existingEnrollment = await EventEnrollment.findOne({
-        userId: existingUser._id,
-        eventId: eventId
-      });
-
-      if (existingEnrollment) {
-        console.log(`[DUPLICATE-CHECK] User already enrolled in this event:`, {
-          enrollmentId: existingEnrollment._id,
-          userId: existingUser._id,
-          eventId: eventId
-        });
-        return responseUtil.badRequest(
-          res,
-          "You have already purchased a ticket for this event. Each user can only purchase one ticket per event."
-        );
-      }
-
-      console.log(`[DUPLICATE-CHECK] User exists but not enrolled in this event - allowing purchase`);
-    } else {
-      console.log(`[DUPLICATE-CHECK] No existing user found with phone ${buyerPhone} - allowing purchase`);
-    }
-    // === END DUPLICATE ENROLLMENT PREVENTION ===
+    // === END BUYER VALIDATION ===
 
     // Determine price based on pricing tier or default pricing
     let amount;
@@ -250,16 +197,23 @@ export const createOrder = async (req, res) => {
       return responseUtil.badRequest(res, "Invalid event pricing");
     }
 
-    // Single ticket purchase only (enforced by duplicate check above)
-    const totalTickets = 1;
+    // Calculate total tickets (buyer + others)
+    const others = metadata.others || [];
+    const totalTickets = 1 + others.length; // 1 for buyer + number of others
 
-    // Log buyer information
-    console.log("=== Single Ticket Purchase ===");
+    // Calculate total amount (per ticket price * number of tickets)
+    const totalAmount = amount * totalTickets;
+
+    // Log purchase information
+    console.log(`=== ${totalTickets === 1 ? 'Single' : 'Multi'} Ticket Purchase ===`);
     console.log("Buyer:", {
       name: metadata.buyer?.name || "N/A",
       email: metadata.buyer?.email || "N/A",
       phone: metadata.buyer?.phone || "N/A",
     });
+    if (others.length > 0) {
+      console.log("Additional Attendees:", others);
+    }
 
     // Prepare notes with customer details
     const orderNotes = {
@@ -280,7 +234,7 @@ export const createOrder = async (req, res) => {
 
     // Create Razorpay order
     const razorpayOrder = await razorpayInstance.orders.create({
-      amount: Math.round(amount * 100), // Convert to paise
+      amount: Math.round(totalAmount * 100), // Convert to paise
       currency: currency,
       receipt: `order_${Date.now()}`,
       notes: orderNotes,
@@ -292,9 +246,9 @@ export const createOrder = async (req, res) => {
       type,
       eventId: eventId || null,
       sessionId: sessionId || null,
-      amount: amount,
+      amount: totalAmount,
       discountAmount: 0,
-      finalAmount: amount,
+      finalAmount: totalAmount,
       status: "PENDING",
       metadata: {
         ...metadata,
@@ -304,6 +258,7 @@ export const createOrder = async (req, res) => {
         ...(compareAtPrice && { compareAtPrice }),
         // Store ticket count
         totalTickets: totalTickets,
+        perTicketPrice: amount,
       },
     });
 
@@ -327,9 +282,9 @@ export const createOrder = async (req, res) => {
 
     // Create payment link for redirect
     const paymentLink = await razorpayInstance.paymentLink.create({
-      amount: Math.round(amount * 100), // Convert to paise
+      amount: Math.round(totalAmount * 100), // Convert to paise
       currency: currency,
-      description: `Payment for ${event.name}${tierName ? ` - ${tierName}` : ""}`,
+      description: `Payment for ${event.name}${tierName ? ` - ${tierName}` : ""} (${totalTickets} ticket${totalTickets > 1 ? 's' : ''})`,
       reference_id: razorpayOrder.id,
       callback_url:
         metadata.callbackUrl ||
@@ -354,7 +309,9 @@ export const createOrder = async (req, res) => {
 
     return responseUtil.created(res, "Payment order created successfully", {
       orderId: razorpayOrder.id,
-      amount: amount,
+      amount: totalAmount,
+      perTicketPrice: amount,
+      totalTickets: totalTickets,
       currency: currency,
       paymentUrl: paymentLink.short_url, // Redirect URL
       paymentLinkId: paymentLink.id,
