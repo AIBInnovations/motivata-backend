@@ -21,12 +21,12 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       // required: true,
-      sparse: true, // Allow multiple null values with unique index
+      sparse: true, // Allow multiple null/undefined values with unique index
       unique: true,
       trim: true,
       minlength: 5,
       lowercase: true,
-      default: null,
+      // NOTE: Do NOT set default: null - sparse index only works when field is absent
     },
     phone: {
       type: String,
