@@ -101,7 +101,16 @@ export const uploadQRCodeToCloudinary = async ({
   eventName = 'event'
 }) => {
   try {
-    console.log(`[QR-UPLOAD] Uploading QR code to Cloudinary for phone: ${phone}`);
+    console.log(`[QR-UPLOAD] ========== STARTING CLOUDINARY UPLOAD ==========`);
+    console.log(`[QR-UPLOAD] Input parameters:`);
+    console.log(`[QR-UPLOAD]   - Phone: ${phone}`);
+    console.log(`[QR-UPLOAD]   - Enrollment ID: ${enrollmentId}`);
+    console.log(`[QR-UPLOAD]   - Event Name: ${eventName}`);
+    console.log(`[QR-UPLOAD]   - Buffer size: ${qrBuffer?.length || 0} bytes`);
+
+    if (!qrBuffer || qrBuffer.length === 0) {
+      throw new Error('QR buffer is empty or undefined');
+    }
 
     // Sanitize event name for folder path
     const sanitizedEventName = eventName
@@ -112,23 +121,45 @@ export const uploadQRCodeToCloudinary = async ({
     // Sanitize phone for public_id
     const sanitizedPhone = phone.replace(/[^0-9]/g, '');
 
+    const folderPath = `tickets/${sanitizedEventName}/${enrollmentId}`;
+    const publicId = `qr-${sanitizedPhone}`;
+
+    console.log(`[QR-UPLOAD] Upload config:`);
+    console.log(`[QR-UPLOAD]   - Folder: ${folderPath}`);
+    console.log(`[QR-UPLOAD]   - Public ID: ${publicId}`);
+    console.log(`[QR-UPLOAD]   - Full path: ${folderPath}/${publicId}`);
+
     // Convert buffer to base64 data URI
     const base64Image = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+    console.log(`[QR-UPLOAD]   - Base64 length: ${base64Image.length} characters`);
+
+    console.log(`[QR-UPLOAD] Calling Cloudinary uploader...`);
 
     // Upload to Cloudinary with folder structure: tickets/{eventName}/{enrollmentId}/
     const result = await cloudinary.uploader.upload(base64Image, {
-      folder: `tickets/${sanitizedEventName}/${enrollmentId}`,
-      public_id: `qr-${sanitizedPhone}`,
+      folder: folderPath,
+      public_id: publicId,
       resource_type: 'image',
       overwrite: true,
       format: 'png'
     });
 
-    console.log(`[QR-UPLOAD] ✓ QR code uploaded successfully: ${result.secure_url}`);
+    console.log(`[QR-UPLOAD] ✓ Cloudinary upload successful!`);
+    console.log(`[QR-UPLOAD] Response details:`);
+    console.log(`[QR-UPLOAD]   - Public ID: ${result.public_id}`);
+    console.log(`[QR-UPLOAD]   - Secure URL: ${result.secure_url}`);
+    console.log(`[QR-UPLOAD]   - Format: ${result.format}`);
+    console.log(`[QR-UPLOAD]   - Size: ${result.bytes} bytes`);
+    console.log(`[QR-UPLOAD]   - Dimensions: ${result.width}x${result.height}`);
+    console.log(`[QR-UPLOAD] ========== CLOUDINARY UPLOAD COMPLETE ==========`);
 
     return result.secure_url;
   } catch (error) {
-    console.error(`[QR-UPLOAD] ✗ Failed to upload QR code:`, error);
+    console.error(`[QR-UPLOAD] ✗ FAILED to upload QR code to Cloudinary`);
+    console.error(`[QR-UPLOAD] Error type: ${error.name}`);
+    console.error(`[QR-UPLOAD] Error message: ${error.message}`);
+    console.error(`[QR-UPLOAD] Error details:`, error);
+    console.error(`[QR-UPLOAD] ========== CLOUDINARY UPLOAD FAILED ==========`);
     throw new Error(`QR code upload failed: ${error.message}`);
   }
 };

@@ -80,16 +80,24 @@ export const sendTicketWhatsApp = async ({
   qrCodeUrl,
 }) => {
   try {
+    console.log(`[WHATSAPP] ========== STARTING WHATSAPP SEND ==========`);
+
+    // Validate config and log (masked)
     validateWhatsAppConfig();
+    console.log(`[WHATSAPP] Config validated:`);
+    console.log(`[WHATSAPP]   - VENDOR_UID: ${process.env.WHATSAPP_VENDOR_UID}`);
+    console.log(`[WHATSAPP]   - API_KEY: ${process.env.WHATSAPP_API_KEY?.substring(0, 10)}...`);
 
     const formattedPhone = formatPhoneNumber(phone);
     const { first_name, last_name } = splitName(name);
 
-    console.log(
-      `[WHATSAPP] Preparing to send ticket message to: ${formattedPhone}`
-    );
-    console.log(`[WHATSAPP] Event: ${eventName}`);
-    console.log(`[WHATSAPP] QR Code URL: ${qrCodeUrl}`);
+    console.log(`[WHATSAPP] Recipient details:`);
+    console.log(`[WHATSAPP]   - Original phone: ${phone}`);
+    console.log(`[WHATSAPP]   - Formatted phone: ${formattedPhone}`);
+    console.log(`[WHATSAPP]   - Name: ${first_name} ${last_name}`);
+    console.log(`[WHATSAPP]   - Email: ${email || "(none)"}`);
+    console.log(`[WHATSAPP]   - Event: ${eventName}`);
+    console.log(`[WHATSAPP]   - QR Code URL: ${qrCodeUrl}`);
 
     const apiUrl = `${WHATSAPP_API_BASE_URL}/${process.env.WHATSAPP_VENDOR_UID}/contact/send-template-message`;
 
@@ -97,7 +105,7 @@ export const sendTicketWhatsApp = async ({
       // from_phone_number_id is omitted to use default phone number
       phone_number: formattedPhone,
       template_name: "wp_ticket",
-      template_language: "en_US",
+      template_language: "en",  // Changed from "en_US" to "en" per WappService API
       templateArgs: {
         header_image: qrCodeUrl,
         field_1: eventName,
@@ -110,11 +118,8 @@ export const sendTicketWhatsApp = async ({
       },
     };
 
-    console.log(`[WHATSAPP] Sending request to: ${apiUrl}`);
-    console.log(
-      `[WHATSAPP] Request body:`,
-      JSON.stringify(requestBody, null, 2)
-    );
+    console.log(`[WHATSAPP] API URL: ${apiUrl}`);
+    console.log(`[WHATSAPP] Request body:`, JSON.stringify(requestBody, null, 2));
 
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -125,18 +130,33 @@ export const sendTicketWhatsApp = async ({
       body: JSON.stringify(requestBody),
     });
 
-    const responseData = await response.json();
+    console.log(`[WHATSAPP] Response status: ${response.status} ${response.statusText}`);
+
+    const responseText = await response.text();
+    console.log(`[WHATSAPP] Raw response: ${responseText}`);
+
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`[WHATSAPP] Failed to parse response as JSON`);
+      throw new Error(`Invalid JSON response: ${responseText}`);
+    }
+
+    console.log(`[WHATSAPP] Parsed response:`, JSON.stringify(responseData, null, 2));
 
     if (!response.ok) {
-      console.error(`[WHATSAPP] API Error Response:`, responseData);
+      console.error(`[WHATSAPP] ✗ API Error - Status: ${response.status}`);
+      console.error(`[WHATSAPP] ✗ Error details:`, responseData);
       throw new Error(
-        responseData.message || responseData.error || "WhatsApp API error"
+        responseData.message || responseData.error || `HTTP ${response.status}: WhatsApp API error`
       );
     }
 
-    console.log(
-      `[WHATSAPP] ✓ Message sent successfully to ${formattedPhone} (ID: ${responseData.message_id})`
-    );
+    console.log(`[WHATSAPP] ✓ Message sent successfully!`);
+    console.log(`[WHATSAPP]   - Message ID: ${responseData.message_id}`);
+    console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
+    console.log(`[WHATSAPP] ========== WHATSAPP SEND COMPLETE ==========`);
 
     return {
       success: true,
@@ -144,11 +164,11 @@ export const sendTicketWhatsApp = async ({
       recipient: formattedPhone,
     };
   } catch (error) {
-    console.error(`[WHATSAPP] ✗ Failed to send message to ${phone}`);
-    console.error(`[WHATSAPP] Error details:`, {
-      message: error.message,
-      code: error.code,
-    });
+    console.error(`[WHATSAPP] ✗ FAILED to send message to ${phone}`);
+    console.error(`[WHATSAPP] Error type: ${error.name}`);
+    console.error(`[WHATSAPP] Error message: ${error.message}`);
+    console.error(`[WHATSAPP] Error stack:`, error.stack);
+    console.error(`[WHATSAPP] ========== WHATSAPP SEND FAILED ==========`);
     throw new Error(`Failed to send WhatsApp message to ${phone}: ${error.message}`);
   }
 };
