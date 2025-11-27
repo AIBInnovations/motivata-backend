@@ -101,6 +101,18 @@ export const sendTicketWhatsApp = async ({
 
     const apiUrl = `${WHATSAPP_API_BASE_URL}/${process.env.WHATSAPP_VENDOR_UID}/contact/send-template-message`;
 
+    // Build contact object - only include email if it's a valid non-empty string
+    const contact = {
+      first_name,
+      last_name,
+      country: "India",
+    };
+
+    // Only add email if it exists and is not empty (API rejects empty string)
+    if (email && email.trim()) {
+      contact.email = email.trim();
+    }
+
     const requestBody = {
       // from_phone_number_id is omitted to use default phone number
       phone_number: formattedPhone,
@@ -110,12 +122,7 @@ export const sendTicketWhatsApp = async ({
         header_image: qrCodeUrl,
         field_1: eventName,
       },
-      contact: {
-        first_name,
-        last_name,
-        email: email || "",
-        country: "India",
-      },
+      contact,
     };
 
     console.log(`[WHATSAPP] API URL: ${apiUrl}`);
