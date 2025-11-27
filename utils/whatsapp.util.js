@@ -1,7 +1,9 @@
 /**
- * @fileoverview WhatsApp messaging utility using DakshConnect API
+ * @fileoverview WhatsApp messaging utility using WappService API
  * @module utils/whatsapp
  */
+
+const WHATSAPP_API_BASE_URL = "https://api.wappservice.com/api";
 
 /**
  * Validate WhatsApp configuration
@@ -10,8 +12,7 @@
 const validateWhatsAppConfig = () => {
   const requiredVars = [
     "WHATSAPP_API_KEY",
-    "WHATSAPP_ACCOUNT_ID",
-    "WHATSAPP_PHONE_NUMBER_ID",
+    "WHATSAPP_VENDOR_UID",
   ];
   const missing = requiredVars.filter((varName) => !process.env[varName]);
 
@@ -90,10 +91,10 @@ export const sendTicketWhatsApp = async ({
     console.log(`[WHATSAPP] Event: ${eventName}`);
     console.log(`[WHATSAPP] QR Code URL: ${qrCodeUrl}`);
 
-    const apiUrl = `https://wa.dakshconnect.com/api/${process.env.WHATSAPP_ACCOUNT_ID}/contact/send-template-message`;
+    const apiUrl = `${WHATSAPP_API_BASE_URL}/${process.env.WHATSAPP_VENDOR_UID}/contact/send-template-message`;
 
     const requestBody = {
-      from_phone_number_id: process.env.WHATSAPP_PHONE_NUMBER_ID,
+      // from_phone_number_id is omitted to use default phone number
       phone_number: formattedPhone,
       template_name: "wp_ticket",
       template_language: "en_US",
