@@ -16,7 +16,8 @@ import {
   generateTicketEmail,
   generateTicketEmailText
 } from '../../utils/emailTemplate.util.js';
-import { generateTicketQRCode, generateQRFilename } from '../../utils/qrcode.util.js';
+import { generateTicketQRCode, generateQRFilename, uploadQRCodeToCloudinary } from '../../utils/qrcode.util.js';
+import { sendBulkTicketWhatsApp } from '../../utils/whatsapp.util.js';
 
 /**
  * @typedef {Object} CashOrderRequest
@@ -140,16 +141,16 @@ export const createCashOrder = async (req, res) => {
 
     const { buyer, others = [] } = metadata;
 
-    // Validate buyer information
-    if (!buyer.name || !buyer.email || !buyer.phone) {
-      return responseUtil.badRequest(res, 'Buyer name, email, and phone are required');
+    // Validate buyer information - email is optional, phone is required
+    if (!buyer.name || !buyer.phone) {
+      return responseUtil.badRequest(res, 'Buyer name and phone are required');
     }
 
-    // Validate others array if present
+    // Validate others array if present - email is optional, phone is required
     if (others.length > 0) {
       for (const other of others) {
-        if (!other.name || !other.email || !other.phone) {
-          return responseUtil.badRequest(res, 'All ticket holders must have name, email, and phone');
+        if (!other.name || !other.phone) {
+          return responseUtil.badRequest(res, 'All ticket holders must have name and phone');
         }
       }
     }
@@ -352,7 +353,7 @@ export const createCashOrder = async (req, res) => {
     console.log('=== Cash Order Processing Complete ===\n');
 
     // Return success response
-    const ticketHolders = [buyer.email, ...others.map(o => o.email)];
+    const ticketHolders = [buyer.phone, ...others.map(o => o.phone)];
 
     return responseUtil.created(res, 'Cash order processed successfully', {
       orderId,
@@ -375,10 +376,11 @@ export const createCashOrder = async (req, res) => {
 /**
  * Find or create user by phone number
  * If user doesn't exist, creates a new user with phone as password
+ * Email is optional - users can be created with just phone number
  *
  * @param {Object} userData - User data
  * @param {string} userData.name - User's name
- * @param {string} userData.email - User's email
+ * @param {string} [userData.email] - User's email (optional)
  * @param {string} userData.phone - User's phone number
  *
  * @returns {Promise<Object>} User document
@@ -396,7 +398,7 @@ const findOrCreateUser = async (userData) => {
     console.log(`[CASH-USER] User found with phone ${phone}:`, {
       userId: user._id,
       name: user.name,
-      email: user.email
+      email: user.email || '(no email)'
     });
     return user;
   }
@@ -409,19 +411,26 @@ const findOrCreateUser = async (userData) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(phone, salt);
 
-    user = new User({
+    // Create user data - email is optional
+    const newUserData = {
       name,
-      email,
       phone,
       password: hashedPassword
-    });
+    };
+
+    // Only add email if provided and not empty
+    if (email && email.trim()) {
+      newUserData.email = email.trim().toLowerCase();
+    }
+
+    user = new User(newUserData);
 
     await user.save();
 
     console.log(`[CASH-USER] New user created successfully:`, {
       userId: user._id,
       name: user.name,
-      email: user.email,
+      email: user.email || '(no email)',
       phone: user.phone
     });
 
@@ -429,19 +438,21 @@ const findOrCreateUser = async (userData) => {
   } catch (error) {
     // Handle duplicate email or phone error
     if (error.code === 11000) {
-      console.warn(`[CASH-USER] Duplicate key error. Trying to find existing user by email or phone`);
+      console.warn(`[CASH-USER] Duplicate key error. Trying to find existing user by phone`);
 
-      // Try to find by email or phone
-      user = await User.findOne({
-        $or: [{ email }, { phone }],
-        isDeleted: false
-      });
+      // Try to find by phone first (primary identifier)
+      user = await User.findOne({ phone, isDeleted: false });
+
+      if (!user && email) {
+        // If not found by phone and email provided, try by email
+        user = await User.findOne({ email, isDeleted: false });
+      }
 
       if (user) {
         console.log(`[CASH-USER] Found existing user:`, {
           userId: user._id,
           name: user.name,
-          email: user.email,
+          email: user.email || '(no email)',
           phone: user.phone
         });
         return user;
@@ -455,8 +466,10 @@ const findOrCreateUser = async (userData) => {
 };
 
 /**
- * Send ticket confirmation emails with QR codes to all ticket holders
- * Generates individual QR codes and sends personalized emails
+ * Send ticket notifications via WhatsApp and Email
+ * Generates individual QR codes, uploads to Cloudinary, and sends:
+ * - WhatsApp messages to ALL ticket holders (required)
+ * - Emails ONLY to ticket holders who have email addresses (optional)
  *
  * @param {Object} enrollment - Enrollment document from database
  * @param {Object} buyerUser - Buyer user document
@@ -469,9 +482,11 @@ const findOrCreateUser = async (userData) => {
  */
 const sendTicketEmails = async (enrollment, buyerUser, buyerDetails, otherUsers, event) => {
   try {
-    console.log(`[CASH-EMAIL] Preparing ticket emails with QR codes for ${1 + otherUsers.length} ticket holder(s)`);
+    const totalTicketHolders = 1 + otherUsers.length;
+    console.log(`[CASH-NOTIFY] Preparing ticket notifications for ${totalTicketHolders} ticket holder(s)`);
 
     const emails = [];
+    const whatsappMessages = [];
     const eventName = event.name || 'Event';
     const eventDate = event.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -480,28 +495,46 @@ const sendTicketEmails = async (enrollment, buyerUser, buyerDetails, otherUsers,
     }) : '';
     const eventLocation = event.city || '';
 
-    // Prepare buyer email with QR code
-    if (!buyerDetails.email) {
-      console.error('[CASH-EMAIL] ✗ Buyer email is missing!');
-    } else {
-      try {
-        console.log(`[CASH-EMAIL] Preparing buyer ticket email to: ${buyerDetails.email}`);
+    // Process buyer's ticket
+    try {
+      console.log(`[CASH-NOTIFY] Processing buyer ticket for phone: ${buyerDetails.phone}`);
 
-        // Generate QR code for buyer's ticket
-        const buyerQRBuffer = await generateTicketQRCode({
-          enrollmentId: enrollment._id.toString(),
-          userId: buyerUser._id.toString(),
-          eventId: enrollment.eventId.toString(),
-          phone: buyerDetails.phone
-        });
+      // Generate QR code for buyer's ticket
+      const buyerQRBuffer = await generateTicketQRCode({
+        enrollmentId: enrollment._id.toString(),
+        userId: buyerUser._id.toString(),
+        eventId: enrollment.eventId.toString(),
+        phone: buyerDetails.phone
+      });
 
-        const buyerQRFilename = generateQRFilename({
-          eventName,
-          phone: buyerDetails.phone
-        });
+      const buyerQRFilename = generateQRFilename({
+        eventName,
+        phone: buyerDetails.phone
+      });
 
-        console.log(`[CASH-EMAIL] ✓ Buyer QR code generated: ${buyerQRFilename} (${buyerQRBuffer.length} bytes)`);
+      console.log(`[CASH-NOTIFY] ✓ Buyer QR code generated: ${buyerQRFilename} (${buyerQRBuffer.length} bytes)`);
 
+      // Upload QR to Cloudinary for WhatsApp
+      const buyerQRUrl = await uploadQRCodeToCloudinary({
+        qrBuffer: buyerQRBuffer,
+        enrollmentId: enrollment._id.toString(),
+        phone: buyerDetails.phone,
+        eventName
+      });
+
+      // Add WhatsApp message for buyer (always)
+      whatsappMessages.push({
+        phone: buyerDetails.phone,
+        name: buyerDetails.name,
+        email: buyerDetails.email || '',
+        eventName,
+        qrCodeUrl: buyerQRUrl
+      });
+
+      console.log(`[CASH-NOTIFY] ✓ Buyer WhatsApp message queued`);
+
+      // Add email for buyer only if email exists
+      if (buyerDetails.email) {
         const buyerEmailData = {
           email: buyerDetails.email,
           phone: buyerDetails.phone,
@@ -529,17 +562,19 @@ const sendTicketEmails = async (enrollment, buyerUser, buyerDetails, otherUsers,
           ]
         });
 
-        console.log(`[CASH-EMAIL] ✓ Buyer ticket email added to queue (${buyerEmailData.email})`);
-      } catch (error) {
-        console.error(`[CASH-EMAIL] ✗ Failed to prepare buyer email: ${error.message}`);
+        console.log(`[CASH-NOTIFY] ✓ Buyer email queued (${buyerEmailData.email})`);
+      } else {
+        console.log(`[CASH-NOTIFY] ℹ Buyer has no email - skipping email notification`);
       }
+    } catch (error) {
+      console.error(`[CASH-NOTIFY] ✗ Failed to process buyer ticket: ${error.message}`);
     }
 
-    // Prepare emails for other ticket holders with their QR codes
-    console.log(`[CASH-EMAIL] Processing ${otherUsers.length} other ticket holder(s)`);
+    // Process other ticket holders
+    console.log(`[CASH-NOTIFY] Processing ${otherUsers.length} other ticket holder(s)`);
     for (const { user, details } of otherUsers) {
       try {
-        console.log(`[CASH-EMAIL] Preparing ticket email to: ${details.email}`);
+        console.log(`[CASH-NOTIFY] Processing ticket for phone: ${details.phone}`);
 
         // Generate QR code for this ticket holder
         const qrBuffer = await generateTicketQRCode({
@@ -554,56 +589,101 @@ const sendTicketEmails = async (enrollment, buyerUser, buyerDetails, otherUsers,
           phone: details.phone
         });
 
-        console.log(`[CASH-EMAIL] ✓ QR code generated for ${details.phone}: ${qrFilename} (${qrBuffer.length} bytes)`);
+        console.log(`[CASH-NOTIFY] ✓ QR code generated for ${details.phone}: ${qrFilename} (${qrBuffer.length} bytes)`);
 
-        const emailData = {
-          email: details.email,
-          phone: details.phone,
-          userId: user._id.toString(),
-          eventId: enrollment.eventId.toString(),
+        // Upload QR to Cloudinary for WhatsApp
+        const qrUrl = await uploadQRCodeToCloudinary({
+          qrBuffer,
           enrollmentId: enrollment._id.toString(),
-          name: details.name,
-          eventName,
-          eventDate,
-          eventLocation,
-          isBuyer: false
-        };
-
-        emails.push({
-          to: emailData.email,
-          subject: `Your Ticket - ${eventName}`,
-          html: generateTicketEmail(emailData),
-          text: generateTicketEmailText(emailData),
-          attachments: [
-            {
-              filename: qrFilename,
-              content: qrBuffer,
-              contentType: 'image/png'
-            }
-          ]
+          phone: details.phone,
+          eventName
         });
 
-        console.log(`[CASH-EMAIL] ✓ Ticket email added to queue for ${details.email}`);
+        // Add WhatsApp message (always)
+        whatsappMessages.push({
+          phone: details.phone,
+          name: details.name,
+          email: details.email || '',
+          eventName,
+          qrCodeUrl: qrUrl
+        });
+
+        console.log(`[CASH-NOTIFY] ✓ WhatsApp message queued for ${details.phone}`);
+
+        // Add email only if email exists
+        if (details.email) {
+          const emailData = {
+            email: details.email,
+            phone: details.phone,
+            userId: user._id.toString(),
+            eventId: enrollment.eventId.toString(),
+            enrollmentId: enrollment._id.toString(),
+            name: details.name,
+            eventName,
+            eventDate,
+            eventLocation,
+            isBuyer: false
+          };
+
+          emails.push({
+            to: emailData.email,
+            subject: `Your Ticket - ${eventName}`,
+            html: generateTicketEmail(emailData),
+            text: generateTicketEmailText(emailData),
+            attachments: [
+              {
+                filename: qrFilename,
+                content: qrBuffer,
+                contentType: 'image/png'
+              }
+            ]
+          });
+
+          console.log(`[CASH-NOTIFY] ✓ Email queued for ${details.email}`);
+        } else {
+          console.log(`[CASH-NOTIFY] ℹ ${details.phone} has no email - skipping email notification`);
+        }
       } catch (error) {
-        console.error(`[CASH-EMAIL] ✗ Failed to prepare email for ${details.email}: ${error.message}`);
+        console.error(`[CASH-NOTIFY] ✗ Failed to process ticket for ${details.phone}: ${error.message}`);
       }
     }
 
-    console.log(`[CASH-EMAIL] Total ticket emails in queue: ${emails.length}`);
-    console.log(`[CASH-EMAIL] Email recipients:`, emails.map(e => e.to));
+    // Summary
+    console.log(`[CASH-NOTIFY] === Notification Summary ===`);
+    console.log(`[CASH-NOTIFY] WhatsApp messages queued: ${whatsappMessages.length}`);
+    console.log(`[CASH-NOTIFY] Email messages queued: ${emails.length}`);
 
-    // Send all emails in bulk
-    if (emails.length > 0) {
-      await sendBulkEmails(emails);
-      console.log('[CASH-EMAIL] ✓ Ticket email process completed successfully');
-    } else {
-      console.warn('[CASH-EMAIL] ⚠ No emails to send!');
+    // Send WhatsApp messages (to all ticket holders)
+    if (whatsappMessages.length > 0) {
+      try {
+        console.log(`[CASH-NOTIFY] Sending ${whatsappMessages.length} WhatsApp message(s)...`);
+        await sendBulkTicketWhatsApp(whatsappMessages);
+        console.log('[CASH-NOTIFY] ✓ WhatsApp notifications sent successfully');
+      } catch (whatsappError) {
+        console.error(`[CASH-NOTIFY] ✗ WhatsApp sending failed: ${whatsappError.message}`);
+        // Continue with emails even if WhatsApp fails
+      }
     }
 
+    // Send emails (only to those with email addresses)
+    if (emails.length > 0) {
+      try {
+        console.log(`[CASH-NOTIFY] Sending ${emails.length} email(s)...`);
+        await sendBulkEmails(emails);
+        console.log('[CASH-NOTIFY] ✓ Email notifications sent successfully');
+      } catch (emailError) {
+        console.error(`[CASH-NOTIFY] ✗ Email sending failed: ${emailError.message}`);
+      }
+    } else {
+      console.log('[CASH-NOTIFY] ℹ No emails to send (no ticket holders have email addresses)');
+    }
+
+    console.log('[CASH-NOTIFY] ✓ Notification process completed');
+
   } catch (error) {
-    console.error(`[CASH-EMAIL] ✗ Error in ticket email process: ${error.message}`);
-    console.error(`[CASH-EMAIL] Error stack:`, error.stack);
-    // Don't throw error - order should still succeed even if emails fail
+    console.error(`[CASH-NOTIFY] ✗ Error in notification process: ${error.message}`);
+    console.error(`[CASH-NOTIFY] Error stack:`, error.stack);
+    // Don't throw error - order should still succeed even if notifications fail
   }
 };
 

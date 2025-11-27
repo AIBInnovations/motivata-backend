@@ -20,11 +20,13 @@ const userSchema = new mongoose.Schema(
     },
     email: {
       type: String,
-      required: true,
+      // required: true,
+      sparse: true, // Allow multiple null values with unique index
       unique: true,
       trim: true,
       minlength: 5,
       lowercase: true,
+      default: null,
     },
     phone: {
       type: String,

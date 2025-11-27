@@ -4,6 +4,7 @@
  */
 
 import QRCode from 'qrcode';
+import cloudinary from '../config/cloudinary.config.js';
 
 /**
  * Generate QR code as PNG buffer
@@ -81,7 +82,59 @@ export const generateQRFilename = ({ eventName, phone }) => {
   return `ticket-${sanitizedEventName}-${sanitizedPhone}.png`;
 };
 
+/**
+ * Upload QR code buffer to Cloudinary and get public URL
+ *
+ * @param {Object} params - Upload parameters
+ * @param {Buffer} params.qrBuffer - QR code as PNG buffer
+ * @param {string} params.enrollmentId - Enrollment ID for folder organization
+ * @param {string} params.phone - Phone number for filename
+ * @param {string} [params.eventName] - Event name for folder organization
+ *
+ * @returns {Promise<string>} Public URL of uploaded QR code
+ * @throws {Error} If upload fails
+ */
+export const uploadQRCodeToCloudinary = async ({
+  qrBuffer,
+  enrollmentId,
+  phone,
+  eventName = 'event'
+}) => {
+  try {
+    console.log(`[QR-UPLOAD] Uploading QR code to Cloudinary for phone: ${phone}`);
+
+    // Sanitize event name for folder path
+    const sanitizedEventName = eventName
+      .replace(/[^a-zA-Z0-9-_]/g, '-')
+      .replace(/-+/g, '-')
+      .substring(0, 50);
+
+    // Sanitize phone for public_id
+    const sanitizedPhone = phone.replace(/[^0-9]/g, '');
+
+    // Convert buffer to base64 data URI
+    const base64Image = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+
+    // Upload to Cloudinary with folder structure: tickets/{eventName}/{enrollmentId}/
+    const result = await cloudinary.uploader.upload(base64Image, {
+      folder: `tickets/${sanitizedEventName}/${enrollmentId}`,
+      public_id: `qr-${sanitizedPhone}`,
+      resource_type: 'image',
+      overwrite: true,
+      format: 'png'
+    });
+
+    console.log(`[QR-UPLOAD] ✓ QR code uploaded successfully: ${result.secure_url}`);
+
+    return result.secure_url;
+  } catch (error) {
+    console.error(`[QR-UPLOAD] ✗ Failed to upload QR code:`, error);
+    throw new Error(`QR code upload failed: ${error.message}`);
+  }
+};
+
 export default {
   generateTicketQRCode,
-  generateQRFilename
+  generateQRFilename,
+  uploadQRCodeToCloudinary
 };

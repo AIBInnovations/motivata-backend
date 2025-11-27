@@ -19,7 +19,8 @@ import {
   generateTicketEmail,
   generateTicketEmailText
 } from '../../utils/emailTemplate.util.js';
-import { generateTicketQRCode, generateQRFilename } from '../../utils/qrcode.util.js';
+import { generateTicketQRCode, generateQRFilename, uploadQRCodeToCloudinary } from '../../utils/qrcode.util.js';
+import { sendBulkTicketWhatsApp } from '../../utils/whatsapp.util.js';
 
 /**
  * @typedef {Object} RazorpayWebhookPayload
@@ -552,10 +553,11 @@ const handleRefundProcessed = async (refundEntity) => {
 /**
  * Find or create user by phone number
  * If user doesn't exist, creates a new user with the provided details
+ * Email is optional - users can be created with just phone number
  *
  * @param {Object} userData - User data
  * @param {string} userData.name - User's name
- * @param {string} userData.email - User's email
+ * @param {string} [userData.email] - User's email (optional)
  * @param {string} userData.phone - User's phone number
  *
  * @returns {Promise<Object>} User document
@@ -573,7 +575,7 @@ const findOrCreateUser = async (userData) => {
     console.log(`[USER-CREATION] User found with phone ${phone}:`, {
       userId: user._id,
       name: user.name,
-      email: user.email
+      email: user.email || '(no email)'
     });
     return user;
   }
@@ -587,19 +589,26 @@ const findOrCreateUser = async (userData) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(randomPassword, salt);
 
-    user = new User({
+    // Create user data - email is optional
+    const newUserData = {
       name,
-      email,
       phone,
       password: hashedPassword
-    });
+    };
+
+    // Only add email if provided and not empty
+    if (email && email.trim()) {
+      newUserData.email = email.trim().toLowerCase();
+    }
+
+    user = new User(newUserData);
 
     await user.save();
 
     console.log(`[USER-CREATION] New user created successfully:`, {
       userId: user._id,
       name: user.name,
-      email: user.email,
+      email: user.email || '(no email)',
       phone: user.phone
     });
 
@@ -607,19 +616,21 @@ const findOrCreateUser = async (userData) => {
   } catch (error) {
     // Handle duplicate email or phone error
     if (error.code === 11000) {
-      console.warn(`[USER-CREATION] Duplicate key error. Trying to find existing user by email or phone`);
+      console.warn(`[USER-CREATION] Duplicate key error. Trying to find existing user by phone`);
 
-      // Try to find by email or phone
-      user = await User.findOne({
-        $or: [{ email }, { phone }],
-        isDeleted: false
-      });
+      // Try to find by phone first (primary identifier)
+      user = await User.findOne({ phone, isDeleted: false });
+
+      if (!user && email) {
+        // If not found by phone and email provided, try by email
+        user = await User.findOne({ email, isDeleted: false });
+      }
 
       if (user) {
         console.log(`[USER-CREATION] Found existing user:`, {
           userId: user._id,
           name: user.name,
-          email: user.email,
+          email: user.email || '(no email)',
           phone: user.phone
         });
         return user;
@@ -791,8 +802,10 @@ const createEventEnrollment = async (payment) => {
 };
 
 /**
- * Send enrollment confirmation emails with QR code tickets to all ticket holders
- * Generates individual QR codes and sends personalized emails to buyer and other ticket holders
+ * Send enrollment confirmation via WhatsApp and Email
+ * Generates individual QR codes, uploads to Cloudinary, and sends:
+ * - WhatsApp messages to ALL ticket holders (required)
+ * - Emails ONLY to ticket holders who have email addresses (optional)
  *
  * @param {Object} payment - Payment document from database
  * @param {Object} enrollment - Enrollment document from database
@@ -805,14 +818,16 @@ const createEventEnrollment = async (payment) => {
  */
 const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, event) => {
   try {
-    console.log(`[WEBHOOK-EMAIL] Preparing ticket emails with QR codes for ${1 + otherUsers.length} ticket holder(s)`);
-    console.log(`[WEBHOOK-EMAIL] Buyer info:`, {
+    const totalTicketHolders = 1 + otherUsers.length;
+    console.log(`[WEBHOOK-NOTIFY] Preparing ticket notifications for ${totalTicketHolders} ticket holder(s)`);
+    console.log(`[WEBHOOK-NOTIFY] Buyer info:`, {
       name: payment.metadata?.buyer?.name,
-      email: payment.metadata?.buyer?.email,
+      email: payment.metadata?.buyer?.email || '(no email)',
       phone: payment.metadata?.buyer?.phone
     });
 
     const emails = [];
+    const whatsappMessages = [];
     const eventName = event?.title || event?.name || 'Event';
     const eventDate = event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -821,28 +836,46 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
     }) : '';
     const eventLocation = event?.location || event?.city || '';
 
-    // Validate and prepare buyer email with QR code
-    if (!payment.metadata?.buyer?.email) {
-      console.error('[WEBHOOK-EMAIL] ✗ Buyer email is missing from payment metadata!');
-    } else {
-      try {
-        console.log(`[WEBHOOK-EMAIL] Preparing buyer ticket email to: ${payment.metadata.buyer.email}`);
+    // Process buyer's ticket
+    try {
+      console.log(`[WEBHOOK-NOTIFY] Processing buyer ticket for phone: ${payment.metadata.buyer.phone}`);
 
-        // Generate QR code for buyer's ticket
-        const buyerQRBuffer = await generateTicketQRCode({
-          enrollmentId: enrollment._id.toString(),
-          userId: buyerUser._id.toString(),
-          eventId: payment.eventId.toString(),
-          phone: payment.metadata.buyer.phone
-        });
+      // Generate QR code for buyer's ticket
+      const buyerQRBuffer = await generateTicketQRCode({
+        enrollmentId: enrollment._id.toString(),
+        userId: buyerUser._id.toString(),
+        eventId: payment.eventId.toString(),
+        phone: payment.metadata.buyer.phone
+      });
 
-        const buyerQRFilename = generateQRFilename({
-          eventName,
-          phone: payment.metadata.buyer.phone
-        });
+      const buyerQRFilename = generateQRFilename({
+        eventName,
+        phone: payment.metadata.buyer.phone
+      });
 
-        console.log(`[WEBHOOK-EMAIL] ✓ Buyer QR code generated: ${buyerQRFilename} (${buyerQRBuffer.length} bytes)`);
+      console.log(`[WEBHOOK-NOTIFY] ✓ Buyer QR code generated: ${buyerQRFilename} (${buyerQRBuffer.length} bytes)`);
 
+      // Upload QR to Cloudinary for WhatsApp
+      const buyerQRUrl = await uploadQRCodeToCloudinary({
+        qrBuffer: buyerQRBuffer,
+        enrollmentId: enrollment._id.toString(),
+        phone: payment.metadata.buyer.phone,
+        eventName
+      });
+
+      // Add WhatsApp message for buyer (always)
+      whatsappMessages.push({
+        phone: payment.metadata.buyer.phone,
+        name: payment.metadata.buyer.name,
+        email: payment.metadata.buyer.email || '',
+        eventName,
+        qrCodeUrl: buyerQRUrl
+      });
+
+      console.log(`[WEBHOOK-NOTIFY] ✓ Buyer WhatsApp message queued`);
+
+      // Add email for buyer only if email exists
+      if (payment.metadata?.buyer?.email) {
         const buyerEmailData = {
           email: payment.metadata.buyer.email,
           phone: payment.metadata.buyer.phone,
@@ -870,18 +903,19 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
           ]
         });
 
-        console.log(`[WEBHOOK-EMAIL] ✓ Buyer ticket email added to queue (${buyerEmailData.email})`);
-      } catch (error) {
-        console.error(`[WEBHOOK-EMAIL] ✗ Failed to prepare buyer email: ${error.message}`);
-        // Continue with other emails even if buyer email fails
+        console.log(`[WEBHOOK-NOTIFY] ✓ Buyer email queued (${buyerEmailData.email})`);
+      } else {
+        console.log(`[WEBHOOK-NOTIFY] ℹ Buyer has no email - skipping email notification`);
       }
+    } catch (error) {
+      console.error(`[WEBHOOK-NOTIFY] ✗ Failed to process buyer ticket: ${error.message}`);
     }
 
-    // Prepare emails for other ticket holders with their QR codes
-    console.log(`[WEBHOOK-EMAIL] Processing ${otherUsers.length} other ticket holder(s)`);
+    // Process other ticket holders
+    console.log(`[WEBHOOK-NOTIFY] Processing ${otherUsers.length} other ticket holder(s)`);
     for (const { user, details } of otherUsers) {
       try {
-        console.log(`[WEBHOOK-EMAIL] Preparing ticket email to: ${details.email}`);
+        console.log(`[WEBHOOK-NOTIFY] Processing ticket for phone: ${details.phone}`);
 
         // Generate QR code for this ticket holder
         const qrBuffer = await generateTicketQRCode({
@@ -896,57 +930,101 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
           phone: details.phone
         });
 
-        console.log(`[WEBHOOK-EMAIL] ✓ QR code generated for ${details.phone}: ${qrFilename} (${qrBuffer.length} bytes)`);
+        console.log(`[WEBHOOK-NOTIFY] ✓ QR code generated for ${details.phone}: ${qrFilename} (${qrBuffer.length} bytes)`);
 
-        const emailData = {
-          email: details.email,
-          phone: details.phone,
-          userId: user._id.toString(),
-          eventId: payment.eventId.toString(),
+        // Upload QR to Cloudinary for WhatsApp
+        const qrUrl = await uploadQRCodeToCloudinary({
+          qrBuffer,
           enrollmentId: enrollment._id.toString(),
-          name: details.name,
-          eventName,
-          eventDate,
-          eventLocation,
-          isBuyer: false
-        };
-
-        emails.push({
-          to: emailData.email,
-          subject: `Your Ticket - ${eventName}`,
-          html: generateTicketEmail(emailData),
-          text: generateTicketEmailText(emailData),
-          attachments: [
-            {
-              filename: qrFilename,
-              content: qrBuffer,
-              contentType: 'image/png'
-            }
-          ]
+          phone: details.phone,
+          eventName
         });
 
-        console.log(`[WEBHOOK-EMAIL] ✓ Ticket email added to queue for ${details.email}`);
+        // Add WhatsApp message (always)
+        whatsappMessages.push({
+          phone: details.phone,
+          name: details.name,
+          email: details.email || '',
+          eventName,
+          qrCodeUrl: qrUrl
+        });
+
+        console.log(`[WEBHOOK-NOTIFY] ✓ WhatsApp message queued for ${details.phone}`);
+
+        // Add email only if email exists
+        if (details.email) {
+          const emailData = {
+            email: details.email,
+            phone: details.phone,
+            userId: user._id.toString(),
+            eventId: payment.eventId.toString(),
+            enrollmentId: enrollment._id.toString(),
+            name: details.name,
+            eventName,
+            eventDate,
+            eventLocation,
+            isBuyer: false
+          };
+
+          emails.push({
+            to: emailData.email,
+            subject: `Your Ticket - ${eventName}`,
+            html: generateTicketEmail(emailData),
+            text: generateTicketEmailText(emailData),
+            attachments: [
+              {
+                filename: qrFilename,
+                content: qrBuffer,
+                contentType: 'image/png'
+              }
+            ]
+          });
+
+          console.log(`[WEBHOOK-NOTIFY] ✓ Email queued for ${details.email}`);
+        } else {
+          console.log(`[WEBHOOK-NOTIFY] ℹ ${details.phone} has no email - skipping email notification`);
+        }
       } catch (error) {
-        console.error(`[WEBHOOK-EMAIL] ✗ Failed to prepare email for ${details.email}: ${error.message}`);
-        // Continue with other emails even if one fails
+        console.error(`[WEBHOOK-NOTIFY] ✗ Failed to process ticket for ${details.phone}: ${error.message}`);
       }
     }
 
-    console.log(`[WEBHOOK-EMAIL] Total ticket emails in queue: ${emails.length}`);
-    console.log(`[WEBHOOK-EMAIL] Email recipients:`, emails.map(e => e.to));
+    // Summary
+    console.log(`[WEBHOOK-NOTIFY] === Notification Summary ===`);
+    console.log(`[WEBHOOK-NOTIFY] WhatsApp messages queued: ${whatsappMessages.length}`);
+    console.log(`[WEBHOOK-NOTIFY] Email messages queued: ${emails.length}`);
 
-    // Send all emails in bulk
-    if (emails.length > 0) {
-      await sendBulkEmails(emails);
-      console.log('[WEBHOOK-EMAIL] ✓ Ticket email process completed successfully');
-    } else {
-      console.warn('[WEBHOOK-EMAIL] ⚠ No emails to send!');
+    // Send WhatsApp messages (to all ticket holders)
+    if (whatsappMessages.length > 0) {
+      try {
+        console.log(`[WEBHOOK-NOTIFY] Sending ${whatsappMessages.length} WhatsApp message(s)...`);
+        await sendBulkTicketWhatsApp(whatsappMessages);
+        console.log('[WEBHOOK-NOTIFY] ✓ WhatsApp notifications sent successfully');
+      } catch (whatsappError) {
+        console.error(`[WEBHOOK-NOTIFY] ✗ WhatsApp sending failed: ${whatsappError.message}`);
+        // Continue with emails even if WhatsApp fails
+      }
     }
 
+    // Send emails (only to those with email addresses)
+    if (emails.length > 0) {
+      try {
+        console.log(`[WEBHOOK-NOTIFY] Sending ${emails.length} email(s)...`);
+        await sendBulkEmails(emails);
+        console.log('[WEBHOOK-NOTIFY] ✓ Email notifications sent successfully');
+      } catch (emailError) {
+        console.error(`[WEBHOOK-NOTIFY] ✗ Email sending failed: ${emailError.message}`);
+      }
+    } else {
+      console.log('[WEBHOOK-NOTIFY] ℹ No emails to send (no ticket holders have email addresses)');
+    }
+
+    console.log('[WEBHOOK-NOTIFY] ✓ Notification process completed');
+
   } catch (error) {
-    console.error(`[WEBHOOK-EMAIL] ✗ Error in ticket email process: ${error.message}`);
-    console.error(`[WEBHOOK-EMAIL] Error stack:`, error.stack);
-    // Don't throw error - webhook should still succeed even if emails fail
+    console.error(`[WEBHOOK-NOTIFY] ✗ Error in notification process: ${error.message}`);
+    console.error(`[WEBHOOK-NOTIFY] Error stack:`, error.stack);
+    // Don't throw error - webhook should still succeed even if notifications fail
   }
 };
 

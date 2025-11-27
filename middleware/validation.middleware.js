@@ -193,10 +193,11 @@ export const adminSchemas = {
 export const userSchemas = {
   /**
    * User registration schema
+   * Email is optional - users can register with just phone number
    */
   register: Joi.object({
     name: schemas.name.required(),
-    email: schemas.email.required(),
+    email: schemas.email.optional().allow(null, ""),
     phone: schemas.phone.required(),
     password: schemas.password.required(),
   }),
