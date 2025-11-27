@@ -518,6 +518,7 @@ export const paymentSchemas = {
     type: Joi.string().valid("EVENT", "SESSION", "OTHER", "PRODUCT").optional(),
     eventId: schemas.mongoId.optional(),
     sessionId: schemas.mongoId.optional(),
+    paymentMethod: Joi.string().valid("CASH", "RAZORPAY").optional(),
   }),
 
   /**

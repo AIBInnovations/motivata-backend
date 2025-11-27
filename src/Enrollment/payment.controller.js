@@ -341,7 +341,8 @@ export const getAllPayments = async (req, res) => {
       status,
       type,
       eventId,
-      sessionId
+      sessionId,
+      paymentMethod
     } = req.query;
 
     // Build query
@@ -351,6 +352,13 @@ export const getAllPayments = async (req, res) => {
     if (type) query.type = type;
     if (eventId) query.eventId = eventId;
     if (sessionId) query.sessionId = sessionId;
+
+    // Filter by payment method
+    if (paymentMethod === 'CASH') {
+      query['metadata.paymentMethod'] = 'CASH';
+    } else if (paymentMethod === 'RAZORPAY') {
+      query['metadata.paymentMethod'] = { $ne: 'CASH' };
+    }
 
     // Calculate pagination
     const skip = (page - 1) * limit;

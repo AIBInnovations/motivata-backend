@@ -6,6 +6,7 @@
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import Payment from '../../schema/Payment.schema.js';
 import Event from '../../schema/Event.schema.js';
+import User from '../../schema/User.schema.js';
 import responseUtil from '../../utils/response.util.js';
 
 /**
@@ -162,8 +163,19 @@ export const getUserEnrollments = async (req, res) => {
       eventId
     } = req.query;
 
-    // Build query
-    const query = { userId };
+    // Fetch user's phone for ticket lookup
+    const user = await User.findById(userId).select('phone');
+    if (!user) {
+      return responseUtil.notFound(res, 'User not found');
+    }
+
+    // Build query - find enrollments where user is owner OR has a ticket
+    const query = {
+      $or: [
+        { userId: userId },
+        { [`tickets.${user.phone}`]: { $exists: true } }
+      ]
+    };
 
     if (status) query.status = status;
     if (eventId) query.eventId = eventId;
@@ -185,8 +197,27 @@ export const getUserEnrollments = async (req, res) => {
 
     const totalPages = Math.ceil(totalCount / limit);
 
+    // Enrich enrollments with relationship and myTicket info
+    const enrichedEnrollments = enrollments.map(enrollment => {
+      const isOwner = enrollment.userId.toString() === userId;
+      const enrollmentObj = enrollment.toObject();
+      const myTicket = enrollment.tickets.get(user.phone) || null;
+
+      return {
+        ...enrollmentObj,
+        relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
+        myTicket: myTicket ? {
+          phone: user.phone,
+          status: myTicket.status,
+          isTicketScanned: myTicket.isTicketScanned
+        } : null,
+        // Hide other tickets if not owner
+        tickets: isOwner ? enrollmentObj.tickets : undefined
+      };
+    });
+
     return responseUtil.success(res, 'Enrollments retrieved successfully', {
-      enrollments,
+      enrollments: enrichedEnrollments,
       pagination: {
         currentPage: Number(page),
         totalPages,
@@ -212,7 +243,27 @@ export const getEnrollmentById = async (req, res) => {
     const userId = req.user.id;
     const isAdmin = req.user.userType === 'admin';
 
-    const query = isAdmin ? { _id: id } : { _id: id, userId };
+    let query;
+    let user = null;
+
+    if (isAdmin) {
+      query = { _id: id };
+    } else {
+      // Fetch user's phone for ticket lookup
+      user = await User.findById(userId).select('phone');
+      if (!user) {
+        return responseUtil.notFound(res, 'User not found');
+      }
+
+      // Find enrollment where user is owner OR has a ticket
+      query = {
+        _id: id,
+        $or: [
+          { userId: userId },
+          { [`tickets.${user.phone}`]: { $exists: true } }
+        ]
+      };
+    }
 
     const enrollment = await EventEnrollment.findOne(query)
       .populate('eventId', 'name description startDate endDate mode city price imageUrls')
@@ -221,6 +272,27 @@ export const getEnrollmentById = async (req, res) => {
 
     if (!enrollment) {
       return responseUtil.notFound(res, 'Enrollment not found');
+    }
+
+    // For non-admin users, enrich with relationship and myTicket info
+    if (!isAdmin && user) {
+      const isOwner = enrollment.userId._id.toString() === userId;
+      const enrollmentObj = enrollment.toObject();
+      const myTicket = enrollment.tickets.get(user.phone) || null;
+
+      return responseUtil.success(res, 'Enrollment retrieved successfully', {
+        enrollment: {
+          ...enrollmentObj,
+          relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
+          myTicket: myTicket ? {
+            phone: user.phone,
+            status: myTicket.status,
+            isTicketScanned: myTicket.isTicketScanned
+          } : null,
+          // Hide other tickets if not owner
+          tickets: isOwner ? enrollmentObj.tickets : undefined
+        }
+      });
     }
 
     return responseUtil.success(res, 'Enrollment retrieved successfully', { enrollment });
@@ -382,7 +454,27 @@ export const cancelEnrollment = async (req, res) => {
     const userId = req.user.id;
     const isAdmin = req.user.userType === 'admin';
 
-    const query = isAdmin ? { _id: id } : { _id: id, userId };
+    let query;
+    let user = null;
+
+    if (isAdmin) {
+      query = { _id: id };
+    } else {
+      // Fetch user's phone for ticket lookup
+      user = await User.findById(userId).select('phone');
+      if (!user) {
+        return responseUtil.notFound(res, 'User not found');
+      }
+
+      // Find enrollment where user is owner OR has a ticket
+      query = {
+        _id: id,
+        $or: [
+          { userId: userId },
+          { [`tickets.${user.phone}`]: { $exists: true } }
+        ]
+      };
+    }
 
     const enrollment = await EventEnrollment.findOne(query)
       .populate('eventId');
@@ -395,6 +487,21 @@ export const cancelEnrollment = async (req, res) => {
     const now = new Date();
     if (now >= enrollment.eventId.startDate) {
       return responseUtil.badRequest(res, 'Cannot cancel tickets after event has started');
+    }
+
+    // For non-admin, non-owner users - validate they can only cancel their own ticket
+    const isOwner = enrollment.userId.toString() === userId;
+
+    if (!isAdmin && !isOwner) {
+      // Non-owners cannot cancel all tickets
+      if (cancelAll) {
+        return responseUtil.forbidden(res, 'You can only cancel your own ticket');
+      }
+
+      // Non-owners can only cancel their own phone's ticket
+      if (phone !== user.phone) {
+        return responseUtil.forbidden(res, 'You can only cancel your own ticket');
+      }
     }
 
     let cancelledCount = 0;
@@ -468,9 +575,19 @@ export const checkEnrollmentStatus = async (req, res) => {
     const { eventId } = req.params;
     const userId = req.user.id;
 
+    // Fetch user's phone for ticket lookup
+    const user = await User.findById(userId).select('phone');
+    if (!user) {
+      return responseUtil.notFound(res, 'User not found');
+    }
+
+    // Find enrollment where user is owner OR has a ticket
     const enrollment = await EventEnrollment.findOne({
-      userId,
-      eventId
+      eventId,
+      $or: [
+        { userId: userId },
+        { [`tickets.${user.phone}`]: { $exists: true } }
+      ]
     });
 
     // Check if any ticket is active
@@ -486,8 +603,18 @@ export const checkEnrollmentStatus = async (req, res) => {
       }
     }
 
+    // Determine relationship and user's ticket
+    const isOwner = enrollment ? enrollment.userId.toString() === userId : false;
+    const myTicket = enrollment ? enrollment.tickets.get(user.phone) : null;
+
     return responseUtil.success(res, 'Enrollment status retrieved', {
       isEnrolled: hasActiveTicket,
+      relationship: enrollment ? (isOwner ? 'OWNER' : 'TICKET_HOLDER') : null,
+      myTicket: myTicket ? {
+        phone: user.phone,
+        status: myTicket.status,
+        isTicketScanned: myTicket.isTicketScanned
+      } : null,
       enrollment: enrollment || null,
       activeTicketCount,
       totalTicketCount: enrollment ? enrollment.ticketCount : 0

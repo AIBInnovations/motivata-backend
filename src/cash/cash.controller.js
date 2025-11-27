@@ -8,6 +8,7 @@ import Event from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import CashPartner from '../../schema/CashPartner.schema.js';
+import Payment from '../../schema/Payment.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
@@ -292,6 +293,35 @@ export const createCashOrder = async (req, res) => {
       eventId: event._id,
       ticketCount: totalTickets,
       tickets: Array.from(ticketsMap.keys())
+    });
+
+    // Create Payment record for cash transaction
+    const payment = new Payment({
+      orderId: orderId,
+      paymentId: paymentId,
+      userId: buyerUser._id,
+      type: 'EVENT',
+      eventId: event._id,
+      amount: totalAmount,
+      finalAmount: totalAmount,
+      discountAmount: 0,
+      status: 'SUCCESS',
+      purchaseDateTime: new Date(),
+      metadata: {
+        paymentMethod: 'CASH',
+        partnerCode: cashPartner.partnerCode,
+        partnerName: cashPartner.name,
+        buyer: buyer,
+        others: others,
+        totalTickets: totalTickets
+      }
+    });
+    await payment.save();
+
+    console.log('[CASH-ORDER] Payment record created:', {
+      paymentId: payment._id,
+      orderId: payment.orderId,
+      method: 'CASH'
     });
 
     // Update event ticket counts
