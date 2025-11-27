@@ -371,17 +371,18 @@ export const scanQRCode = async (req, res) => {
   try {
     const { enrollmentId, userId, eventId, phone } = req.query;
 
-    if (!enrollmentId || !userId || !eventId || !phone) {
+    if (!enrollmentId || !eventId || !phone) {
       return responseUtil.badRequest(
         res,
-        "enrollmentId, userId, eventId, and phone are required"
+        "enrollmentId, eventId, and phone are required"
       );
     }
 
     // Fetch enrollment details
+    // Note: We don't filter by userId because the enrollment belongs to the buyer,
+    // but other ticket holders (in multi-ticket purchases) have different userIds
     const enrollment = await EventEnrollment.findOne({
       _id: enrollmentId,
-      userId,
       eventId,
     });
 
@@ -416,7 +417,16 @@ export const scanQRCode = async (req, res) => {
     }
 
     // Fetch user details
-    const user = await User.findById(userId).select("name email phone");
+    // userId from query is the ticket holder's userId (could be buyer or other member)
+    let user = null;
+    if (userId) {
+      user = await User.findById(userId).select("name email phone");
+    }
+
+    // If user not found by userId or userId not provided, try to find by phone
+    if (!user) {
+      user = await User.findOne({ phone, isDeleted: false }).select("name email phone");
+    }
 
     if (!user) {
       return responseUtil.notFound(res, "User not found");
