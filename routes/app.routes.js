@@ -5,6 +5,7 @@ import userCouponRoutes from "../src/Enrollment/user.coupon.route.js";
 import userPaymentRoutes from "../src/Enrollment/user.payment.route.js";
 import userEnrollmentRoutes from "../src/Enrollment/user.enrollment.route.js";
 import userTicketRoutes from "../src/Enrollment/user.ticket.route.js";
+import responseUtil from "../utils/response.util.js";
 
 const router = express.Router();
 
@@ -35,5 +36,10 @@ router.use("/tickets", userTicketRoutes);
 // Example:
 // router.use("/profile", userProfileRoutes);
 // router.use("/settings", userSettingsRoutes);
+
+// User delete endpoint
+router.delete("/user/delete/:phonenumber", (req, res) => {
+  return responseUtil.success(res, "Success");
+});
 
 export default router;
