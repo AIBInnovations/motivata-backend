@@ -34,12 +34,14 @@ const formatPhoneNumber = (phone) => {
   // Remove any non-digit characters
   let cleaned = phone.replace(/\D/g, "");
 
-  // If it doesn't start with 91, add it
-  if (!cleaned.startsWith("91")) {
-    // If it's 10 digits, it's likely an Indian number without country code
-    if (cleaned.length === 10) {
-      cleaned = "91" + cleaned;
-    }
+  // If it's exactly 10 digits, it's an Indian number without country code - always add 91
+  if (cleaned.length === 10) {
+    cleaned = "91" + cleaned;
+  }
+  // If it's 12 digits and starts with 91, it already has the country code
+  // If it's 11 digits and starts with 0, remove 0 and add 91
+  else if (cleaned.length === 11 && cleaned.startsWith("0")) {
+    cleaned = "91" + cleaned.substring(1);
   }
 
   return cleaned;
@@ -117,7 +119,7 @@ export const sendTicketWhatsApp = async ({
       // from_phone_number_id is omitted to use default phone number
       phone_number: formattedPhone,
       template_name: "wp_ticket",
-      template_language: "en",  // Changed from "en_US" to "en" per WappService API
+      template_language: "en_US",  // Must match template's registered language
       templateArgs: {
         header_image: qrCodeUrl,
         field_1: eventName,
