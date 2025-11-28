@@ -22,8 +22,8 @@ const corsOptions = {
       : [
           "https://mediumpurple-dotterel-484503.hostingersite.com",
           "https://mediumpurple-dotterel-484503.hostingersite.com/",
-          "https://motivata.in/",
           "https://motivata.in",
+          "https://motivata.in/",
         ];
 
     if (!origin || allowedOrigins.includes(origin)) {
@@ -37,6 +37,18 @@ const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200,
 };
+
+// Request logging middleware
+app.use((req, _res, next) => {
+  console.log(
+    `[REQ] ${new Date().toISOString()} | ${req.method} ${
+      req.originalUrl
+    } | Origin: ${req.headers.origin || "N/A"} | IP: ${
+      req.ip || req.socket?.remoteAddress
+    }`
+  );
+  next();
+});
 
 // Middleware
 app.use(cors(corsOptions));
