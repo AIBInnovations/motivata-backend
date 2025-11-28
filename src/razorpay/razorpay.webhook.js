@@ -564,7 +564,14 @@ const handleRefundProcessed = async (refundEntity) => {
  * @private
  */
 const findOrCreateUser = async (userData) => {
-  const { name, email, phone } = userData;
+  const { name, email } = userData;
+
+  // Normalize phone number - extract last 10 digits if country code is present
+  let phone = userData.phone;
+  if (phone && phone.length > 10) {
+    phone = phone.slice(-10);
+    console.log(`[USER-CREATION] Phone normalized from ${userData.phone} to ${phone}`);
+  }
 
   console.log(`[USER-CREATION] Checking if user exists with phone: ${phone}`);
 
@@ -584,10 +591,9 @@ const findOrCreateUser = async (userData) => {
   console.log(`[USER-CREATION] User not found with phone ${phone}, creating new user`);
 
   try {
-    // Generate a random password for the new user
-    const randomPassword = `TEMP_${Math.random().toString(36).slice(-8).toUpperCase()}${Date.now()}`;
+    // Use phone number as password for new users (consistent with cash flow)
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(randomPassword, salt);
+    const hashedPassword = await bcrypt.hash(phone, salt);
 
     // Create user data - email is optional
     const newUserData = {

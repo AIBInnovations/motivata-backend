@@ -387,7 +387,14 @@ export const createCashOrder = async (req, res) => {
  * @private
  */
 const findOrCreateUser = async (userData) => {
-  const { name, email, phone } = userData;
+  const { name, email } = userData;
+
+  // Normalize phone number - extract last 10 digits if country code is present
+  let phone = userData.phone;
+  if (phone && phone.length > 10) {
+    phone = phone.slice(-10);
+    console.log(`[CASH-USER] Phone normalized from ${userData.phone} to ${phone}`);
+  }
 
   console.log(`[CASH-USER] Checking if user exists with phone: ${phone}`);
 
