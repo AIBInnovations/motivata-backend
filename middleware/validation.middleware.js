@@ -299,6 +299,7 @@ export const eventSchemas = {
           compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
           shortDescription: Joi.string().trim().max(500).optional(),
           notes: Joi.string().trim().max(1000).optional(),
+          ticketQuantity: Joi.number().integer().min(1).default(1).optional(),
         })
       )
       .optional(),
@@ -351,6 +352,7 @@ export const eventSchemas = {
           compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
           shortDescription: Joi.string().trim().max(500).optional(),
           notes: Joi.string().trim().max(1000).optional(),
+          ticketQuantity: Joi.number().integer().min(1).default(1).optional(),
         })
       )
       .optional(),

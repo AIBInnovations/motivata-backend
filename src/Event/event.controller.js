@@ -461,7 +461,8 @@ export const getEventTicketStats = async (req, res) => {
       stats.tiers = event.pricingTiers.map(tier => ({
         tierId: tier._id,
         name: tier.name,
-        price: tier.price
+        price: tier.price,
+        ticketQuantity: tier.ticketQuantity || 1
       }));
     } else {
       stats.pricingType = 'single';
