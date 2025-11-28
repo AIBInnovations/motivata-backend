@@ -120,6 +120,11 @@ import responseUtil from "../../utils/response.util.js";
  */
 export const createOrder = async (req, res) => {
   try {
+    // Debug logging to diagnose request issues
+    console.log(`[DEBUG] createOrder called from origin: ${req.headers.origin}`);
+    console.log(`[DEBUG] Content-Type: ${req.headers['content-type']}`);
+    console.log(`[DEBUG] Request body:`, JSON.stringify(req.body, null, 2));
+
     const {
       currency = "INR",
       type,
@@ -131,6 +136,7 @@ export const createOrder = async (req, res) => {
 
     // Validate required fields
     if (!type) {
+      console.log(`[DEBUG] Validation failed: type is missing`);
       return responseUtil.badRequest(res, "Payment type is required");
     }
 

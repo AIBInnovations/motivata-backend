@@ -20,8 +20,8 @@ const corsOptions = {
     const allowedOrigins = process.env.ALLOWED_ORIGINS
       ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
       : [
-          "https://mediumpurple-dotterel-484503.hostingersite.com",
-          "https://mediumpurple-dotterel-484503.hostingersite.com/",
+          // "https://mediumpurple-dotterel-484503.hostingersite.com",
+          // "https://mediumpurple-dotterel-484503.hostingersite.com/",
           "https://motivata.in",
           "https://motivata.in/",
         ];
