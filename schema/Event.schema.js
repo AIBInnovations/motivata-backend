@@ -210,6 +210,11 @@ const eventSchema = new mongoose.Schema(
           trim: true,
           maxlength: [1000, "Notes cannot exceed 1000 characters"],
         },
+        ticketQuantity: {
+          type: Number,
+          default: 1,
+          min: [1, "Ticket quantity must be at least 1"],
+        },
       },
     ],
 

@@ -5,6 +5,7 @@
 
 import bcrypt from 'bcryptjs';
 import User from '../../schema/User.schema.js';
+import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
 
@@ -384,22 +385,61 @@ export const logout = async (req, res) => {
 };
 
 /**
- * Get user profile
+ * Get user profile with all enrollments
+ * Includes enrollments where user is the buyer (owner) OR where someone else bought a ticket for them
  * @async
  * @param {Object} req - Express request object
  * @param {Object} req.user - Authenticated user from middleware
  * @param {Object} res - Express response object
- * @returns {Promise<Object>} Response with user profile
+ * @returns {Promise<Object>} Response with user profile and enrollments
  */
 export const getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password -refreshToken -isDeleted -deletedAt');
+    const userId = req.user.id;
+
+    const user = await User.findById(userId).select('-password -refreshToken -isDeleted -deletedAt');
 
     if (!user) {
       return responseUtil.notFound(res, 'User not found');
     }
 
-    return responseUtil.success(res, 'Profile retrieved successfully', { user });
+    // Fetch all enrollments where:
+    // 1. User is the owner (buyer) - userId matches
+    // 2. User's phone is a key in the tickets Map (someone bought ticket for them)
+    const enrollments = await EventEnrollment.find({
+      $or: [
+        { userId: userId },
+        { [`tickets.${user.phone}`]: { $exists: true } }
+      ]
+    })
+      .populate('eventId', 'name description startDate endDate mode city price compareAtPrice imageUrls thumbnail location category')
+      .populate('userId', 'name email phone')
+      .sort({ createdAt: -1 });
+
+    // Enrich enrollments with relationship and myTicket info
+    const enrichedEnrollments = enrollments.map(enrollment => {
+      const isOwner = enrollment.userId._id.toString() === userId;
+      const enrollmentObj = enrollment.toObject();
+      const myTicket = enrollment.tickets.get(user.phone) || null;
+
+      return {
+        ...enrollmentObj,
+        relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
+        myTicket: myTicket ? {
+          phone: user.phone,
+          status: myTicket.status,
+          isTicketScanned: myTicket.isTicketScanned,
+          ticketScannedAt: myTicket.ticketScannedAt
+        } : null,
+        // Include all tickets only if user is the owner
+        tickets: isOwner ? enrollmentObj.tickets : undefined
+      };
+    });
+
+    return responseUtil.success(res, 'Profile retrieved successfully', {
+      user,
+      enrollments: enrichedEnrollments
+    });
   } catch (error) {
     console.error('Get profile error:', error);
     return responseUtil.internalError(res, 'Failed to get profile', error.message);
