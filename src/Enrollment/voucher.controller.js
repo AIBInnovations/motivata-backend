@@ -498,6 +498,73 @@ export const releaseVoucherClaim = async (voucherId, phones) => {
   }
 };
 
+/**
+ * Redeem voucher for a phone number
+ * Removes the phone from claimedPhones WITHOUT changing usageCount
+ * This is called when the voucher QR is scanned at the venue
+ *
+ * @param {Object} req - Express request object
+ * @param {string} req.query.phone - Phone number to redeem voucher for
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with redemption status
+ */
+export const redeemVoucher = async (req, res) => {
+  try {
+    const { phone } = req.query;
+
+    console.log('[VOUCHER] Redeeming voucher for phone:', phone);
+
+    if (!phone) {
+      console.log('[VOUCHER] No phone number provided for redemption');
+      return responseUtil.badRequest(res, 'Phone number is required');
+    }
+
+    // Normalize phone number to last 10 digits
+    const normalizedPhone = phone.slice(-10);
+
+    // Validate phone number format
+    if (!/^[0-9]{10}$/.test(normalizedPhone)) {
+      console.log('[VOUCHER] Invalid phone number format:', normalizedPhone);
+      return responseUtil.badRequest(res, 'Invalid phone number format');
+    }
+
+    // Check if voucher exists for this phone
+    const existingVoucher = await Voucher.findByClaimedPhone(normalizedPhone);
+
+    if (!existingVoucher) {
+      console.log('[VOUCHER] No voucher found for phone:', normalizedPhone);
+      return responseUtil.notFound(res, 'No voucher found for this phone number or already redeemed');
+    }
+
+    // Redeem the voucher (remove phone from claimedPhones)
+    const updatedVoucher = await Voucher.redeemVoucher(normalizedPhone);
+
+    if (!updatedVoucher) {
+      console.log('[VOUCHER] Failed to redeem voucher for phone:', normalizedPhone);
+      return responseUtil.badRequest(res, 'Voucher already redeemed or not found');
+    }
+
+    console.log('[VOUCHER] Voucher redeemed successfully:', {
+      voucherId: updatedVoucher._id,
+      code: updatedVoucher.code,
+      phone: normalizedPhone
+    });
+
+    return responseUtil.success(res, 'Voucher redeemed successfully!', {
+      voucher: {
+        id: updatedVoucher._id,
+        code: updatedVoucher.code,
+        title: updatedVoucher.title,
+        description: updatedVoucher.description
+      },
+      redeemedPhone: normalizedPhone
+    });
+  } catch (error) {
+    console.error('[VOUCHER] Redeem voucher error:', error);
+    return responseUtil.internalError(res, 'Failed to redeem voucher', error.message);
+  }
+};
+
 export default {
   createVoucher,
   getAllVouchers,
@@ -510,5 +577,6 @@ export default {
   restoreVoucher,
   permanentDeleteVoucher,
   checkAvailability,
-  releaseVoucherClaim
+  releaseVoucherClaim,
+  redeemVoucher
 };

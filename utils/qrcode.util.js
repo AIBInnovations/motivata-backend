@@ -164,8 +164,153 @@ export const uploadQRCodeToCloudinary = async ({
   }
 };
 
+/**
+ * Generate voucher redemption QR code as PNG buffer
+ *
+ * @param {Object} params - QR code generation parameters
+ * @param {string} params.phone - Phone number for the voucher
+ * @param {string} params.voucherCode - Voucher code for reference
+ * @param {string} [params.baseUrl='https://motivata.synquic.com'] - Base URL for the redemption endpoint
+ *
+ * @returns {Promise<Buffer>} QR code as PNG buffer
+ * @throws {Error} If QR code generation fails
+ */
+export const generateVoucherQRCode = async ({
+  phone,
+  voucherCode,
+  baseUrl = 'https://motivata.synquic.com'
+}) => {
+  try {
+    console.log(`[QR-UTIL] Generating voucher QR code for phone: ${phone}`);
+
+    if (!phone) {
+      throw new Error('Phone number is required for voucher QR code generation');
+    }
+
+    // Normalize phone number
+    const normalizedPhone = phone.slice(-10);
+
+    // Create QR scan URL for voucher redemption
+    const qrScanUrl = `${baseUrl}/api/app/vouchers/redeem-voucher?phone=${normalizedPhone}`;
+
+    console.log(`[QR-UTIL] Voucher QR URL: ${qrScanUrl}`);
+
+    // Generate QR code as buffer with optimized settings
+    const qrBuffer = await QRCode.toBuffer(qrScanUrl, {
+      errorCorrectionLevel: 'H',
+      type: 'png',
+      width: 400,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+
+    console.log(`[QR-UTIL] Voucher QR code generated successfully (${qrBuffer.length} bytes)`);
+
+    return qrBuffer;
+  } catch (error) {
+    console.error(`[QR-UTIL] Failed to generate voucher QR code:`, error);
+    throw new Error(`Voucher QR code generation failed: ${error.message}`);
+  }
+};
+
+/**
+ * Generate filename for voucher QR code
+ *
+ * @param {Object} params - Filename generation parameters
+ * @param {string} params.voucherCode - Voucher code
+ * @param {string} params.phone - Phone number
+ *
+ * @returns {string} Sanitized filename
+ */
+export const generateVoucherQRFilename = ({ voucherCode, phone }) => {
+  // Sanitize voucher code for filename
+  const sanitizedCode = voucherCode
+    .replace(/[^a-zA-Z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .substring(0, 30);
+
+  // Sanitize phone for filename
+  const sanitizedPhone = phone.replace(/[^0-9]/g, '').slice(-10);
+
+  return `voucher-${sanitizedCode}-${sanitizedPhone}.png`;
+};
+
+/**
+ * Upload voucher QR code buffer to Cloudinary and get public URL
+ *
+ * @param {Object} params - Upload parameters
+ * @param {Buffer} params.qrBuffer - QR code as PNG buffer
+ * @param {string} params.voucherCode - Voucher code for folder organization
+ * @param {string} params.phone - Phone number for filename
+ *
+ * @returns {Promise<string>} Public URL of uploaded QR code
+ * @throws {Error} If upload fails
+ */
+export const uploadVoucherQRCodeToCloudinary = async ({
+  qrBuffer,
+  voucherCode,
+  phone
+}) => {
+  try {
+    console.log(`[QR-UPLOAD] ========== STARTING VOUCHER QR CLOUDINARY UPLOAD ==========`);
+    console.log(`[QR-UPLOAD] Input parameters:`);
+    console.log(`[QR-UPLOAD]   - Phone: ${phone}`);
+    console.log(`[QR-UPLOAD]   - Voucher Code: ${voucherCode}`);
+    console.log(`[QR-UPLOAD]   - Buffer size: ${qrBuffer?.length || 0} bytes`);
+
+    if (!qrBuffer || qrBuffer.length === 0) {
+      throw new Error('QR buffer is empty or undefined');
+    }
+
+    // Sanitize voucher code for folder path
+    const sanitizedCode = voucherCode
+      .replace(/[^a-zA-Z0-9-_]/g, '-')
+      .replace(/-+/g, '-')
+      .substring(0, 30);
+
+    // Sanitize phone for public_id
+    const sanitizedPhone = phone.replace(/[^0-9]/g, '').slice(-10);
+
+    const folderPath = `vouchers/${sanitizedCode}`;
+    const publicId = `qr-${sanitizedPhone}`;
+
+    console.log(`[QR-UPLOAD] Upload config:`);
+    console.log(`[QR-UPLOAD]   - Folder: ${folderPath}`);
+    console.log(`[QR-UPLOAD]   - Public ID: ${publicId}`);
+
+    // Convert buffer to base64 data URI
+    const base64Image = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+
+    // Upload to Cloudinary
+    const result = await cloudinary.uploader.upload(base64Image, {
+      folder: folderPath,
+      public_id: publicId,
+      resource_type: 'image',
+      overwrite: true,
+      format: 'png'
+    });
+
+    console.log(`[QR-UPLOAD] ✓ Voucher QR Cloudinary upload successful!`);
+    console.log(`[QR-UPLOAD]   - Secure URL: ${result.secure_url}`);
+    console.log(`[QR-UPLOAD] ========== VOUCHER QR CLOUDINARY UPLOAD COMPLETE ==========`);
+
+    return result.secure_url;
+  } catch (error) {
+    console.error(`[QR-UPLOAD] ✗ FAILED to upload voucher QR code to Cloudinary`);
+    console.error(`[QR-UPLOAD] Error message: ${error.message}`);
+    console.error(`[QR-UPLOAD] ========== VOUCHER QR CLOUDINARY UPLOAD FAILED ==========`);
+    throw new Error(`Voucher QR code upload failed: ${error.message}`);
+  }
+};
+
 export default {
   generateTicketQRCode,
   generateQRFilename,
-  uploadQRCodeToCloudinary
+  uploadQRCodeToCloudinary,
+  generateVoucherQRCode,
+  generateVoucherQRFilename,
+  uploadVoucherQRCodeToCloudinary
 };

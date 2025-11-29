@@ -4,7 +4,7 @@
  */
 
 import express from 'express';
-import { checkAvailability } from './voucher.controller.js';
+import { checkAvailability, redeemVoucher } from './voucher.controller.js';
 import { validateBody, voucherSchemas } from '../../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -58,5 +58,44 @@ router.post(
   validateBody(voucherSchemas.checkAvailability),
   checkAvailability
 );
+
+/**
+ * @route   GET /api/app/vouchers/redeem-voucher
+ * @desc    Redeem voucher for a phone number (QR scan endpoint)
+ * @access  Public
+ *
+ * @query {string} phone - Phone number to redeem voucher for
+ *
+ * @returns {Object} Response with redemption status
+ *
+ * @example
+ * // Request
+ * GET /api/app/vouchers/redeem-voucher?phone=9876543210
+ *
+ * // Success Response (200)
+ * {
+ *   "status": 200,
+ *   "message": "Voucher redeemed successfully!",
+ *   "error": null,
+ *   "data": {
+ *     "voucher": {
+ *       "id": "...",
+ *       "code": "FESTIVAL200",
+ *       "title": "Festival Food Court Discount",
+ *       "description": "Get Rs.200 off at the food court"
+ *     },
+ *     "redeemedPhone": "9876543210"
+ *   }
+ * }
+ *
+ * // Error Response - Already redeemed (404)
+ * {
+ *   "status": 404,
+ *   "message": "No voucher found for this phone number or already redeemed",
+ *   "error": null,
+ *   "data": null
+ * }
+ */
+router.get('/redeem-voucher', redeemVoucher);
 
 export default router;

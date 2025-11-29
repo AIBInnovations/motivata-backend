@@ -20,8 +20,14 @@ import {
   generateTicketEmail,
   generateTicketEmailText
 } from '../../utils/emailTemplate.util.js';
-import { generateTicketQRCode, generateQRFilename, uploadQRCodeToCloudinary } from '../../utils/qrcode.util.js';
-import { sendBulkTicketWhatsApp } from '../../utils/whatsapp.util.js';
+import {
+  generateTicketQRCode,
+  generateQRFilename,
+  uploadQRCodeToCloudinary,
+  generateVoucherQRCode,
+  uploadVoucherQRCodeToCloudinary
+} from '../../utils/qrcode.util.js';
+import { sendBulkTicketWhatsApp, sendBulkVoucherWhatsApp } from '../../utils/whatsapp.util.js';
 
 /**
  * @typedef {Object} RazorpayWebhookPayload
@@ -1169,6 +1175,136 @@ const logCustomerDetails = (payment) => {
 };
 
 /**
+ * Send voucher QR codes via WhatsApp to all claimed phone numbers
+ * Generates QR codes for each phone in metadata and sends via WhatsApp
+ *
+ * @param {Object} payment - Payment document from database
+ * @param {Object} [payment.metadata] - Payment metadata
+ * @param {string} [payment.metadata.voucherId] - Voucher ID if voucher was claimed
+ * @param {Object} [payment.metadata.buyer] - Buyer info with phone and name
+ * @param {Array<Object>} [payment.metadata.others] - Other ticket holders with phones and names
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const sendVoucherQRs = async (payment) => {
+  try {
+    const metadata = payment.metadata || {};
+    const { voucherId } = metadata;
+
+    if (!voucherId) {
+      console.log('[VOUCHER-QR] No voucher ID found in payment metadata - skipping voucher QR sending');
+      return;
+    }
+
+    console.log('[VOUCHER-QR] ========== STARTING VOUCHER QR SENDING ==========');
+    console.log('[VOUCHER-QR] Voucher ID:', voucherId);
+
+    // Fetch voucher details
+    const voucher = await Voucher.findById(voucherId);
+
+    if (!voucher) {
+      console.warn('[VOUCHER-QR] Voucher not found:', voucherId);
+      return;
+    }
+
+    console.log('[VOUCHER-QR] Voucher found:', {
+      code: voucher.code,
+      title: voucher.title,
+      claimedPhones: voucher.claimedPhones.length
+    });
+
+    // Collect all phones and names from buyer and others
+    const phoneNameMap = new Map();
+
+    if (metadata.buyer?.phone) {
+      const normalizedPhone = metadata.buyer.phone.slice(-10);
+      phoneNameMap.set(normalizedPhone, metadata.buyer.name || 'Customer');
+    }
+
+    if (metadata.others && Array.isArray(metadata.others)) {
+      for (const other of metadata.others) {
+        if (other.phone) {
+          const normalizedPhone = other.phone.slice(-10);
+          phoneNameMap.set(normalizedPhone, other.name || 'Customer');
+        }
+      }
+    }
+
+    // Filter to only phones that exist in voucher's claimedPhones
+    const phonesToSend = [];
+    for (const [phone, name] of phoneNameMap.entries()) {
+      if (voucher.claimedPhones.includes(phone)) {
+        phonesToSend.push({ phone, name });
+      }
+    }
+
+    if (phonesToSend.length === 0) {
+      console.log('[VOUCHER-QR] No matching phones found in voucher claimedPhones - skipping');
+      return;
+    }
+
+    console.log('[VOUCHER-QR] Phones to send voucher QR:', phonesToSend);
+
+    // Generate QR codes and prepare WhatsApp messages
+    const whatsappMessages = [];
+
+    for (const { phone, name } of phonesToSend) {
+      try {
+        console.log(`[VOUCHER-QR] Processing voucher QR for phone: ${phone}`);
+
+        // Generate voucher QR code
+        const qrBuffer = await generateVoucherQRCode({
+          phone,
+          voucherCode: voucher.code
+        });
+
+        console.log(`[VOUCHER-QR] ✓ QR code generated for ${phone} (${qrBuffer.length} bytes)`);
+
+        // Upload QR to Cloudinary
+        const qrUrl = await uploadVoucherQRCodeToCloudinary({
+          qrBuffer,
+          voucherCode: voucher.code,
+          phone
+        });
+
+        console.log(`[VOUCHER-QR] ✓ QR code uploaded for ${phone}: ${qrUrl}`);
+
+        // Add to WhatsApp messages queue
+        whatsappMessages.push({
+          phone,
+          name,
+          voucherTitle: voucher.title,
+          qrCodeUrl: qrUrl
+        });
+
+        console.log(`[VOUCHER-QR] ✓ WhatsApp message queued for ${phone}`);
+      } catch (error) {
+        console.error(`[VOUCHER-QR] ✗ Failed to process voucher QR for ${phone}:`, error.message);
+        // Continue with other phones even if one fails
+      }
+    }
+
+    // Send WhatsApp messages
+    if (whatsappMessages.length > 0) {
+      try {
+        console.log(`[VOUCHER-QR] Sending ${whatsappMessages.length} voucher WhatsApp message(s)...`);
+        await sendBulkVoucherWhatsApp(whatsappMessages);
+        console.log('[VOUCHER-QR] ✓ Voucher WhatsApp messages sent successfully');
+      } catch (whatsappError) {
+        console.error(`[VOUCHER-QR] ✗ Voucher WhatsApp sending failed:`, whatsappError.message);
+      }
+    }
+
+    console.log('[VOUCHER-QR] ========== VOUCHER QR SENDING COMPLETE ==========');
+
+  } catch (error) {
+    console.error('[VOUCHER-QR] ✗ Error in voucher QR sending process:', error.message);
+    // Don't throw - webhook should still succeed even if voucher QR sending fails
+  }
+};
+
+/**
  * Update related entities after successful payment
  * Increments coupon usage count, creates event enrollment, and sends confirmation emails
  *
@@ -1190,6 +1326,9 @@ const updateRelatedEntities = async (payment) => {
     const { enrollment, buyerUser, otherUsers, event } = enrollmentData;
     await sendEnrollmentEmails(payment, enrollment, buyerUser, otherUsers, event);
   }
+
+  // Send voucher QR codes if voucher was used
+  await sendVoucherQRs(payment);
 
   // Increment coupon usage if coupon was used
   if (payment.couponCode) {

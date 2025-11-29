@@ -10,8 +10,8 @@ import User from "../../schema/User.schema.js";
 import Admin from "../../schema/Admin.schema.js";
 import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
-import { sendTicketWhatsApp, sendRedemptionLinkWhatsApp } from "../../utils/whatsapp.util.js";
-import { uploadQRCodeToCloudinary } from "../../utils/qrcode.util.js";
+import { sendTicketWhatsApp, sendRedemptionLinkWhatsApp, sendBulkVoucherWhatsApp } from "../../utils/whatsapp.util.js";
+import { uploadQRCodeToCloudinary, generateVoucherQRCode, uploadVoucherQRCodeToCloudinary } from "../../utils/qrcode.util.js";
 import bcrypt from "bcrypt";
 import QRCode from "qrcode";
 
@@ -545,6 +545,76 @@ export const redeemTickets = async (req, res) => {
       record.redeemed = true;
       record.redeemedAt = new Date();
       await record.save();
+    }
+
+    // Send voucher QR codes if voucher was claimed
+    if (claimedVoucher && createdEnrollments.length > 0) {
+      try {
+        console.log('[OFFLINE_CASH] ========== SENDING VOUCHER QR CODES ==========');
+        console.log('[OFFLINE_CASH] Voucher:', claimedVoucher.code);
+
+        const voucherWhatsappMessages = [];
+
+        for (const enrollment of createdEnrollments) {
+          try {
+            const normalizedPhone = enrollment.phone;
+
+            // Check if this phone is in voucher's claimedPhones
+            if (!claimedVoucher.claimedPhones.includes(normalizedPhone)) {
+              console.log(`[OFFLINE_CASH] Phone ${normalizedPhone} not in voucher claimedPhones - skipping`);
+              continue;
+            }
+
+            console.log(`[OFFLINE_CASH] Generating voucher QR for phone: ${normalizedPhone}`);
+
+            // Generate voucher QR code
+            const qrBuffer = await generateVoucherQRCode({
+              phone: normalizedPhone,
+              voucherCode: claimedVoucher.code
+            });
+
+            console.log(`[OFFLINE_CASH] ✓ Voucher QR generated (${qrBuffer.length} bytes)`);
+
+            // Upload QR to Cloudinary
+            const qrUrl = await uploadVoucherQRCodeToCloudinary({
+              qrBuffer,
+              voucherCode: claimedVoucher.code,
+              phone: normalizedPhone
+            });
+
+            console.log(`[OFFLINE_CASH] ✓ Voucher QR uploaded: ${qrUrl}`);
+
+            // Add to WhatsApp messages queue
+            voucherWhatsappMessages.push({
+              phone: normalizedPhone,
+              name: enrollment.name,
+              voucherTitle: claimedVoucher.title,
+              qrCodeUrl: qrUrl
+            });
+
+            console.log(`[OFFLINE_CASH] ✓ Voucher WhatsApp message queued for ${normalizedPhone}`);
+          } catch (voucherQrErr) {
+            console.error(`[OFFLINE_CASH] ✗ Voucher QR error for ${enrollment.phone}:`, voucherQrErr.message);
+            // Continue with other phones
+          }
+        }
+
+        // Send WhatsApp messages for vouchers
+        if (voucherWhatsappMessages.length > 0) {
+          try {
+            console.log(`[OFFLINE_CASH] Sending ${voucherWhatsappMessages.length} voucher WhatsApp message(s)...`);
+            await sendBulkVoucherWhatsApp(voucherWhatsappMessages);
+            console.log('[OFFLINE_CASH] ✓ Voucher WhatsApp messages sent successfully');
+          } catch (whatsappErr) {
+            console.error('[OFFLINE_CASH] ✗ Voucher WhatsApp sending failed:', whatsappErr.message);
+          }
+        }
+
+        console.log('[OFFLINE_CASH] ========== VOUCHER QR SENDING COMPLETE ==========');
+      } catch (voucherQrError) {
+        console.error('[OFFLINE_CASH] ✗ Error in voucher QR sending process:', voucherQrError.message);
+        // Don't fail the redemption if voucher QR sending fails
+      }
     }
 
     return responseUtil.success(res, "Tickets redeemed", {

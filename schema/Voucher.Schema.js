@@ -252,6 +252,49 @@ voucherSchema.statics.releaseVoucher = async function(voucherId, phones) {
   return voucher;
 };
 
+/**
+ * Redeem voucher for a phone number
+ * Removes phone from claimedPhones WITHOUT changing usageCount
+ * Used when voucher is actually redeemed/used at venue
+ *
+ * @param {string} phone - Phone number to redeem
+ * @returns {Promise<Object|null>} Updated voucher or null if not found/already redeemed
+ */
+voucherSchema.statics.redeemVoucher = async function(phone) {
+  const normalizedPhone = phone.slice(-10);
+
+  // Find voucher containing this phone and remove it
+  const voucher = await this.findOneAndUpdate(
+    {
+      claimedPhones: normalizedPhone,
+      isActive: true,
+      isDeleted: false
+    },
+    {
+      $pull: { claimedPhones: normalizedPhone }
+    },
+    { new: true }
+  );
+
+  return voucher;
+};
+
+/**
+ * Find voucher by phone number in claimedPhones
+ *
+ * @param {string} phone - Phone number to search
+ * @returns {Promise<Object|null>} Voucher document or null
+ */
+voucherSchema.statics.findByClaimedPhone = async function(phone) {
+  const normalizedPhone = phone.slice(-10);
+
+  return this.findOne({
+    claimedPhones: normalizedPhone,
+    isActive: true,
+    isDeleted: false
+  });
+};
+
 const Voucher = mongoose.model('Voucher', voucherSchema);
 
 export default Voucher;

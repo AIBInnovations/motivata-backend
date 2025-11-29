@@ -336,8 +336,174 @@ export const sendBulkTicketWhatsApp = async (messages) => {
   }
 };
 
+/**
+ * Send WhatsApp template message with voucher QR code
+ *
+ * @param {Object} params - Message parameters
+ * @param {string} params.phone - Recipient phone number
+ * @param {string} params.name - Recipient name
+ * @param {string} params.voucherTitle - Voucher title for template variable
+ * @param {string} params.qrCodeUrl - URL to the voucher QR code image
+ *
+ * @returns {Promise<Object>} API response
+ * @throws {Error} If message sending fails
+ */
+export const sendVoucherWhatsApp = async ({
+  phone,
+  name,
+  voucherTitle,
+  qrCodeUrl,
+}) => {
+  try {
+    console.log(`[WHATSAPP] ========== STARTING VOUCHER WHATSAPP SEND ==========`);
+
+    // Validate config
+    validateWhatsAppConfig();
+    console.log(`[WHATSAPP] Config validated`);
+
+    const formattedPhone = formatPhoneNumber(phone);
+    const { first_name, last_name } = splitName(name);
+
+    console.log(`[WHATSAPP] Voucher recipient details:`);
+    console.log(`[WHATSAPP]   - Original phone: ${phone}`);
+    console.log(`[WHATSAPP]   - Formatted phone: ${formattedPhone}`);
+    console.log(`[WHATSAPP]   - Name: ${first_name} ${last_name}`);
+    console.log(`[WHATSAPP]   - Voucher Title: ${voucherTitle}`);
+    console.log(`[WHATSAPP]   - QR Code URL: ${qrCodeUrl}`);
+
+    const apiUrl = `${WHATSAPP_API_BASE_URL}/${process.env.WHATSAPP_VENDOR_UID}/contact/send-template-message`;
+
+    const requestBody = {
+      phone_number: formattedPhone,
+      template_name: "wp_voucher_2",
+      template_language: "en_US",
+      templateArgs: {
+        header_image: qrCodeUrl,
+        field_1: voucherTitle,
+      },
+      contact: {
+        first_name,
+        last_name,
+        country: "India",
+      },
+    };
+
+    console.log(`[WHATSAPP] API URL: ${apiUrl}`);
+    console.log(`[WHATSAPP] Request body:`, JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "X-API-Key": process.env.WHATSAPP_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log(`[WHATSAPP] Response status: ${response.status} ${response.statusText}`);
+
+    const responseText = await response.text();
+    console.log(`[WHATSAPP] Raw response: ${responseText}`);
+
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`[WHATSAPP] Failed to parse response as JSON`);
+      throw new Error(`Invalid JSON response: ${responseText}`);
+    }
+
+    console.log(`[WHATSAPP] Parsed response:`, JSON.stringify(responseData, null, 2));
+
+    if (!response.ok) {
+      console.error(`[WHATSAPP] ✗ API Error - Status: ${response.status}`);
+      console.error(`[WHATSAPP] ✗ Error details:`, responseData);
+      throw new Error(
+        responseData.message || responseData.error || `HTTP ${response.status}: WhatsApp API error`
+      );
+    }
+
+    console.log(`[WHATSAPP] ✓ Voucher message sent successfully!`);
+    console.log(`[WHATSAPP]   - Message ID: ${responseData.message_id}`);
+    console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
+    console.log(`[WHATSAPP] ========== VOUCHER WHATSAPP SEND COMPLETE ==========`);
+
+    return {
+      success: true,
+      messageId: responseData.message_id,
+      recipient: formattedPhone,
+    };
+  } catch (error) {
+    console.error(`[WHATSAPP] ✗ FAILED to send voucher message to ${phone}`);
+    console.error(`[WHATSAPP] Error type: ${error.name}`);
+    console.error(`[WHATSAPP] Error message: ${error.message}`);
+    console.error(`[WHATSAPP] Error stack:`, error.stack);
+    console.error(`[WHATSAPP] ========== VOUCHER WHATSAPP SEND FAILED ==========`);
+    throw new Error(`Failed to send voucher WhatsApp message to ${phone}: ${error.message}`);
+  }
+};
+
+/**
+ * Send WhatsApp voucher messages to multiple recipients
+ *
+ * @param {Array<Object>} messages - Array of message options
+ * @param {string} messages[].phone - Recipient phone number
+ * @param {string} messages[].name - Recipient name
+ * @param {string} messages[].voucherTitle - Voucher title
+ * @param {string} messages[].qrCodeUrl - QR code image URL
+ *
+ * @returns {Promise<Array<Object>>} Array of send results
+ */
+export const sendBulkVoucherWhatsApp = async (messages) => {
+  try {
+    console.log(
+      `[WHATSAPP] Starting bulk voucher send: ${messages.length} message(s) queued`
+    );
+
+    const results = await Promise.allSettled(
+      messages.map((messageOptions) => sendVoucherWhatsApp(messageOptions))
+    );
+
+    const successful = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+
+    if (failed === 0) {
+      console.log(
+        `[WHATSAPP] ✓ Bulk voucher send complete: All ${successful} message(s) sent successfully`
+      );
+    } else {
+      console.log(
+        `[WHATSAPP] ⚠ Bulk voucher send complete: ${successful} succeeded, ${failed} failed`
+      );
+
+      // Log failed recipients
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error(
+            `[WHATSAPP]   ✗ ${messages[index].phone}: ${result.reason.message}`
+          );
+        }
+      });
+    }
+
+    return results.map((result, index) => ({
+      recipient: messages[index].phone,
+      status: result.status,
+      data: result.status === "fulfilled" ? result.value : null,
+      error: result.status === "rejected" ? result.reason.message : null,
+    }));
+  } catch (error) {
+    console.error(
+      `[WHATSAPP] ✗ Critical error in bulk voucher WhatsApp sending: ${error.message}`
+    );
+    throw error;
+  }
+};
+
 export default {
   sendTicketWhatsApp,
   sendBulkTicketWhatsApp,
   sendRedemptionLinkWhatsApp,
+  sendVoucherWhatsApp,
+  sendBulkVoucherWhatsApp,
 };
