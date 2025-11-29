@@ -1,11 +1,20 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // route imports
 import adminRoutes from "../routes/admin.routes.js";
 import appRoutes from "../routes/app.routes.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
+
+// Set up EJS as view engine
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "../views"));
 
 // CORS configuration
 const corsOptions = {
@@ -26,6 +35,8 @@ const corsOptions = {
           "https://motivata.in/",
           "https://lightslategrey-baboon-874891.hostingersite.com/",
           "https://lightslategrey-baboon-874891.hostingersite.com",
+          "http://localhost:5173",
+          "http://localhost:5173/",
         ];
 
     if (!origin || allowedOrigins.includes(origin)) {

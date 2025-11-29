@@ -18,18 +18,29 @@ const adminSchema = new mongoose.Schema(
           .join(" ");
       },
     },
-    email: {
+    username: {
       type: String,
       required: true,
       unique: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 50,
+      lowercase: true,
+    },
+    email: {
+      type: String,
+      required: false,
+      unique: true,
+      sparse: true,
       trim: true,
       minlength: 5,
       lowercase: true,
     },
     phone: {
       type: String,
-      required: true,
+      required: false,
       unique: true,
+      sparse: true,
       trim: true,
       minlength: 10,
     },
@@ -40,9 +51,15 @@ const adminSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["SUPER_ADMIN", "MANAGEMENT_STAFF"],
+      enum: ["ADMIN", "SUPER_ADMIN", "MANAGEMENT_STAFF"],
       default: "MANAGEMENT_STAFF",
     },
+    allowedEvents: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Event",
+      },
+    ],
     access: {
       type: [String],
       default: [],
@@ -67,7 +84,7 @@ const adminSchema = new mongoose.Schema(
 );
 
 // Index for faster queries
-adminSchema.index({ email: 1 });
+adminSchema.index({ username: 1 });
 adminSchema.index({ status: 1 });
 
 export default mongoose.model("Admin", adminSchema);

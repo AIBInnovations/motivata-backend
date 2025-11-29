@@ -14,7 +14,8 @@ import {
   getDeletedEvents,
   permanentDeleteEvent,
   updateExpiredEvents,
-  getEventTicketStats
+  getEventTicketStats,
+  getEventsForDropdown
 } from './event.controller.js';
 import { authenticate, isAdmin, isSuperAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, eventSchemas } from '../../middleware/validation.middleware.js';
@@ -68,6 +69,18 @@ router.get(
 router.post(
   '/update-expired',
   updateExpiredEvents
+);
+
+/**
+ * @route   GET /api/web/events/dropdown
+ * @desc    Get all events for dropdown (lightweight - _id, name, startDate, isLive, category)
+ * @access  Admin
+ * @query   {boolean} [isLive] - Filter by live status
+ * @query   {string} [search] - Search by event name
+ */
+router.get(
+  '/dropdown',
+  getEventsForDropdown
 );
 
 /**

@@ -7,6 +7,7 @@
 import { verifyWebhookSignature } from '../../utils/razorpay.util.js';
 import Payment from '../../schema/Payment.schema.js';
 import Coupon from '../../schema/Coupon.schema.js';
+import Voucher from '../../schema/Voucher.Schema.js';
 import User from '../../schema/User.schema.js';
 import Event from '../../schema/Event.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
@@ -297,6 +298,9 @@ const handlePaymentFailed = async (paymentEntity) => {
   await payment.save();
 
   console.log(`✓ Payment marked as failed for order: ${orderId}`);
+
+  // Release voucher claim if voucher was used
+  await releaseVoucherClaim(payment);
 };
 
 /**
@@ -453,6 +457,9 @@ const handlePaymentLinkCancelled = async (paymentLinkEntity) => {
   await payment.save();
 
   console.log(`✓ Payment link cancelled for order: ${orderId}`);
+
+  // Release voucher claim if voucher was used
+  await releaseVoucherClaim(payment);
 };
 
 /**
@@ -482,6 +489,9 @@ const handlePaymentLinkExpired = async (paymentLinkEntity) => {
   await payment.save();
 
   console.log(`✓ Payment link expired for order: ${orderId}`);
+
+  // Release voucher claim if voucher was used
+  await releaseVoucherClaim(payment);
 };
 
 /**
@@ -1035,6 +1045,49 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
 };
 
 /**
+ * Release voucher claim when payment fails
+ * Extracts voucher info from payment metadata and releases the claim
+ *
+ * @param {Object} payment - Payment document from database
+ * @param {Object} [payment.metadata] - Payment metadata
+ * @param {string} [payment.metadata.voucherId] - Voucher ID if voucher was claimed
+ * @param {Array<string>} [payment.metadata.voucherPhones] - Phone numbers that claimed the voucher
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const releaseVoucherClaim = async (payment) => {
+  try {
+    const { voucherId, voucherPhones } = payment.metadata || {};
+
+    if (!voucherId || !voucherPhones || voucherPhones.length === 0) {
+      console.log('[VOUCHER-RELEASE] No voucher claim to release for this payment');
+      return;
+    }
+
+    console.log('[VOUCHER-RELEASE] Releasing voucher claim:', {
+      voucherId,
+      phones: voucherPhones
+    });
+
+    const voucher = await Voucher.releaseVoucher(voucherId, voucherPhones);
+
+    if (voucher) {
+      console.log('[VOUCHER-RELEASE] ✓ Voucher claim released successfully:', {
+        voucherId,
+        newUsageCount: voucher.usageCount,
+        releasedPhones: voucherPhones
+      });
+    } else {
+      console.warn('[VOUCHER-RELEASE] Voucher not found for release:', voucherId);
+    }
+  } catch (error) {
+    console.error('[VOUCHER-RELEASE] ✗ Error releasing voucher claim:', error.message);
+    // Don't throw - webhook should still succeed even if voucher release fails
+  }
+};
+
+/**
  * Log customer details from payment metadata
  * Logs all customer information for club/combo purchases
  *
@@ -1183,6 +1236,9 @@ const reverseRelatedEntities = async (payment) => {
 
   // Handle enrollment refund
   await handleEnrollmentRefund(payment);
+
+  // Release voucher claim if voucher was used
+  await releaseVoucherClaim(payment);
 
   // Decrement coupon usage if coupon was used
   if (payment.couponCode) {

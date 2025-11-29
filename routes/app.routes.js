@@ -5,6 +5,7 @@ import userCouponRoutes from "../src/Enrollment/user.coupon.route.js";
 import userPaymentRoutes from "../src/Enrollment/user.payment.route.js";
 import userEnrollmentRoutes from "../src/Enrollment/user.enrollment.route.js";
 import userTicketRoutes from "../src/Enrollment/user.ticket.route.js";
+import userVoucherRoutes from "../src/Enrollment/voucher.user.route.js";
 import responseUtil from "../utils/response.util.js";
 
 const router = express.Router();
@@ -31,6 +32,9 @@ router.use("/enrollments", userEnrollmentRoutes);
 
 // Ticket routes - /api/app/tickets
 router.use("/tickets", userTicketRoutes);
+
+// Voucher routes - /api/app/vouchers
+router.use("/vouchers", userVoucherRoutes);
 
 // Add more user routes here as needed
 // Example:

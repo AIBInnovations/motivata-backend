@@ -10,7 +10,17 @@ import {
   generateMockQRLink,
   scanQRCode
 } from './ticket.controller.js';
+import {
+  validateRedemptionLink,
+  redeemTickets,
+  scanCashTicket,
+} from '../cash/offlineCash.controller.js';
 import { authenticate } from '../../middleware/auth.middleware.js';
+import {
+  validateBody,
+  validateQuery,
+  offlineCashSchemas,
+} from '../../middleware/validation.middleware.js';
 
 const router = express.Router();
 
@@ -27,6 +37,39 @@ router.get('/mock/qr', generateMockQRLink);
  * @access  Public (no auth)
  */
 router.get('/qr-scan', scanQRCode);
+
+/**
+ * @route   GET /api/app/tickets/redeem
+ * @desc    Validate redemption link and get form data
+ * @access  Public (no auth)
+ */
+router.get(
+  '/redeem',
+  validateQuery(offlineCashSchemas.validateLink),
+  validateRedemptionLink
+);
+
+/**
+ * @route   POST /api/app/tickets/redeem
+ * @desc    Submit redemption form and create enrollments
+ * @access  Public (no auth)
+ */
+router.post(
+  '/redeem',
+  validateBody(offlineCashSchemas.redeem),
+  redeemTickets
+);
+
+/**
+ * @route   GET /api/app/tickets/cash/qr-scan
+ * @desc    Scan cash ticket QR code
+ * @access  Public (no auth)
+ */
+router.get(
+  '/cash/qr-scan',
+  validateQuery(offlineCashSchemas.scanTicket),
+  scanCashTicket
+);
 
 /**
  * All routes below require authentication

@@ -18,8 +18,9 @@ const router = express.Router();
  * @route POST /api/web/auth/register
  * @description Register first super admin (only works when no admins exist)
  * @body {string} name - Admin name
- * @body {string} email - Admin email
- * @body {string} phone - Admin phone
+ * @body {string} username - Admin username
+ * @body {string} [email] - Admin email (optional)
+ * @body {string} [phone] - Admin phone (optional)
  * @body {string} password - Admin password
  * @returns {Object} Admin data and tokens
  */
@@ -31,7 +32,7 @@ router.post('/register',
 /**
  * @route POST /api/web/auth/login
  * @description Admin login
- * @body {string} email - Admin email
+ * @body {string} username - Admin username
  * @body {string} password - Admin password
  * @returns {Object} Admin data and tokens
  */
@@ -84,6 +85,7 @@ router.get('/profile',
  * @description Update admin profile
  * @header {string} Authorization - Bearer token
  * @body {string} [name] - Admin name
+ * @body {string} [username] - Admin username
  * @body {string} [email] - Admin email
  * @body {string} [phone] - Admin phone
  * @returns {Object} Updated admin profile
@@ -119,8 +121,9 @@ router.put('/change-password',
  * @description Create new admin (Super Admin only)
  * @header {string} Authorization - Bearer token
  * @body {string} name - Admin name
- * @body {string} email - Admin email
- * @body {string} phone - Admin phone
+ * @body {string} username - Admin username
+ * @body {string} [email] - Admin email (optional)
+ * @body {string} [phone] - Admin phone (optional)
  * @body {string} password - Admin password
  * @body {string} [role] - Admin role
  * @body {string[]} [access] - Admin access permissions
@@ -170,6 +173,7 @@ router.get('/admins/:id',
  * @header {string} Authorization - Bearer token
  * @param {string} id - Admin ID
  * @body {string} [name] - Admin name
+ * @body {string} [username] - Admin username
  * @body {string} [email] - Admin email
  * @body {string} [phone] - Admin phone
  * @body {string} [role] - Admin role
@@ -197,6 +201,70 @@ router.delete('/admins/:id',
   isSuperAdmin,
   validateParams({ id: schemas.mongoId.required() }),
   adminAuthController.deleteAdminById
+);
+
+/**
+ * Allowed Events Management Routes (Super Admin only)
+ */
+
+/**
+ * @route GET /api/web/auth/admins/:id/allowed-events
+ * @description Get allowed events for an admin (Super Admin only)
+ * @header {string} Authorization - Bearer token
+ * @param {string} id - Admin ID
+ * @returns {Object} List of allowed events
+ */
+router.get('/admins/:id/allowed-events',
+  authenticate,
+  isSuperAdmin,
+  validateParams({ id: schemas.mongoId.required() }),
+  adminAuthController.getAllowedEvents
+);
+
+/**
+ * @route PUT /api/web/auth/admins/:id/allowed-events
+ * @description Update allowed events for an admin (Super Admin only)
+ * @header {string} Authorization - Bearer token
+ * @param {string} id - Admin ID
+ * @body {string[]} allowedEvents - Array of event IDs
+ * @returns {Object} Updated admin data
+ */
+router.put('/admins/:id/allowed-events',
+  authenticate,
+  isSuperAdmin,
+  validateParams({ id: schemas.mongoId.required() }),
+  validateBody(adminSchemas.updateAllowedEvents),
+  adminAuthController.updateAllowedEvents
+);
+
+/**
+ * @route POST /api/web/auth/admins/:id/allowed-events/:eventId
+ * @description Add event to admin's allowed events (Super Admin only)
+ * @header {string} Authorization - Bearer token
+ * @param {string} id - Admin ID
+ * @param {string} eventId - Event ID to add
+ * @returns {Object} Updated admin data
+ */
+router.post('/admins/:id/allowed-events/:eventId',
+  authenticate,
+  isSuperAdmin,
+  validateParams({ id: schemas.mongoId.required(), eventId: schemas.mongoId.required() }),
+  adminAuthController.addAllowedEvent
+);
+
+/**
+ * @route DELETE /api/web/auth/admins/:id/allowed-events/:eventId
+ * @description Remove event from admin's allowed events (Super Admin only)
+ * @header {string} Authorization - Bearer token
+ * @param {string} id - Admin ID
+ * @param {string} eventId - Event ID to remove
+ * @returns {Object} Updated admin data
+ */
+router.delete('/admins/:id/allowed-events/:eventId',
+  authenticate,
+  isSuperAdmin,
+  validateParams({ id: schemas.mongoId.required(), eventId: schemas.mongoId.required() }),
+  adminAuthController.removeAllowedEvent
 );
 
 export default router;

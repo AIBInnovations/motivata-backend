@@ -481,6 +481,40 @@ export const getEventTicketStats = async (req, res) => {
   }
 };
 
+/**
+ * Get all events for dropdown (lightweight - only _id and name)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with events list for dropdown
+ */
+export const getEventsForDropdown = async (req, res) => {
+  try {
+    const { isLive, search } = req.query;
+
+    const query = {};
+
+    // Optional filter for live events only
+    if (typeof isLive !== 'undefined') {
+      query.isLive = isLive === 'true';
+    }
+
+    // Optional search filter
+    if (search) {
+      query.name = new RegExp(search, 'i');
+    }
+
+    const events = await Event.find(query)
+      .select('_id name startDate isLive category')
+      .sort({ name: 1 })
+      .lean();
+
+    return responseUtil.success(res, 'Events fetched successfully', { events });
+  } catch (error) {
+    console.error('Get events for dropdown error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch events', error.message);
+  }
+};
+
 export default {
   createEvent,
   getAllEvents,
@@ -493,5 +527,6 @@ export default {
   updateExpiredEvents,
   getUpcomingEvents,
   getEventsByCategory,
-  getEventTicketStats
+  getEventTicketStats,
+  getEventsForDropdown
 };

@@ -14,8 +14,9 @@ import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
  * @param {Object} req - Express request object
  * @param {Object} req.body - Request body
  * @param {string} req.body.name - Admin name
- * @param {string} req.body.email - Admin email
- * @param {string} req.body.phone - Admin phone
+ * @param {string} req.body.username - Admin username
+ * @param {string} [req.body.email] - Admin email (optional)
+ * @param {string} [req.body.phone] - Admin phone (optional)
  * @param {string} req.body.password - Admin password
  * @param {string} [req.body.role] - Admin role
  * @param {string[]} [req.body.access] - Admin access permissions
@@ -24,18 +25,31 @@ import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
  */
 export const register = async (req, res) => {
   try {
-    const { name, email, phone, password, role, access } = req.body;
+    const { name, username, email, phone, password, role, access, allowedEvents } = req.body;
 
-    // Check if admin already exists
-    const existingAdmin = await Admin.findOne({
-      $or: [{ email }, { phone }]
-    });
+    // Check if username already exists
+    const existingByUsername = await Admin.findOne({ username });
+    if (existingByUsername) {
+      return responseUtil.conflict(res, 'Username already taken');
+    }
 
-    if (existingAdmin) {
-      if (existingAdmin.email === email) {
-        return responseUtil.conflict(res, 'Email already registered');
+    // Check if email or phone already exists (only if provided)
+    if (email || phone) {
+      const existingAdmin = await Admin.findOne({
+        $or: [
+          ...(email ? [{ email }] : []),
+          ...(phone ? [{ phone }] : [])
+        ]
+      });
+
+      if (existingAdmin) {
+        if (email && existingAdmin.email === email) {
+          return responseUtil.conflict(res, 'Email already registered');
+        }
+        if (phone && existingAdmin.phone === phone) {
+          return responseUtil.conflict(res, 'Phone number already registered');
+        }
       }
-      return responseUtil.conflict(res, 'Phone number already registered');
     }
 
     // Hash password
@@ -45,11 +59,13 @@ export const register = async (req, res) => {
     // Create new admin
     const admin = new Admin({
       name,
-      email,
-      phone,
+      username,
+      email: email || undefined,
+      phone: phone || undefined,
       password: hashedPassword,
       role: role || 'MANAGEMENT_STAFF',
-      access: access || []
+      access: access || [],
+      allowedEvents: allowedEvents || []
     });
 
     await admin.save();
@@ -57,7 +73,7 @@ export const register = async (req, res) => {
     // Generate tokens
     const tokens = generateTokens({
       id: admin._id.toString(),
-      email: admin.email,
+      username: admin.username,
       role: admin.role,
       userType: 'admin'
     });
@@ -87,20 +103,20 @@ export const register = async (req, res) => {
  * @async
  * @param {Object} req - Express request object
  * @param {Object} req.body - Request body
- * @param {string} req.body.email - Admin email
+ * @param {string} req.body.username - Admin username
  * @param {string} req.body.password - Admin password
  * @param {Object} res - Express response object
  * @returns {Promise<Object>} Response with admin data and tokens
  */
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { username, password } = req.body;
 
     // Find admin
-    const admin = await Admin.findOne({ email });
+    const admin = await Admin.findOne({ username });
 
     if (!admin) {
-      return responseUtil.unauthorized(res, 'Invalid email or password');
+      return responseUtil.unauthorized(res, 'Invalid username or password');
     }
 
     // Check if admin is activated
@@ -112,13 +128,13 @@ export const login = async (req, res) => {
     const isPasswordValid = await bcrypt.compare(password, admin.password);
 
     if (!isPasswordValid) {
-      return responseUtil.unauthorized(res, 'Invalid email or password');
+      return responseUtil.unauthorized(res, 'Invalid username or password');
     }
 
     // Generate tokens
     const tokens = generateTokens({
       id: admin._id.toString(),
-      email: admin.email,
+      username: admin.username,
       role: admin.role,
       access: admin.access,
       userType: 'admin'
@@ -238,7 +254,18 @@ export const getProfile = async (req, res) => {
  */
 export const updateProfile = async (req, res) => {
   try {
-    const { name, email, phone } = req.body;
+    const { name, username, email, phone } = req.body;
+
+    // Check if username already exists
+    if (username) {
+      const existingByUsername = await Admin.findOne({
+        _id: { $ne: req.user.id },
+        username
+      });
+      if (existingByUsername) {
+        return responseUtil.conflict(res, 'Username already taken');
+      }
+    }
 
     // Check if email or phone already exists
     if (email || phone) {
@@ -251,16 +278,18 @@ export const updateProfile = async (req, res) => {
       });
 
       if (existingAdmin) {
-        if (existingAdmin.email === email) {
+        if (email && existingAdmin.email === email) {
           return responseUtil.conflict(res, 'Email already in use');
         }
-        return responseUtil.conflict(res, 'Phone number already in use');
+        if (phone && existingAdmin.phone === phone) {
+          return responseUtil.conflict(res, 'Phone number already in use');
+        }
       }
     }
 
     const admin = await Admin.findByIdAndUpdate(
       req.user.id,
-      { name, email, phone },
+      { name, username, email, phone },
       { new: true, runValidators: true }
     ).select('-password -refreshToken');
 
@@ -347,6 +376,7 @@ export const getAllAdmins = async (req, res) => {
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },
+        { username: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } }
       ];
@@ -414,7 +444,18 @@ export const getAdminById = async (req, res) => {
  */
 export const updateAdminById = async (req, res) => {
   try {
-    const { name, email, phone, role, access, status } = req.body;
+    const { name, username, email, phone, role, access, allowedEvents, status } = req.body;
+
+    // Check if username already exists
+    if (username) {
+      const existingByUsername = await Admin.findOne({
+        _id: { $ne: req.params.id },
+        username
+      });
+      if (existingByUsername) {
+        return responseUtil.conflict(res, 'Username already taken');
+      }
+    }
 
     // Check if email or phone already exists
     if (email || phone) {
@@ -427,16 +468,18 @@ export const updateAdminById = async (req, res) => {
       });
 
       if (existingAdmin) {
-        if (existingAdmin.email === email) {
+        if (email && existingAdmin.email === email) {
           return responseUtil.conflict(res, 'Email already in use');
         }
-        return responseUtil.conflict(res, 'Phone number already in use');
+        if (phone && existingAdmin.phone === phone) {
+          return responseUtil.conflict(res, 'Phone number already in use');
+        }
       }
     }
 
     const admin = await Admin.findByIdAndUpdate(
       req.params.id,
-      { name, email, phone, role, access, status },
+      { name, username, email, phone, role, access, allowedEvents, status },
       { new: true, runValidators: true }
     ).select('-password -refreshToken');
 
@@ -480,6 +523,130 @@ export const deleteAdminById = async (req, res) => {
   }
 };
 
+/**
+ * Get allowed events for an admin (Super Admin only)
+ * @async
+ * @param {Object} req - Express request object
+ * @param {Object} req.params - Request parameters
+ * @param {string} req.params.id - Admin ID
+ * @param {Object} res - Express response object
+ * @returns {Promise<Object>} Response with allowed events
+ */
+export const getAllowedEvents = async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.params.id)
+      .select('allowedEvents')
+      .populate('allowedEvents', 'name startDate endDate isLive category');
+
+    if (!admin) {
+      return responseUtil.notFound(res, 'Admin not found');
+    }
+
+    return responseUtil.success(res, 'Allowed events retrieved successfully', {
+      allowedEvents: admin.allowedEvents
+    });
+  } catch (error) {
+    console.error('Get allowed events error:', error);
+    return responseUtil.internalError(res, 'Failed to get allowed events', error.message);
+  }
+};
+
+/**
+ * Update allowed events for an admin (Super Admin only)
+ * @async
+ * @param {Object} req - Express request object
+ * @param {Object} req.params - Request parameters
+ * @param {string} req.params.id - Admin ID
+ * @param {Object} req.body - Request body
+ * @param {string[]} req.body.allowedEvents - Array of event IDs
+ * @param {Object} res - Express response object
+ * @returns {Promise<Object>} Response with updated admin
+ */
+export const updateAllowedEvents = async (req, res) => {
+  try {
+    const { allowedEvents } = req.body;
+
+    const admin = await Admin.findByIdAndUpdate(
+      req.params.id,
+      { allowedEvents },
+      { new: true, runValidators: true }
+    )
+      .select('-password -refreshToken')
+      .populate('allowedEvents', 'name startDate endDate isLive category');
+
+    if (!admin) {
+      return responseUtil.notFound(res, 'Admin not found');
+    }
+
+    return responseUtil.success(res, 'Allowed events updated successfully', { admin });
+  } catch (error) {
+    console.error('Update allowed events error:', error);
+    return responseUtil.internalError(res, 'Failed to update allowed events', error.message);
+  }
+};
+
+/**
+ * Add event to admin's allowed events (Super Admin only)
+ * @async
+ * @param {Object} req - Express request object
+ * @param {Object} req.params - Request parameters
+ * @param {string} req.params.id - Admin ID
+ * @param {string} req.params.eventId - Event ID to add
+ * @param {Object} res - Express response object
+ * @returns {Promise<Object>} Response with updated admin
+ */
+export const addAllowedEvent = async (req, res) => {
+  try {
+    const admin = await Admin.findByIdAndUpdate(
+      req.params.id,
+      { $addToSet: { allowedEvents: req.params.eventId } },
+      { new: true, runValidators: true }
+    )
+      .select('-password -refreshToken')
+      .populate('allowedEvents', 'name startDate endDate isLive category');
+
+    if (!admin) {
+      return responseUtil.notFound(res, 'Admin not found');
+    }
+
+    return responseUtil.success(res, 'Event added to allowed events successfully', { admin });
+  } catch (error) {
+    console.error('Add allowed event error:', error);
+    return responseUtil.internalError(res, 'Failed to add allowed event', error.message);
+  }
+};
+
+/**
+ * Remove event from admin's allowed events (Super Admin only)
+ * @async
+ * @param {Object} req - Express request object
+ * @param {Object} req.params - Request parameters
+ * @param {string} req.params.id - Admin ID
+ * @param {string} req.params.eventId - Event ID to remove
+ * @param {Object} res - Express response object
+ * @returns {Promise<Object>} Response with updated admin
+ */
+export const removeAllowedEvent = async (req, res) => {
+  try {
+    const admin = await Admin.findByIdAndUpdate(
+      req.params.id,
+      { $pull: { allowedEvents: req.params.eventId } },
+      { new: true, runValidators: true }
+    )
+      .select('-password -refreshToken')
+      .populate('allowedEvents', 'name startDate endDate isLive category');
+
+    if (!admin) {
+      return responseUtil.notFound(res, 'Admin not found');
+    }
+
+    return responseUtil.success(res, 'Event removed from allowed events successfully', { admin });
+  } catch (error) {
+    console.error('Remove allowed event error:', error);
+    return responseUtil.internalError(res, 'Failed to remove allowed event', error.message);
+  }
+};
+
 export default {
   register,
   login,
@@ -491,5 +658,9 @@ export default {
   getAllAdmins,
   getAdminById,
   updateAdminById,
-  deleteAdminById
+  deleteAdminById,
+  getAllowedEvents,
+  updateAllowedEvents,
+  addAllowedEvent,
+  removeAllowedEvent
 };

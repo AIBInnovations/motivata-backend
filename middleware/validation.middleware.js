@@ -133,6 +133,15 @@ export const schemas = {
     "string.min": "Name must be at least 2 characters",
     "string.max": "Name cannot exceed 100 characters",
   }),
+
+  /**
+   * Username validation
+   */
+  username: Joi.string().trim().lowercase().min(3).max(50).pattern(/^[a-z0-9_]+$/).messages({
+    "string.min": "Username must be at least 3 characters",
+    "string.max": "Username cannot exceed 50 characters",
+    "string.pattern.base": "Username can only contain lowercase letters, numbers, and underscores",
+  }),
 };
 
 /**
@@ -144,18 +153,20 @@ export const adminSchemas = {
    */
   register: Joi.object({
     name: schemas.name.required(),
-    email: schemas.email.required(),
-    phone: schemas.phone.required(),
+    username: schemas.username.required(),
+    email: schemas.email.optional().allow(null, ""),
+    phone: schemas.phone.optional().allow(null, ""),
     password: schemas.password.required(),
-    role: Joi.string().valid("SUPER_ADMIN", "MANAGEMENT_STAFF").optional(),
+    role: Joi.string().valid("ADMIN", "SUPER_ADMIN", "MANAGEMENT_STAFF").optional(),
     access: Joi.array().items(Joi.string()).optional(),
+    allowedEvents: Joi.array().items(schemas.mongoId).optional(),
   }),
 
   /**
    * Admin login schema
    */
   login: Joi.object({
-    email: schemas.email.required(),
+    username: schemas.username.required(),
     password: Joi.string().required(),
   }),
 
@@ -164,11 +175,20 @@ export const adminSchemas = {
    */
   update: Joi.object({
     name: schemas.name.optional(),
-    email: schemas.email.optional(),
-    phone: schemas.phone.optional(),
-    role: Joi.string().valid("SUPER_ADMIN", "MANAGEMENT_STAFF").optional(),
+    username: schemas.username.optional(),
+    email: schemas.email.optional().allow(null, ""),
+    phone: schemas.phone.optional().allow(null, ""),
+    role: Joi.string().valid("ADMIN", "SUPER_ADMIN", "MANAGEMENT_STAFF").optional(),
     access: Joi.array().items(Joi.string()).optional(),
+    allowedEvents: Joi.array().items(schemas.mongoId).optional(),
     status: Joi.string().valid("ACTIVATED", "DEACTIVATED").optional(),
+  }),
+
+  /**
+   * Update allowed events schema
+   */
+  updateAllowedEvents: Joi.object({
+    allowedEvents: Joi.array().items(schemas.mongoId).required(),
   }),
 
   /**
@@ -595,6 +615,159 @@ export const enrollmentSchemas = {
   }),
 };
 
+/**
+ * Voucher validation schemas
+ */
+export const voucherSchemas = {
+  /**
+   * Create voucher schema
+   */
+  create: Joi.object({
+    title: Joi.string().trim().max(200).required(),
+    description: Joi.string().trim().max(1000).required(),
+    code: Joi.string().trim().uppercase().min(3).max(50).required(),
+    maxUsage: Joi.number().integer().min(1).required(),
+    events: Joi.array().items(schemas.mongoId).optional(),
+    isActive: Joi.boolean().default(true),
+  }),
+
+  /**
+   * Update voucher schema
+   */
+  update: Joi.object({
+    title: Joi.string().trim().max(200).optional(),
+    description: Joi.string().trim().max(1000).optional(),
+    code: Joi.string().trim().uppercase().min(3).max(50).optional(),
+    maxUsage: Joi.number().integer().min(1).optional(),
+    events: Joi.array().items(schemas.mongoId).optional(),
+    isActive: Joi.boolean().optional(),
+  }),
+
+  /**
+   * Check availability schema
+   */
+  checkAvailability: Joi.object({
+    code: Joi.string().trim().uppercase().required(),
+    phones: Joi.array()
+      .items(schemas.phone)
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one phone number is required",
+      }),
+    eventId: schemas.mongoId.optional(),
+  }),
+
+  /**
+   * Query parameters for listing vouchers
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("code", "title", "usageCount", "maxUsage", "createdAt")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    isActive: Joi.boolean().optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Voucher ID parameter validation
+   */
+  voucherId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+};
+
+/**
+ * Offline Cash validation schemas
+ */
+export const offlineCashSchemas = {
+  /**
+   * Create offline cash schema
+   * Admin only inputs: phone, ticketCount, eventId, optional price/notes
+   */
+  create: Joi.object({
+    eventId: schemas.mongoId.required(),
+    phone: schemas.phone.required(),
+    ticketCount: Joi.number().integer().min(1).required(),
+    priceCharged: Joi.number().min(0).optional(),
+    notes: Joi.string().trim().max(500).optional(),
+  }),
+
+  /**
+   * Query parameters for listing offline cash records
+   */
+  list: Joi.object({
+    eventId: schemas.mongoId.optional(),
+    redeemed: Joi.string().valid("true", "false").optional(),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+  }),
+
+  /**
+   * ID parameter validation
+   */
+  id: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Event ID parameter validation
+   */
+  eventId: Joi.object({
+    eventId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Enrollment list query parameters
+   */
+  enrollmentList: Joi.object({
+    status: Joi.string().valid("ACTIVE", "CANCELLED", "REFUNDED").optional(),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+  }),
+
+  /**
+   * Validate redemption link query params
+   */
+  validateLink: Joi.object({
+    phone: schemas.phone.required(),
+    sign: Joi.string().length(6).pattern(/^[a-z0-9]+$/).required().messages({
+      "string.length": "Signature must be 6 characters",
+      "string.pattern.base": "Invalid signature format",
+    }),
+  }),
+
+  /**
+   * Redeem tickets schema
+   */
+  redeem: Joi.object({
+    offlineCashId: schemas.mongoId.required(),
+    attendees: Joi.array()
+      .items(
+        Joi.object({
+          name: schemas.name.required(),
+          phone: schemas.phone.required(),
+        })
+      )
+      .min(1)
+      .required(),
+    voucherCode: Joi.string().trim().uppercase().optional(),
+  }),
+
+  /**
+   * Scan ticket query params
+   */
+  scanTicket: Joi.object({
+    enrollmentId: schemas.mongoId.required(),
+    userId: schemas.mongoId.optional(),
+    eventId: schemas.mongoId.required(),
+    phone: schemas.phone.required(),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -606,4 +779,6 @@ export default {
   couponSchemas,
   paymentSchemas,
   enrollmentSchemas,
+  voucherSchemas,
+  offlineCashSchemas,
 };

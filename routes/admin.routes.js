@@ -5,8 +5,10 @@ import adminCouponRoutes from "../src/Enrollment/admin.coupon.route.js";
 import adminPaymentRoutes from "../src/Enrollment/admin.payment.route.js";
 import adminEnrollmentRoutes from "../src/Enrollment/admin.enrollment.route.js";
 import adminTicketRoutes from "../src/Enrollment/admin.ticket.route.js";
+import adminVoucherRoutes from "../src/Enrollment/voucher.admin.route.js";
 import razorpayRoutes from "../src/razorpay/razorpay.route.js";
 import cashRoutes from "../src/cash/cash.route.js";
+import offlineCashRoutes from "../src/cash/offlineCash.admin.route.js";
 
 const router = express.Router();
 
@@ -33,11 +35,17 @@ router.use("/enrollments", adminEnrollmentRoutes);
 // Ticket routes - /api/web/tickets
 router.use("/tickets", adminTicketRoutes);
 
+// Voucher routes - /api/web/vouchers
+router.use("/vouchers", adminVoucherRoutes);
+
 // Razorpay routes - /api/web/razorpay
 router.use("/razorpay", razorpayRoutes);
 
 // Cash payment routes - /api/web/cash
 router.use("/cash", cashRoutes);
+
+// Offline cash routes - /api/web/offline-cash
+router.use("/offline-cash", offlineCashRoutes);
 
 // Add more admin routes here as needed
 // Example:

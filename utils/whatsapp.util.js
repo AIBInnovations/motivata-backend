@@ -194,6 +194,102 @@ export const sendTicketWhatsApp = async ({
  *
  * @returns {Promise<Array<Object>>} Array of send results
  */
+/**
+ * Send WhatsApp message with redemption link
+ *
+ * @param {Object} params - Message parameters
+ * @param {string} params.phone - Recipient phone number
+ * @param {string} params.link - Redemption link to send
+ *
+ * @returns {Promise<Object>} API response
+ * @throws {Error} If message sending fails
+ */
+export const sendRedemptionLinkWhatsApp = async ({ phone, link }) => {
+  try {
+    console.log(`[WHATSAPP] ========== SENDING REDEMPTION LINK ==========`);
+
+    // Validate config
+    validateWhatsAppConfig();
+    console.log(`[WHATSAPP] Config validated`);
+
+    const formattedPhone = formatPhoneNumber(phone);
+
+    console.log(`[WHATSAPP] Recipient details:`);
+    console.log(`[WHATSAPP]   - Original phone: ${phone}`);
+    console.log(`[WHATSAPP]   - Formatted phone: ${formattedPhone}`);
+    console.log(`[WHATSAPP]   - Link: ${link}`);
+
+    const apiUrl = `${WHATSAPP_API_BASE_URL}/${process.env.WHATSAPP_VENDOR_UID}/contact/send-template-message`;
+
+    const requestBody = {
+      phone_number: formattedPhone,
+      template_name: "wp_tmplt_rdm_9",
+      template_language: "en_US",
+      templateArgs: {
+        field_1: link,
+      },
+      contact: {
+        first_name: "Customer",
+        last_name: ".",
+        country: "India",
+      },
+    };
+
+    console.log(`[WHATSAPP] API URL: ${apiUrl}`);
+    console.log(`[WHATSAPP] Request body:`, JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "X-API-Key": process.env.WHATSAPP_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log(`[WHATSAPP] Response status: ${response.status} ${response.statusText}`);
+
+    const responseText = await response.text();
+    console.log(`[WHATSAPP] Raw response: ${responseText}`);
+
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`[WHATSAPP] Failed to parse response as JSON`);
+      throw new Error(`Invalid JSON response: ${responseText}`);
+    }
+
+    console.log(`[WHATSAPP] Parsed response:`, JSON.stringify(responseData, null, 2));
+
+    if (!response.ok) {
+      console.error(`[WHATSAPP] ✗ API Error - Status: ${response.status}`);
+      console.error(`[WHATSAPP] ✗ Error details:`, responseData);
+      throw new Error(
+        responseData.message || responseData.error || `HTTP ${response.status}: WhatsApp API error`
+      );
+    }
+
+    console.log(`[WHATSAPP] ✓ Redemption link sent successfully!`);
+    console.log(`[WHATSAPP]   - Message ID: ${responseData.message_id}`);
+    console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
+    console.log(`[WHATSAPP] ========== REDEMPTION LINK SEND COMPLETE ==========`);
+
+    return {
+      success: true,
+      messageId: responseData.message_id,
+      recipient: formattedPhone,
+    };
+  } catch (error) {
+    console.error(`[WHATSAPP] ✗ FAILED to send redemption link to ${phone}`);
+    console.error(`[WHATSAPP] Error type: ${error.name}`);
+    console.error(`[WHATSAPP] Error message: ${error.message}`);
+    console.error(`[WHATSAPP] Error stack:`, error.stack);
+    console.error(`[WHATSAPP] ========== REDEMPTION LINK SEND FAILED ==========`);
+    throw new Error(`Failed to send redemption link to ${phone}: ${error.message}`);
+  }
+};
+
 export const sendBulkTicketWhatsApp = async (messages) => {
   try {
     console.log(
@@ -243,4 +339,5 @@ export const sendBulkTicketWhatsApp = async (messages) => {
 export default {
   sendTicketWhatsApp,
   sendBulkTicketWhatsApp,
+  sendRedemptionLinkWhatsApp,
 };
