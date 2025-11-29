@@ -1046,40 +1046,94 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
 
 /**
  * Release voucher claim when payment fails
- * Extracts voucher info from payment metadata and releases the claim
+ * Extracts voucher info from payment metadata/notes and releases the claim
+ * Only releases phones that actually exist in the voucher's claimedPhones
  *
  * @param {Object} payment - Payment document from database
  * @param {Object} [payment.metadata] - Payment metadata
  * @param {string} [payment.metadata.voucherId] - Voucher ID if voucher was claimed
  * @param {Array<string>} [payment.metadata.voucherPhones] - Phone numbers that claimed the voucher
+ * @param {Object} [payment.metadata.buyer] - Buyer info with phone
+ * @param {Array<Object>} [payment.metadata.others] - Other ticket holders with phones
  *
  * @returns {Promise<void>}
  * @private
  */
 const releaseVoucherClaim = async (payment) => {
   try {
-    const { voucherId, voucherPhones } = payment.metadata || {};
+    const metadata = payment.metadata || {};
+    const { voucherId } = metadata;
 
-    if (!voucherId || !voucherPhones || voucherPhones.length === 0) {
-      console.log('[VOUCHER-RELEASE] No voucher claim to release for this payment');
+    if (!voucherId) {
+      console.log('[VOUCHER-RELEASE] No voucher ID found in payment metadata');
       return;
     }
 
-    console.log('[VOUCHER-RELEASE] Releasing voucher claim:', {
+    // Get phones from voucherPhones if explicitly set, otherwise extract from buyer/others
+    let phonesToRelease = metadata.voucherPhones || [];
+
+    if (phonesToRelease.length === 0) {
+      // Extract phones from buyer and others in metadata
+      if (metadata.buyer?.phone) {
+        phonesToRelease.push(metadata.buyer.phone);
+      }
+      if (metadata.others && Array.isArray(metadata.others)) {
+        for (const other of metadata.others) {
+          if (other.phone) {
+            phonesToRelease.push(other.phone);
+          }
+        }
+      }
+    }
+
+    if (phonesToRelease.length === 0) {
+      console.log('[VOUCHER-RELEASE] No phone numbers found in payment metadata');
+      return;
+    }
+
+    // Normalize phone numbers (extract last 10 digits)
+    const normalizedPhones = phonesToRelease.map(p => p.slice(-10));
+
+    console.log('[VOUCHER-RELEASE] Checking voucher for phones to release:', {
       voucherId,
-      phones: voucherPhones
+      phones: normalizedPhones
     });
 
-    const voucher = await Voucher.releaseVoucher(voucherId, voucherPhones);
+    // Fetch voucher to check which phones actually exist in claimedPhones
+    const voucher = await Voucher.findById(voucherId);
 
-    if (voucher) {
+    if (!voucher) {
+      console.warn('[VOUCHER-RELEASE] Voucher not found:', voucherId);
+      return;
+    }
+
+    // Filter to only phones that exist in claimedPhones
+    const phonesInVoucher = normalizedPhones.filter(phone =>
+      voucher.claimedPhones.includes(phone)
+    );
+
+    if (phonesInVoucher.length === 0) {
+      console.log('[VOUCHER-RELEASE] No matching phones found in voucher claimedPhones');
+      return;
+    }
+
+    console.log('[VOUCHER-RELEASE] Found matching phones in claimedPhones:', {
+      voucherId,
+      matchingPhones: phonesInVoucher,
+      totalToRelease: phonesInVoucher.length
+    });
+
+    // Release the voucher for matching phones
+    const updatedVoucher = await Voucher.releaseVoucher(voucherId, phonesInVoucher);
+
+    if (updatedVoucher) {
       console.log('[VOUCHER-RELEASE] ✓ Voucher claim released successfully:', {
         voucherId,
-        newUsageCount: voucher.usageCount,
-        releasedPhones: voucherPhones
+        newUsageCount: updatedVoucher.usageCount,
+        releasedPhones: phonesInVoucher
       });
     } else {
-      console.warn('[VOUCHER-RELEASE] Voucher not found for release:', voucherId);
+      console.warn('[VOUCHER-RELEASE] Failed to update voucher:', voucherId);
     }
   } catch (error) {
     console.error('[VOUCHER-RELEASE] ✗ Error releasing voucher claim:', error.message);
