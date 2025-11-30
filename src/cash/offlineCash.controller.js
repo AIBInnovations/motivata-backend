@@ -356,7 +356,7 @@ export const validateRedemptionLink = async (req, res) => {
  */
 export const redeemTickets = async (req, res) => {
   try {
-    const { offlineCashId, attendees, voucherCode } = req.body;
+    const { offlineCashId, attendees, code } = req.body;
     // attendees: [{ name: string, phone: string }, ...]
 
     if (!offlineCashId || !attendees || !Array.isArray(attendees)) {
@@ -389,9 +389,9 @@ export const redeemTickets = async (req, res) => {
     // Validate and claim voucher if provided
     let claimedVoucher = null;
     let voucherClaimedPhones = []; // Track which phones got the voucher
-    if (voucherCode) {
+    if (code) {
       const voucher = await Voucher.findOne({
-        code: voucherCode.toUpperCase(),
+        code: code.toUpperCase(),
         isActive: true,
       });
 
@@ -448,7 +448,7 @@ export const redeemTickets = async (req, res) => {
           } else {
             voucherClaimedPhones = phonesToClaim;
             console.log(
-              `[OFFLINE_CASH] Voucher ${voucherCode} claimed for phones:`,
+              `[OFFLINE_CASH] Voucher ${code} claimed for phones:`,
               phonesToClaim
             );
 

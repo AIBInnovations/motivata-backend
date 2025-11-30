@@ -25,6 +25,7 @@ const router = express.Router();
  * Creates a new Razorpay payment order and payment link.
  * Returns a short URL that can be used to redirect the user to Razorpay's payment page.
  * Supports single ticket purchase (buyer only) and multi-ticket purchase (buyer + others).
+ * Optionally accepts a code to claim vouchers for attendees (partial claiming supported).
  *
  * @handler {Function} createOrder - Controller function to create payment order
  *
@@ -49,7 +50,7 @@ const router = express.Router();
  * }
  *
  * @example
- * // Single Ticket Purchase (With Pricing Tier)
+ * // Single Ticket Purchase (With Voucher)
  * POST /api/web/razorpay/create-order
  * Content-Type: application/json
  *
@@ -58,7 +59,7 @@ const router = express.Router();
  *   "currency": "INR",
  *   "type": "EVENT",
  *   "eventId": "507f1f77bcf86cd799439011",
- *   "priceTierId": "507f1f77bcf86cd799439099",
+ *   "code": "FREEBIES",
  *   "metadata": {
  *     "callbackUrl": "https://myapp.com/payment/success",
  *     "buyer": {
@@ -70,7 +71,8 @@ const router = express.Router();
  * }
  *
  * @example
- * // Multi-Ticket Purchase (Multiple Attendees)
+ * // Multi-Ticket Purchase (With Voucher - Partial Claiming)
+ * // If 4 phones but only 2 voucher slots, first 2 eligible phones get voucher
  * POST /api/web/razorpay/create-order
  * Content-Type: application/json
  *
@@ -80,6 +82,7 @@ const router = express.Router();
  *   "type": "EVENT",
  *   "eventId": "507f1f77bcf86cd799439011",
  *   "priceTierId": "507f1f77bcf86cd799439099",
+ *   "code": "FREEBIES",
  *   "metadata": {
  *     "callbackUrl": "https://myapp.com/payment/success",
  *     "buyer": {
@@ -109,6 +112,12 @@ const router = express.Router();
  *   "data": {
  *     "orderId": "order_MhXXXXXXXXXX",
  *     "paymentUrl": "https://rzp.io/i/aBcDeFg",
+ *     "voucher": {
+ *       "id": "507f1f77bcf86cd799439022",
+ *       "code": "FREEBIES",
+ *       "title": "Free Gift Voucher",
+ *       "claimedPhones": ["9876543210", "9876543211"]
+ *     },
  *     ...
  *   }
  * }

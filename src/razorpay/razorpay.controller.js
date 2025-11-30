@@ -132,7 +132,7 @@ export const createOrder = async (req, res) => {
       eventId,
       priceTierId,
       sessionId,
-      voucherCode,
+      code,
       metadata = {},
     } = req.body;
 
@@ -215,8 +215,8 @@ export const createOrder = async (req, res) => {
     // === VOUCHER CLAIMING ===
     let claimedVoucher = null;
     let voucherClaimedPhones = []; // Track which phones actually got the voucher
-    if (voucherCode) {
-      console.log('[VOUCHER] Processing voucher code:', voucherCode);
+    if (code) {
+      console.log('[VOUCHER] Processing voucher code:', code);
 
       // Collect all phone numbers (buyer + others)
       const allPhones = [metadata.buyer.phone];
@@ -230,10 +230,10 @@ export const createOrder = async (req, res) => {
       const normalizedPhones = allPhones.map(p => p.slice(-10));
 
       // Find and validate voucher
-      const voucher = await Voucher.findOne({ code: voucherCode.toUpperCase(), isActive: true });
+      const voucher = await Voucher.findOne({ code: code.toUpperCase(), isActive: true });
 
       if (!voucher) {
-        console.log('[VOUCHER] Invalid voucher code:', voucherCode);
+        console.log('[VOUCHER] Invalid voucher code:', code);
         return responseUtil.badRequest(res, 'Invalid voucher code');
       }
 
@@ -241,7 +241,7 @@ export const createOrder = async (req, res) => {
       if (voucher.events && voucher.events.length > 0) {
         const isValidForEvent = voucher.events.some(e => e.toString() === eventId);
         if (!isValidForEvent) {
-          console.log('[VOUCHER] Voucher not valid for this event:', voucherCode);
+          console.log('[VOUCHER] Voucher not valid for this event:', code);
           return responseUtil.badRequest(res, 'This voucher is not valid for this event');
         }
       }
@@ -400,6 +400,19 @@ export const createOrder = async (req, res) => {
       },
       reminder_enable: false,
       notes: paymentLinkNotes,
+      options: {
+        checkout: {
+          prefill: {
+            contact: metadata.buyer?.phone || "",
+            email: metadata.buyer?.email || "",
+            name: metadata.buyer?.name || "",
+          },
+          readonly: {
+            contact: true,  // Makes phone field read-only (optional)
+            email: true,    // Makes email field read-only (optional)
+          },
+        },
+      },
     });
 
     return responseUtil.created(res, "Payment order created successfully", {
