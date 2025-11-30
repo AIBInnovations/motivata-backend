@@ -1246,6 +1246,23 @@ const sendVoucherQRs = async (payment) => {
 
     console.log('[VOUCHER-QR] Phones to send voucher QR:', phonesToSend);
 
+    // Confirm voucher claim - increment usageCount for successful payment
+    try {
+      const confirmedVoucher = await Voucher.confirmVoucherClaim(voucherId, phonesToSend.length);
+      if (confirmedVoucher) {
+        console.log('[VOUCHER-QR] ✓ Voucher claim confirmed:', {
+          voucherId,
+          phoneCount: phonesToSend.length,
+          newUsageCount: confirmedVoucher.usageCount
+        });
+      } else {
+        console.warn('[VOUCHER-QR] Failed to confirm voucher claim:', voucherId);
+      }
+    } catch (confirmError) {
+      console.error('[VOUCHER-QR] ✗ Error confirming voucher claim:', confirmError.message);
+      // Continue with QR sending even if confirmation fails
+    }
+
     // Generate QR codes and prepare WhatsApp messages
     const whatsappMessages = [];
 

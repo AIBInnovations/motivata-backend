@@ -202,22 +202,26 @@ voucherSchema.methods.hasPhoneClaimed = function(phone) {
 };
 
 /**
- * Claim voucher for phone number(s)
- * Atomically increments usage and adds phones to claimed list
+ * Claim voucher for phone number(s) - RESERVATION ONLY
+ * Adds phones to claimedPhones but does NOT increment usageCount
+ * usageCount is only incremented when payment is confirmed
+ *
+ * Availability is checked based on claimedPhones.length (pending + confirmed)
  */
 voucherSchema.statics.claimVoucher = async function(voucherId, phones) {
   const normalizedPhones = phones.map(p => p.slice(-10));
   const phoneCount = normalizedPhones.length;
 
+  // Check availability based on claimedPhones.length (includes pending claims)
   const voucher = await this.findOneAndUpdate(
     {
       _id: voucherId,
       isActive: true,
       isDeleted: false,
-      $expr: { $lte: [{ $add: ['$usageCount', phoneCount] }, '$maxUsage'] }
+      $expr: { $lte: [{ $add: [{ $size: '$claimedPhones' }, phoneCount] }, '$maxUsage'] }
     },
     {
-      $inc: { usageCount: phoneCount },
+      // Only add to claimedPhones, do NOT increment usageCount
       $push: { claimedPhones: { $each: normalizedPhones } }
     },
     { new: true }
@@ -227,27 +231,41 @@ voucherSchema.statics.claimVoucher = async function(voucherId, phones) {
 };
 
 /**
- * Release voucher for phone number(s) - used when payment fails
- * Atomically decrements usage and removes phones from claimed list
+ * Confirm voucher claim - called when payment succeeds
+ * Increments usageCount for the confirmed phones
+ *
+ * @param {string} voucherId - Voucher ID
+ * @param {number} phoneCount - Number of phones to confirm
+ * @returns {Promise<Object|null>} Updated voucher or null
  */
-voucherSchema.statics.releaseVoucher = async function(voucherId, phones) {
-  const normalizedPhones = phones.map(p => p.slice(-10));
-  const phoneCount = normalizedPhones.length;
-
+voucherSchema.statics.confirmVoucherClaim = async function(voucherId, phoneCount) {
   const voucher = await this.findByIdAndUpdate(
     voucherId,
     {
-      $inc: { usageCount: -phoneCount },
-      $pull: { claimedPhones: { $in: normalizedPhones } }
+      $inc: { usageCount: phoneCount }
     },
     { new: true }
   );
 
-  // Ensure usageCount doesn't go below 0
-  if (voucher && voucher.usageCount < 0) {
-    voucher.usageCount = 0;
-    await voucher.save();
-  }
+  return voucher;
+};
+
+/**
+ * Release voucher for phone number(s) - used when payment fails
+ * Only removes phones from claimedPhones, does NOT change usageCount
+ * (usageCount was never incremented for pending claims)
+ */
+voucherSchema.statics.releaseVoucher = async function(voucherId, phones) {
+  const normalizedPhones = phones.map(p => p.slice(-10));
+
+  const voucher = await this.findByIdAndUpdate(
+    voucherId,
+    {
+      // Only remove from claimedPhones, do NOT change usageCount
+      $pull: { claimedPhones: { $in: normalizedPhones } }
+    },
+    { new: true }
+  );
 
   return voucher;
 };

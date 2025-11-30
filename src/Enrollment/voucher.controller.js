@@ -432,8 +432,9 @@ export const checkAvailability = async (req, res) => {
     }
 
     // Check if there are enough slots available
+    // Available slots = maxUsage - claimedPhones.length (includes pending + confirmed)
     const requiredSlots = normalizedPhones.length;
-    const availableSlots = voucher.maxUsage - voucher.usageCount;
+    const availableSlots = voucher.maxUsage - voucher.claimedPhones.length;
 
     if (availableSlots < requiredSlots) {
       console.log('[VOUCHER] Not enough vouchers available:', availableSlots, 'needed:', requiredSlots);
@@ -444,7 +445,7 @@ export const checkAvailability = async (req, res) => {
       );
     }
 
-    // Atomically claim the voucher
+    // Atomically claim the voucher (reservation only - usageCount is NOT incremented here)
     const updatedVoucher = await Voucher.claimVoucher(voucher._id, normalizedPhones);
 
     if (!updatedVoucher) {
@@ -453,7 +454,7 @@ export const checkAvailability = async (req, res) => {
       return responseUtil.badRequest(res, 'Unlucky, we ran out of vouchers!');
     }
 
-    console.log('[VOUCHER] Voucher claimed successfully:', code, 'for phones:', normalizedPhones);
+    console.log('[VOUCHER] Voucher reserved successfully:', code, 'for phones:', normalizedPhones);
 
     return responseUtil.success(res, 'The voucher is available! Claimed successfully.', {
       voucher: {
@@ -463,7 +464,7 @@ export const checkAvailability = async (req, res) => {
         description: updatedVoucher.description
       },
       claimedFor: normalizedPhones,
-      remainingSlots: updatedVoucher.maxUsage - updatedVoucher.usageCount
+      remainingSlots: updatedVoucher.maxUsage - updatedVoucher.claimedPhones.length
     });
   } catch (error) {
     console.error('[VOUCHER] Check availability error:', error);

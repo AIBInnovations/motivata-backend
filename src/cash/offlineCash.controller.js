@@ -442,6 +442,25 @@ export const redeemTickets = async (req, res) => {
         `[OFFLINE_CASH] Voucher ${voucherCode} claimed for phones:`,
         attendeePhones
       );
+
+      // Confirm voucher claim immediately for cash payments (payment already collected)
+      try {
+        const confirmedVoucher = await Voucher.confirmVoucherClaim(voucher._id, attendeePhones.length);
+        if (confirmedVoucher) {
+          console.log(`[OFFLINE_CASH] ✓ Voucher claim confirmed:`, {
+            voucherId: voucher._id,
+            phoneCount: attendeePhones.length,
+            newUsageCount: confirmedVoucher.usageCount
+          });
+          // Update claimedVoucher with the confirmed state
+          claimedVoucher = confirmedVoucher;
+        } else {
+          console.warn(`[OFFLINE_CASH] Failed to confirm voucher claim:`, voucher._id);
+        }
+      } catch (confirmError) {
+        console.error(`[OFFLINE_CASH] ✗ Error confirming voucher claim:`, confirmError.message);
+        // Continue even if confirmation fails - voucher is already claimed
+      }
     }
 
     const createdEnrollments = [];
