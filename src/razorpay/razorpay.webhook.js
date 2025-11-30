@@ -1068,44 +1068,27 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
 const releaseVoucherClaim = async (payment) => {
   try {
     const metadata = payment.metadata || {};
-    const { voucherId } = metadata;
+    const { voucherId, voucherClaimedPhones } = metadata;
 
     if (!voucherId) {
       console.log('[VOUCHER-RELEASE] No voucher ID found in payment metadata');
       return;
     }
 
-    // Get phones from voucherPhones if explicitly set, otherwise extract from buyer/others
-    let phonesToRelease = metadata.voucherPhones || [];
+    // Use voucherClaimedPhones from metadata - these are the phones that were actually claimed
+    let phonesToRelease = voucherClaimedPhones || [];
 
     if (phonesToRelease.length === 0) {
-      // Extract phones from buyer and others in metadata
-      if (metadata.buyer?.phone) {
-        phonesToRelease.push(metadata.buyer.phone);
-      }
-      if (metadata.others && Array.isArray(metadata.others)) {
-        for (const other of metadata.others) {
-          if (other.phone) {
-            phonesToRelease.push(other.phone);
-          }
-        }
-      }
-    }
-
-    if (phonesToRelease.length === 0) {
-      console.log('[VOUCHER-RELEASE] No phone numbers found in payment metadata');
+      console.log('[VOUCHER-RELEASE] No voucherClaimedPhones found in payment metadata');
       return;
     }
 
-    // Normalize phone numbers (extract last 10 digits)
-    const normalizedPhones = phonesToRelease.map(p => p.slice(-10));
-
-    console.log('[VOUCHER-RELEASE] Checking voucher for phones to release:', {
+    console.log('[VOUCHER-RELEASE] Releasing voucher claim:', {
       voucherId,
-      phones: normalizedPhones
+      phones: phonesToRelease
     });
 
-    // Fetch voucher to check which phones actually exist in claimedPhones
+    // Fetch voucher to verify phones exist in claimedPhones
     const voucher = await Voucher.findById(voucherId);
 
     if (!voucher) {
@@ -1113,8 +1096,8 @@ const releaseVoucherClaim = async (payment) => {
       return;
     }
 
-    // Filter to only phones that exist in claimedPhones
-    const phonesInVoucher = normalizedPhones.filter(phone =>
+    // Filter to only phones that exist in claimedPhones (safety check)
+    const phonesInVoucher = phonesToRelease.filter(phone =>
       voucher.claimedPhones.includes(phone)
     );
 
@@ -1129,13 +1112,12 @@ const releaseVoucherClaim = async (payment) => {
       totalToRelease: phonesInVoucher.length
     });
 
-    // Release the voucher for matching phones
+    // Release the voucher for matching phones (removes from claimedPhones, no usageCount change)
     const updatedVoucher = await Voucher.releaseVoucher(voucherId, phonesInVoucher);
 
     if (updatedVoucher) {
       console.log('[VOUCHER-RELEASE] ✓ Voucher claim released successfully:', {
         voucherId,
-        newUsageCount: updatedVoucher.usageCount,
         releasedPhones: phonesInVoucher
       });
     } else {
@@ -1190,15 +1172,21 @@ const logCustomerDetails = (payment) => {
 const sendVoucherQRs = async (payment) => {
   try {
     const metadata = payment.metadata || {};
-    const { voucherId } = metadata;
+    const { voucherId, voucherClaimedPhones } = metadata;
 
     if (!voucherId) {
       console.log('[VOUCHER-QR] No voucher ID found in payment metadata - skipping voucher QR sending');
       return;
     }
 
+    if (!voucherClaimedPhones || voucherClaimedPhones.length === 0) {
+      console.log('[VOUCHER-QR] No voucherClaimedPhones in metadata - skipping voucher QR sending');
+      return;
+    }
+
     console.log('[VOUCHER-QR] ========== STARTING VOUCHER QR SENDING ==========');
     console.log('[VOUCHER-QR] Voucher ID:', voucherId);
+    console.log('[VOUCHER-QR] Claimed phones:', voucherClaimedPhones);
 
     // Fetch voucher details
     const voucher = await Voucher.findById(voucherId);
@@ -1210,11 +1198,10 @@ const sendVoucherQRs = async (payment) => {
 
     console.log('[VOUCHER-QR] Voucher found:', {
       code: voucher.code,
-      title: voucher.title,
-      claimedPhones: voucher.claimedPhones.length
+      title: voucher.title
     });
 
-    // Collect all phones and names from buyer and others
+    // Build phone to name map from buyer and others
     const phoneNameMap = new Map();
 
     if (metadata.buyer?.phone) {
@@ -1231,18 +1218,11 @@ const sendVoucherQRs = async (payment) => {
       }
     }
 
-    // Filter to only phones that exist in voucher's claimedPhones
-    const phonesToSend = [];
-    for (const [phone, name] of phoneNameMap.entries()) {
-      if (voucher.claimedPhones.includes(phone)) {
-        phonesToSend.push({ phone, name });
-      }
-    }
-
-    if (phonesToSend.length === 0) {
-      console.log('[VOUCHER-QR] No matching phones found in voucher claimedPhones - skipping');
-      return;
-    }
+    // Use voucherClaimedPhones from metadata - these are the phones that were actually claimed
+    const phonesToSend = voucherClaimedPhones.map(phone => ({
+      phone,
+      name: phoneNameMap.get(phone) || 'Customer'
+    }));
 
     console.log('[VOUCHER-QR] Phones to send voucher QR:', phonesToSend);
 

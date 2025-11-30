@@ -445,26 +445,19 @@ export const checkAvailability = async (req, res) => {
       );
     }
 
-    // Atomically claim the voucher (reservation only - usageCount is NOT incremented here)
-    const updatedVoucher = await Voucher.claimVoucher(voucher._id, normalizedPhones);
+    // NOTE: We no longer claim the voucher here - claiming happens in createOrder
+    // This endpoint only validates availability
+    console.log('[VOUCHER] Voucher is available:', code, 'for phones:', normalizedPhones);
 
-    if (!updatedVoucher) {
-      // Race condition - voucher ran out between check and claim
-      console.log('[VOUCHER] Race condition - voucher ran out during claim:', code);
-      return responseUtil.badRequest(res, 'Unlucky, we ran out of vouchers!');
-    }
-
-    console.log('[VOUCHER] Voucher reserved successfully:', code, 'for phones:', normalizedPhones);
-
-    return responseUtil.success(res, 'The voucher is available! Claimed successfully.', {
+    return responseUtil.success(res, 'The voucher is available!', {
       voucher: {
-        id: updatedVoucher._id,
-        code: updatedVoucher.code,
-        title: updatedVoucher.title,
-        description: updatedVoucher.description
+        id: voucher._id,
+        code: voucher.code,
+        title: voucher.title,
+        description: voucher.description
       },
-      claimedFor: normalizedPhones,
-      remainingSlots: updatedVoucher.maxUsage - updatedVoucher.claimedPhones.length
+      phonesValidated: normalizedPhones,
+      remainingSlots: availableSlots
     });
   } catch (error) {
     console.error('[VOUCHER] Check availability error:', error);

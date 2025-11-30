@@ -8,6 +8,7 @@ import Payment from "../../schema/Payment.schema.js";
 import Event from "../../schema/Event.schema.js";
 import User from "../../schema/User.schema.js";
 import EventEnrollment from "../../schema/EventEnrollment.schema.js";
+import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
@@ -131,6 +132,7 @@ export const createOrder = async (req, res) => {
       eventId,
       priceTierId,
       sessionId,
+      voucherCode,
       metadata = {},
     } = req.body;
 
@@ -210,6 +212,85 @@ export const createOrder = async (req, res) => {
     // Use the tier price as the total amount (don't multiply by tickets)
     const totalAmount = amount;
 
+    // === VOUCHER CLAIMING ===
+    let claimedVoucher = null;
+    let voucherClaimedPhones = []; // Track which phones actually got the voucher
+    if (voucherCode) {
+      console.log('[VOUCHER] Processing voucher code:', voucherCode);
+
+      // Collect all phone numbers (buyer + others)
+      const allPhones = [metadata.buyer.phone];
+      for (const other of others) {
+        if (other.phone) {
+          allPhones.push(other.phone);
+        }
+      }
+
+      // Normalize phone numbers
+      const normalizedPhones = allPhones.map(p => p.slice(-10));
+
+      // Find and validate voucher
+      const voucher = await Voucher.findOne({ code: voucherCode.toUpperCase(), isActive: true });
+
+      if (!voucher) {
+        console.log('[VOUCHER] Invalid voucher code:', voucherCode);
+        return responseUtil.badRequest(res, 'Invalid voucher code');
+      }
+
+      // Check if voucher is event-specific
+      if (voucher.events && voucher.events.length > 0) {
+        const isValidForEvent = voucher.events.some(e => e.toString() === eventId);
+        if (!isValidForEvent) {
+          console.log('[VOUCHER] Voucher not valid for this event:', voucherCode);
+          return responseUtil.badRequest(res, 'This voucher is not valid for this event');
+        }
+      }
+
+      // Filter out phones that have already claimed this voucher
+      const eligiblePhones = normalizedPhones.filter(phone => !voucher.claimedPhones.includes(phone));
+
+      if (eligiblePhones.length === 0) {
+        console.log('[VOUCHER] All phones have already claimed this voucher');
+        return responseUtil.badRequest(res, 'All phone numbers have already claimed this voucher');
+      }
+
+      // Check availability and determine how many phones can claim
+      const availableSlots = voucher.maxUsage - voucher.claimedPhones.length;
+
+      if (availableSlots <= 0) {
+        console.log('[VOUCHER] No vouchers available');
+        return responseUtil.badRequest(res, 'Unlucky, we ran out of vouchers!');
+      }
+
+      // Partial claiming: only claim for available slots
+      const phonesToClaim = eligiblePhones.slice(0, availableSlots);
+      const phonesLeftOut = eligiblePhones.slice(availableSlots);
+
+      if (phonesLeftOut.length > 0) {
+        console.log('[VOUCHER] Partial claiming - some phones left out:', {
+          claiming: phonesToClaim,
+          leftOut: phonesLeftOut
+        });
+      }
+
+      // Atomically claim the voucher (add phones to claimedPhones)
+      claimedVoucher = await Voucher.claimVoucher(voucher._id, phonesToClaim);
+
+      if (!claimedVoucher) {
+        console.log('[VOUCHER] Race condition - voucher ran out during claim');
+        // Don't fail the order, just proceed without voucher
+        console.log('[VOUCHER] Proceeding without voucher claim');
+      } else {
+        voucherClaimedPhones = phonesToClaim;
+        console.log('[VOUCHER] Voucher claimed successfully:', {
+          code: claimedVoucher.code,
+          claimedPhones: phonesToClaim,
+          leftOutPhones: phonesLeftOut
+        });
+      }
+    }
+    // === END VOUCHER CLAIMING ===
+
     // Calculate per-ticket price for metadata
     const perTicketPrice = totalAmount / totalTickets;
 
@@ -268,6 +349,11 @@ export const createOrder = async (req, res) => {
         // Store ticket count
         totalTickets: totalTickets,
         perTicketPrice: perTicketPrice,
+        // Store voucher information for webhook processing
+        ...(claimedVoucher && {
+          voucherId: claimedVoucher._id.toString(),
+          voucherClaimedPhones: voucherClaimedPhones
+        }),
       },
     });
 
@@ -330,6 +416,15 @@ export const createOrder = async (req, res) => {
         name: "razorpay",
         keyId: process.env.RAZORPAY_KEY_ID,
       },
+      // Include voucher info if claimed
+      ...(claimedVoucher && {
+        voucher: {
+          id: claimedVoucher._id,
+          code: claimedVoucher.code,
+          title: claimedVoucher.title,
+          claimedPhones: voucherClaimedPhones,
+        },
+      }),
     });
   } catch (error) {
     console.error("Create order error:", error);

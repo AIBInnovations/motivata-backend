@@ -388,6 +388,7 @@ export const redeemTickets = async (req, res) => {
 
     // Validate and claim voucher if provided
     let claimedVoucher = null;
+    let voucherClaimedPhones = []; // Track which phones got the voucher
     if (voucherCode) {
       const voucher = await Voucher.findOne({
         code: voucherCode.toUpperCase(),
@@ -396,10 +397,6 @@ export const redeemTickets = async (req, res) => {
 
       if (!voucher) {
         return responseUtil.badRequest(res, "Invalid voucher code");
-      }
-
-      if (!voucher.isAvailable()) {
-        return responseUtil.badRequest(res, "This voucher has been exhausted");
       }
 
       // Check if voucher is event-specific
@@ -418,48 +415,63 @@ export const redeemTickets = async (req, res) => {
       // Get all attendee phone numbers
       const attendeePhones = attendees.map((a) => a.phone.slice(-10));
 
-      // Check if any phone has already claimed this voucher
-      for (const phone of attendeePhones) {
-        if (voucher.hasPhoneClaimed(phone)) {
-          return responseUtil.badRequest(
-            res,
-            `Phone number ${phone} has already claimed this voucher`
-          );
-        }
-      }
+      // Filter out phones that have already claimed this voucher
+      const eligiblePhones = attendeePhones.filter(phone => !voucher.hasPhoneClaimed(phone));
 
-      // Atomically claim the voucher for all phones
-      claimedVoucher = await Voucher.claimVoucher(voucher._id, attendeePhones);
+      if (eligiblePhones.length === 0) {
+        console.log('[OFFLINE_CASH] All phones have already claimed this voucher');
+        // Don't fail - just proceed without voucher
+      } else {
+        // Check availability and determine how many phones can claim
+        const availableSlots = voucher.maxUsage - voucher.claimedPhones.length;
 
-      if (!claimedVoucher) {
-        return responseUtil.badRequest(
-          res,
-          "Voucher ran out while processing. Please try again."
-        );
-      }
-
-      console.log(
-        `[OFFLINE_CASH] Voucher ${voucherCode} claimed for phones:`,
-        attendeePhones
-      );
-
-      // Confirm voucher claim immediately for cash payments (payment already collected)
-      try {
-        const confirmedVoucher = await Voucher.confirmVoucherClaim(voucher._id, attendeePhones.length);
-        if (confirmedVoucher) {
-          console.log(`[OFFLINE_CASH] ✓ Voucher claim confirmed:`, {
-            voucherId: voucher._id,
-            phoneCount: attendeePhones.length,
-            newUsageCount: confirmedVoucher.usageCount
-          });
-          // Update claimedVoucher with the confirmed state
-          claimedVoucher = confirmedVoucher;
+        if (availableSlots <= 0) {
+          console.log('[OFFLINE_CASH] No vouchers available - proceeding without voucher');
         } else {
-          console.warn(`[OFFLINE_CASH] Failed to confirm voucher claim:`, voucher._id);
+          // Partial claiming: only claim for available slots
+          const phonesToClaim = eligiblePhones.slice(0, availableSlots);
+          const phonesLeftOut = eligiblePhones.slice(availableSlots);
+
+          if (phonesLeftOut.length > 0) {
+            console.log('[OFFLINE_CASH] Partial claiming - some phones left out:', {
+              claiming: phonesToClaim,
+              leftOut: phonesLeftOut
+            });
+          }
+
+          // Atomically claim the voucher for eligible phones
+          claimedVoucher = await Voucher.claimVoucher(voucher._id, phonesToClaim);
+
+          if (!claimedVoucher) {
+            console.log('[OFFLINE_CASH] Race condition - voucher ran out during claim');
+            // Don't fail the redemption, just proceed without voucher
+          } else {
+            voucherClaimedPhones = phonesToClaim;
+            console.log(
+              `[OFFLINE_CASH] Voucher ${voucherCode} claimed for phones:`,
+              phonesToClaim
+            );
+
+            // Confirm voucher claim immediately for cash payments (payment already collected)
+            try {
+              const confirmedVoucher = await Voucher.confirmVoucherClaim(voucher._id, phonesToClaim.length);
+              if (confirmedVoucher) {
+                console.log(`[OFFLINE_CASH] ✓ Voucher claim confirmed:`, {
+                  voucherId: voucher._id,
+                  phoneCount: phonesToClaim.length,
+                  newUsageCount: confirmedVoucher.usageCount
+                });
+                // Update claimedVoucher with the confirmed state
+                claimedVoucher = confirmedVoucher;
+              } else {
+                console.warn(`[OFFLINE_CASH] Failed to confirm voucher claim:`, voucher._id);
+              }
+            } catch (confirmError) {
+              console.error(`[OFFLINE_CASH] ✗ Error confirming voucher claim:`, confirmError.message);
+              // Continue even if confirmation fails - voucher is already claimed
+            }
+          }
         }
-      } catch (confirmError) {
-        console.error(`[OFFLINE_CASH] ✗ Error confirming voucher claim:`, confirmError.message);
-        // Continue even if confirmation fails - voucher is already claimed
       }
     }
 
@@ -567,10 +579,11 @@ export const redeemTickets = async (req, res) => {
     }
 
     // Send voucher QR codes if voucher was claimed
-    if (claimedVoucher && createdEnrollments.length > 0) {
+    if (claimedVoucher && voucherClaimedPhones.length > 0 && createdEnrollments.length > 0) {
       try {
         console.log('[OFFLINE_CASH] ========== SENDING VOUCHER QR CODES ==========');
         console.log('[OFFLINE_CASH] Voucher:', claimedVoucher.code);
+        console.log('[OFFLINE_CASH] Claimed phones:', voucherClaimedPhones);
 
         const voucherWhatsappMessages = [];
 
@@ -578,9 +591,9 @@ export const redeemTickets = async (req, res) => {
           try {
             const normalizedPhone = enrollment.phone;
 
-            // Check if this phone is in voucher's claimedPhones
-            if (!claimedVoucher.claimedPhones.includes(normalizedPhone)) {
-              console.log(`[OFFLINE_CASH] Phone ${normalizedPhone} not in voucher claimedPhones - skipping`);
+            // Check if this phone was claimed for the voucher
+            if (!voucherClaimedPhones.includes(normalizedPhone)) {
+              console.log(`[OFFLINE_CASH] Phone ${normalizedPhone} not in voucher claimed phones - skipping`);
               continue;
             }
 
@@ -649,6 +662,7 @@ export const redeemTickets = async (req, res) => {
             code: claimedVoucher.code,
             title: claimedVoucher.title,
             claimed: true,
+            claimedPhones: voucherClaimedPhones,
           }
         : null,
       errors: errors.length > 0 ? errors : null,
