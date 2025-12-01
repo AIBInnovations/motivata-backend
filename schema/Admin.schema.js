@@ -35,6 +35,7 @@ const adminSchema = new mongoose.Schema(
       trim: true,
       minlength: 5,
       lowercase: true,
+      set: (v) => (v === "" ? undefined : v),
     },
     phone: {
       type: String,
@@ -43,6 +44,7 @@ const adminSchema = new mongoose.Schema(
       sparse: true,
       trim: true,
       minlength: 10,
+      set: (v) => (v === "" ? undefined : v),
     },
     password: {
       type: String,
