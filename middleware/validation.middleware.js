@@ -768,6 +768,141 @@ export const offlineCashSchemas = {
   }),
 };
 
+/**
+ * Session validation schemas
+ */
+export const sessionSchemas = {
+  /**
+   * Create session schema
+   */
+  create: Joi.object({
+    title: Joi.string().trim().max(200).required().messages({
+      "string.empty": "Session title is required",
+      "string.max": "Session title cannot exceed 200 characters",
+    }),
+    shortDescription: Joi.string().trim().max(500).required().messages({
+      "string.empty": "Short description is required",
+      "string.max": "Short description cannot exceed 500 characters",
+    }),
+    longDescription: Joi.string().max(5000).required().messages({
+      "string.empty": "Long description is required",
+      "string.max": "Long description cannot exceed 5000 characters",
+    }),
+    price: Joi.number().min(0).required().messages({
+      "number.base": "Price must be a number",
+      "number.min": "Price cannot be negative",
+      "any.required": "Session price is required",
+    }),
+    compareAtPrice: Joi.number().min(0).optional().messages({
+      "number.base": "Compare at price must be a number",
+      "number.min": "Compare at price cannot be negative",
+    }),
+    duration: Joi.number().integer().min(1).max(480).required().messages({
+      "number.base": "Duration must be a number",
+      "number.min": "Duration must be at least 1 minute",
+      "number.max": "Duration cannot exceed 480 minutes (8 hours)",
+      "any.required": "Session duration is required",
+    }),
+    sessionType: Joi.string().valid("OTO", "OTM").required().messages({
+      "any.only": "Session type must be OTO (One-to-One) or OTM (One-to-Many)",
+      "any.required": "Session type is required",
+    }),
+    host: Joi.string().trim().max(100).required().messages({
+      "string.empty": "Host name is required",
+      "string.max": "Host name cannot exceed 100 characters",
+    }),
+    availableSlots: Joi.number().integer().min(0).optional().messages({
+      "number.base": "Available slots must be a number",
+      "number.min": "Available slots cannot be negative",
+    }),
+    calendlyLink: Joi.string().uri().optional().allow("", null).messages({
+      "string.uri": "Please provide a valid Calendly URL",
+    }),
+    sessionDate: Joi.date().iso().optional().allow(null).messages({
+      "date.base": "Please provide a valid session date",
+    }),
+    imageUrl: Joi.string().uri().optional().allow("", null).messages({
+      "string.uri": "Please provide a valid image URL",
+    }),
+    isLive: Joi.boolean().optional().default(true),
+  }),
+
+  /**
+   * Update session schema
+   */
+  update: Joi.object({
+    title: Joi.string().trim().max(200).optional().messages({
+      "string.max": "Session title cannot exceed 200 characters",
+    }),
+    shortDescription: Joi.string().trim().max(500).optional().messages({
+      "string.max": "Short description cannot exceed 500 characters",
+    }),
+    longDescription: Joi.string().max(5000).optional().messages({
+      "string.max": "Long description cannot exceed 5000 characters",
+    }),
+    price: Joi.number().min(0).optional().messages({
+      "number.base": "Price must be a number",
+      "number.min": "Price cannot be negative",
+    }),
+    compareAtPrice: Joi.number().min(0).optional().allow(null).messages({
+      "number.base": "Compare at price must be a number",
+      "number.min": "Compare at price cannot be negative",
+    }),
+    duration: Joi.number().integer().min(1).max(480).optional().messages({
+      "number.base": "Duration must be a number",
+      "number.min": "Duration must be at least 1 minute",
+      "number.max": "Duration cannot exceed 480 minutes (8 hours)",
+    }),
+    sessionType: Joi.string().valid("OTO", "OTM").optional().messages({
+      "any.only": "Session type must be OTO (One-to-One) or OTM (One-to-Many)",
+    }),
+    host: Joi.string().trim().max(100).optional().messages({
+      "string.max": "Host name cannot exceed 100 characters",
+    }),
+    availableSlots: Joi.number().integer().min(0).optional().allow(null).messages({
+      "number.base": "Available slots must be a number",
+      "number.min": "Available slots cannot be negative",
+    }),
+    calendlyLink: Joi.string().uri().optional().allow("", null).messages({
+      "string.uri": "Please provide a valid Calendly URL",
+    }),
+    sessionDate: Joi.date().iso().optional().allow(null).messages({
+      "date.base": "Please provide a valid session date",
+    }),
+    imageUrl: Joi.string().uri().optional().allow("", null).messages({
+      "string.uri": "Please provide a valid image URL",
+    }),
+    isLive: Joi.boolean().optional(),
+  }),
+
+  /**
+   * Query parameters for listing sessions
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("title", "price", "duration", "sessionDate", "createdAt", "host")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    sessionType: Joi.string().valid("OTO", "OTM").optional(),
+    isLive: Joi.boolean().optional(),
+    host: Joi.string().trim().optional(),
+    minPrice: Joi.number().min(0).optional(),
+    maxPrice: Joi.number().min(0).optional(),
+    minDuration: Joi.number().integer().min(1).optional(),
+    maxDuration: Joi.number().integer().min(1).optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Session ID parameter validation
+   */
+  sessionId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -781,4 +916,5 @@ export default {
   enrollmentSchemas,
   voucherSchemas,
   offlineCashSchemas,
+  sessionSchemas,
 };

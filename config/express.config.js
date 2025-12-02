@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Express application configuration and middleware setup.
+ * @module config/express
+ */
+
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -10,14 +15,26 @@ import appRoutes from "../routes/app.routes.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/** @type {express.Application} */
 const app = express();
 
 // Set up EJS as view engine
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "../views"));
 
-// CORS configuration
+/**
+ * CORS configuration options.
+ * @type {cors.CorsOptions}
+ * @property {Function} origin - Dynamic origin validation function
+ * @property {boolean} credentials - Allow credentials in requests
+ * @property {number} optionsSuccessStatus - Success status for preflight requests
+ */
 const corsOptions = {
+  /**
+   * Validates request origin against allowed origins.
+   * @param {string|undefined} origin - The request origin
+   * @param {Function} callback - Callback to accept/reject the origin
+   */
   origin: (origin, callback) => {
     // In development, allow all origins
     if (process.env.NODE_ENV !== "production") {

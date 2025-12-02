@@ -1,3 +1,8 @@
+/**
+ * @fileoverview App routes configuration for user-facing API endpoints.
+ * @module routes/app
+ */
+
 import express from "express";
 import userAuthRoutes from "../src/Auth/user.auth.route.js";
 import userEventRoutes from "../src/Event/user.event.route.js";
@@ -6,8 +11,12 @@ import userPaymentRoutes from "../src/Enrollment/user.payment.route.js";
 import userEnrollmentRoutes from "../src/Enrollment/user.enrollment.route.js";
 import userTicketRoutes from "../src/Enrollment/user.ticket.route.js";
 import userVoucherRoutes from "../src/Enrollment/voucher.user.route.js";
+import userSessionRoutes from "../src/Session/session.user.route.js";
+import userQuizRoutes from "../src/Quiz/quiz.user.route.js";
 import responseUtil from "../utils/response.util.js";
+import services from "../src/Other/app/showDelete.js";
 
+/** @type {express.Router} */
 const router = express.Router();
 
 /**
@@ -36,14 +45,34 @@ router.use("/tickets", userTicketRoutes);
 // Voucher routes - /api/app/vouchers
 router.use("/vouchers", userVoucherRoutes);
 
+// Session routes - /api/app/sessions
+router.use("/sessions", userSessionRoutes);
+
+// Quiz routes - /api/app/quizzes
+router.use("/quizzes", userQuizRoutes);
+
 // Add more user routes here as needed
 // Example:
 // router.use("/profile", userProfileRoutes);
 // router.use("/settings", userSettingsRoutes);
 
-// User delete endpoint
+/**
+ * DELETE /api/app/user/delete/:phonenumber
+ * @description Endpoint to delete a user by phone number.
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @returns {Object} Success response
+ */
 router.delete("/user/delete/:phonenumber", (req, res) => {
   return responseUtil.success(res, "Success");
 });
+
+/**
+ * Service routes - /api/app/service
+ * @description Mounts service-related endpoints.
+ * @see {@link module:Other/app/showDelete} for available endpoints:
+ * - GET /api/app/service/show-delete
+ */
+router.use("/service", services);
 
 export default router;
