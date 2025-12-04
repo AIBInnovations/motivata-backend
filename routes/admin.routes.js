@@ -12,6 +12,7 @@ import razorpayRoutes from "../src/razorpay/razorpay.route.js";
 import cashRoutes from "../src/cash/cash.route.js";
 import offlineCashRoutes from "../src/cash/offlineCash.admin.route.js";
 import adminSettingsRoutes from "../src/Other/admin/settings.route.js";
+import analyticsRoutes from "../src/Analytics/analytics.route.js";
 
 const router = express.Router();
 
@@ -58,6 +59,9 @@ router.use("/offline-cash", offlineCashRoutes);
 
 // Settings routes - /api/web/settings
 router.use("/settings", adminSettingsRoutes);
+
+// Analytics routes - /api/web/analytics
+router.use("/analytics", analyticsRoutes);
 
 // Add more admin routes here as needed
 // Example:

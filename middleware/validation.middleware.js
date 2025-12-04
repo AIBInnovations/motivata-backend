@@ -160,6 +160,7 @@ export const adminSchemas = {
     role: Joi.string().valid("ADMIN", "SUPER_ADMIN", "MANAGEMENT_STAFF").optional(),
     access: Joi.array().items(Joi.string()).optional(),
     allowedEvents: Joi.array().items(schemas.mongoId).optional(),
+    maxCashTicketsAllowed: Joi.number().integer().min(0).optional(),
   }),
 
   /**
@@ -181,6 +182,7 @@ export const adminSchemas = {
     role: Joi.string().valid("ADMIN", "SUPER_ADMIN", "MANAGEMENT_STAFF").optional(),
     access: Joi.array().items(Joi.string()).optional(),
     allowedEvents: Joi.array().items(schemas.mongoId).optional(),
+    maxCashTicketsAllowed: Joi.number().integer().min(0).optional(),
     status: Joi.string().valid("ACTIVATED", "DEACTIVATED").optional(),
   }),
 

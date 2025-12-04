@@ -3,6 +3,8 @@
  * @module utils/whatsapp
  */
 
+import CommunicationLog from '../schema/CommunicationLog.schema.js';
+
 const WHATSAPP_API_BASE_URL = "https://api.wappservice.com/api";
 
 /**
@@ -70,6 +72,10 @@ const splitName = (fullName) => {
  * @param {string} [params.email] - Recipient email (optional)
  * @param {string} params.eventName - Event name for template variable
  * @param {string} params.qrCodeUrl - URL to the QR code image
+ * @param {string} [params.eventId] - Related event ID for logging
+ * @param {string} [params.orderId] - Related order ID for logging
+ * @param {string} [params.userId] - Related user ID for logging
+ * @param {string} [params.enrollmentId] - Related enrollment ID for logging
  *
  * @returns {Promise<Object>} API response
  * @throws {Error} If message sending fails
@@ -80,9 +86,37 @@ export const sendTicketWhatsApp = async ({
   email,
   eventName,
   qrCodeUrl,
+  eventId,
+  orderId,
+  userId,
+  enrollmentId,
 }) => {
+  let communicationLog = null;
+
   try {
     console.log(`[WHATSAPP] ========== STARTING WHATSAPP SEND ==========`);
+
+    // Create communication log entry (PENDING status)
+    const formattedPhoneForLog = formatPhoneNumber(phone);
+    communicationLog = new CommunicationLog({
+      type: 'WHATSAPP',
+      category: 'TICKET',
+      recipient: formattedPhoneForLog,
+      recipientName: name,
+      status: 'PENDING',
+      templateName: 'wp_ticket',
+      eventId: eventId || null,
+      orderId: orderId || null,
+      userId: userId || null,
+      enrollmentId: enrollmentId || null,
+      metadata: {
+        eventName,
+        qrCodeUrl
+      }
+    });
+    await communicationLog.save();
+
+    console.log(`[WHATSAPP] Communication log created: ${communicationLog._id}`);
 
     // Validate config and log (masked)
     validateWhatsAppConfig();
@@ -167,6 +201,14 @@ export const sendTicketWhatsApp = async ({
     console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
     console.log(`[WHATSAPP] ========== WHATSAPP SEND COMPLETE ==========`);
 
+    // Update communication log to SUCCESS
+    if (communicationLog) {
+      communicationLog.status = 'SUCCESS';
+      communicationLog.messageId = responseData.message_id;
+      await communicationLog.save();
+      console.log(`[WHATSAPP] Communication log updated to SUCCESS: ${communicationLog._id}`);
+    }
+
     return {
       success: true,
       messageId: responseData.message_id,
@@ -174,6 +216,18 @@ export const sendTicketWhatsApp = async ({
     };
   } catch (error) {
     console.error(`[WHATSAPP] ✗ FAILED to send message to ${phone}`);
+
+    // Update communication log to FAILED
+    if (communicationLog) {
+      try {
+        communicationLog.status = 'FAILED';
+        communicationLog.errorMessage = error.message;
+        await communicationLog.save();
+        console.log(`[WHATSAPP] Communication log updated to FAILED: ${communicationLog._id}`);
+      } catch (logError) {
+        console.error(`[WHATSAPP] Failed to update communication log:`, logError.message);
+      }
+    }
     console.error(`[WHATSAPP] Error type: ${error.name}`);
     console.error(`[WHATSAPP] Error message: ${error.message}`);
     console.error(`[WHATSAPP] Error stack:`, error.stack);
@@ -200,13 +254,33 @@ export const sendTicketWhatsApp = async ({
  * @param {Object} params - Message parameters
  * @param {string} params.phone - Recipient phone number
  * @param {string} params.link - Redemption link to send
+ * @param {string} [params.eventId] - Related event ID for logging
  *
  * @returns {Promise<Object>} API response
  * @throws {Error} If message sending fails
  */
-export const sendRedemptionLinkWhatsApp = async ({ phone, link }) => {
+export const sendRedemptionLinkWhatsApp = async ({ phone, link, eventId }) => {
+  let communicationLog = null;
+
   try {
     console.log(`[WHATSAPP] ========== SENDING REDEMPTION LINK ==========`);
+
+    // Create communication log entry (PENDING status)
+    const formattedPhoneForLog = formatPhoneNumber(phone);
+    communicationLog = new CommunicationLog({
+      type: 'WHATSAPP',
+      category: 'REDEMPTION_LINK',
+      recipient: formattedPhoneForLog,
+      status: 'PENDING',
+      templateName: 'wp_tmplt_rdm_9',
+      eventId: eventId || null,
+      metadata: {
+        link
+      }
+    });
+    await communicationLog.save();
+
+    console.log(`[WHATSAPP] Communication log created: ${communicationLog._id}`);
 
     // Validate config
     validateWhatsAppConfig();
@@ -275,6 +349,14 @@ export const sendRedemptionLinkWhatsApp = async ({ phone, link }) => {
     console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
     console.log(`[WHATSAPP] ========== REDEMPTION LINK SEND COMPLETE ==========`);
 
+    // Update communication log to SUCCESS
+    if (communicationLog) {
+      communicationLog.status = 'SUCCESS';
+      communicationLog.messageId = responseData.message_id;
+      await communicationLog.save();
+      console.log(`[WHATSAPP] Communication log updated to SUCCESS: ${communicationLog._id}`);
+    }
+
     return {
       success: true,
       messageId: responseData.message_id,
@@ -282,6 +364,18 @@ export const sendRedemptionLinkWhatsApp = async ({ phone, link }) => {
     };
   } catch (error) {
     console.error(`[WHATSAPP] ✗ FAILED to send redemption link to ${phone}`);
+
+    // Update communication log to FAILED
+    if (communicationLog) {
+      try {
+        communicationLog.status = 'FAILED';
+        communicationLog.errorMessage = error.message;
+        await communicationLog.save();
+        console.log(`[WHATSAPP] Communication log updated to FAILED: ${communicationLog._id}`);
+      } catch (logError) {
+        console.error(`[WHATSAPP] Failed to update communication log:`, logError.message);
+      }
+    }
     console.error(`[WHATSAPP] Error type: ${error.name}`);
     console.error(`[WHATSAPP] Error message: ${error.message}`);
     console.error(`[WHATSAPP] Error stack:`, error.stack);
@@ -344,6 +438,7 @@ export const sendBulkTicketWhatsApp = async (messages) => {
  * @param {string} params.name - Recipient name
  * @param {string} params.voucherTitle - Voucher title for template variable
  * @param {string} params.qrCodeUrl - URL to the voucher QR code image
+ * @param {string} [params.voucherId] - Related voucher ID for logging
  *
  * @returns {Promise<Object>} API response
  * @throws {Error} If message sending fails
@@ -353,9 +448,31 @@ export const sendVoucherWhatsApp = async ({
   name,
   voucherTitle,
   qrCodeUrl,
+  voucherId,
 }) => {
+  let communicationLog = null;
+
   try {
     console.log(`[WHATSAPP] ========== STARTING VOUCHER WHATSAPP SEND ==========`);
+
+    // Create communication log entry (PENDING status)
+    const formattedPhoneForLog = formatPhoneNumber(phone);
+    communicationLog = new CommunicationLog({
+      type: 'WHATSAPP',
+      category: 'VOUCHER',
+      recipient: formattedPhoneForLog,
+      recipientName: name,
+      status: 'PENDING',
+      templateName: 'wp_voucher_2',
+      voucherId: voucherId || null,
+      metadata: {
+        voucherTitle,
+        qrCodeUrl
+      }
+    });
+    await communicationLog.save();
+
+    console.log(`[WHATSAPP] Communication log created: ${communicationLog._id}`);
 
     // Validate config
     validateWhatsAppConfig();
@@ -428,6 +545,14 @@ export const sendVoucherWhatsApp = async ({
     console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
     console.log(`[WHATSAPP] ========== VOUCHER WHATSAPP SEND COMPLETE ==========`);
 
+    // Update communication log to SUCCESS
+    if (communicationLog) {
+      communicationLog.status = 'SUCCESS';
+      communicationLog.messageId = responseData.message_id;
+      await communicationLog.save();
+      console.log(`[WHATSAPP] Communication log updated to SUCCESS: ${communicationLog._id}`);
+    }
+
     return {
       success: true,
       messageId: responseData.message_id,
@@ -435,6 +560,18 @@ export const sendVoucherWhatsApp = async ({
     };
   } catch (error) {
     console.error(`[WHATSAPP] ✗ FAILED to send voucher message to ${phone}`);
+
+    // Update communication log to FAILED
+    if (communicationLog) {
+      try {
+        communicationLog.status = 'FAILED';
+        communicationLog.errorMessage = error.message;
+        await communicationLog.save();
+        console.log(`[WHATSAPP] Communication log updated to FAILED: ${communicationLog._id}`);
+      } catch (logError) {
+        console.error(`[WHATSAPP] Failed to update communication log:`, logError.message);
+      }
+    }
     console.error(`[WHATSAPP] Error type: ${error.name}`);
     console.error(`[WHATSAPP] Error message: ${error.message}`);
     console.error(`[WHATSAPP] Error stack:`, error.stack);

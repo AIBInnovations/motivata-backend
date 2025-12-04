@@ -4,6 +4,7 @@
  */
 
 import nodemailer from 'nodemailer';
+import CommunicationLog from '../schema/CommunicationLog.schema.js';
 
 /**
  * Validate email configuration
@@ -58,11 +59,39 @@ const createTransporter = () => {
  * @param {string} options.attachments[].filename - Attachment filename
  * @param {Buffer} options.attachments[].content - Attachment content as Buffer
  * @param {string} [options.attachments[].contentType] - MIME type (optional)
+ * @param {string} [options.category] - Email category for logging (TICKET, VOUCHER, etc.)
+ * @param {string} [options.eventId] - Related event ID for logging
+ * @param {string} [options.orderId] - Related order ID for logging
+ * @param {string} [options.userId] - Related user ID for logging
+ * @param {string} [options.enrollmentId] - Related enrollment ID for logging
+ * @param {string} [options.voucherId] - Related voucher ID for logging
  * @returns {Promise<Object>} Nodemailer send result
  * @throws {Error} If email sending fails
  */
-export const sendEmail = async ({ to, subject, html, text, attachments }) => {
+export const sendEmail = async ({ to, subject, html, text, attachments, category, eventId, orderId, userId, enrollmentId, voucherId }) => {
+  let communicationLog = null;
+
   try {
+    // Create communication log entry (PENDING status)
+    communicationLog = new CommunicationLog({
+      type: 'EMAIL',
+      category: category || 'TRANSACTIONAL',
+      recipient: to,
+      subject,
+      status: 'PENDING',
+      eventId: eventId || null,
+      orderId: orderId || null,
+      userId: userId || null,
+      enrollmentId: enrollmentId || null,
+      voucherId: voucherId || null,
+      metadata: {
+        hasAttachments: !!(attachments && attachments.length > 0),
+        attachmentCount: attachments?.length || 0
+      }
+    });
+    await communicationLog.save();
+
+    console.log(`[EMAIL] Communication log created: ${communicationLog._id}`);
     // Validate recipient email
     if (!to || typeof to !== 'string' || !to.includes('@')) {
       throw new Error(`Invalid recipient email: ${to}`);
@@ -95,6 +124,14 @@ export const sendEmail = async ({ to, subject, html, text, attachments }) => {
 
     console.log(`[EMAIL] ✓ Sent successfully to ${to} (ID: ${info.messageId})`);
 
+    // Update communication log to SUCCESS
+    if (communicationLog) {
+      communicationLog.status = 'SUCCESS';
+      communicationLog.messageId = info.messageId;
+      await communicationLog.save();
+      console.log(`[EMAIL] Communication log updated to SUCCESS: ${communicationLog._id}`);
+    }
+
     return {
       success: true,
       messageId: info.messageId,
@@ -102,6 +139,18 @@ export const sendEmail = async ({ to, subject, html, text, attachments }) => {
     };
   } catch (error) {
     console.error(`[EMAIL] ✗ Failed to send to ${to}`);
+
+    // Update communication log to FAILED
+    if (communicationLog) {
+      try {
+        communicationLog.status = 'FAILED';
+        communicationLog.errorMessage = error.message;
+        await communicationLog.save();
+        console.log(`[EMAIL] Communication log updated to FAILED: ${communicationLog._id}`);
+      } catch (logError) {
+        console.error(`[EMAIL] Failed to update communication log:`, logError.message);
+      }
+    }
     console.error(`[EMAIL] Error details:`, {
       message: error.message,
       code: error.code,

@@ -66,6 +66,11 @@ const adminSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    maxCashTicketsAllowed: {
+      type: Number,
+      required: false,
+      min: [0, "Max cash tickets allowed cannot be negative"],
+    },
     status: {
       type: String,
       enum: ["ACTIVATED", "DEACTIVATED"],

@@ -61,6 +61,40 @@ export const createOfflineCash = async (req, res) => {
       );
     }
 
+    // Check admin's max cash tickets limit (for MANAGEMENT_STAFF)
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return responseUtil.unauthorized(res, "Admin not found");
+    }
+
+    if (admin.maxCashTicketsAllowed != null) {
+      // Count total tickets already created by this admin
+      const totalTicketsCreated = await OfflineCash.aggregate([
+        {
+          $match: {
+            generatedBy: admin._id,
+            isDeleted: false,
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalTickets: { $sum: "$ticketCount" },
+          },
+        },
+      ]);
+
+      const currentTotal = totalTicketsCreated.length > 0 ? totalTicketsCreated[0].totalTickets : 0;
+      const newTotal = currentTotal + ticketCount;
+
+      if (newTotal > admin.maxCashTicketsAllowed) {
+        return responseUtil.badRequest(
+          res,
+          `Cannot create ${ticketCount} ticket(s). Your maximum cash tickets allowed: ${admin.maxCashTicketsAllowed}, Already created: ${currentTotal}, Available: ${admin.maxCashTicketsAllowed - currentTotal}`
+        );
+      }
+    }
+
     // Check if event exists
     const event = await Event.findById(eventId);
     if (!event) {
@@ -105,6 +139,7 @@ export const createOfflineCash = async (req, res) => {
       const whatsappResult = await sendRedemptionLinkWhatsApp({
         phone: normalizedPhone,
         link: offlineCash.link,
+        eventId: eventId,
       });
       whatsappStatus = { sent: true, messageId: whatsappResult.messageId };
     } catch (whatsappError) {
@@ -558,6 +593,10 @@ export const redeemTickets = async (req, res) => {
             name: attendee.name,
             eventName: record.eventId.name,
             qrCodeUrl: qrImageUrl,
+            // Logging parameters
+            eventId: record.eventId._id.toString(),
+            userId: user._id.toString(),
+            enrollmentId: enrollment._id.toString(),
           }).catch((whatsappErr) =>
             console.error(`[OFFLINE_CASH] WhatsApp error for ${normalizedPhone}:`, whatsappErr.message)
           );

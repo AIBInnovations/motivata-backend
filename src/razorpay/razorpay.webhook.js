@@ -891,7 +891,12 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
         name: payment.metadata.buyer.name,
         email: payment.metadata.buyer.email || '',
         eventName,
-        qrCodeUrl: buyerQRUrl
+        qrCodeUrl: buyerQRUrl,
+        // Logging parameters
+        eventId: payment.eventId?.toString(),
+        orderId: payment.orderId,
+        userId: buyerUser._id.toString(),
+        enrollmentId: enrollment._id.toString()
       });
 
       console.log(`[WEBHOOK-NOTIFY] ✓ Buyer WhatsApp message queued`);
@@ -922,7 +927,13 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
               content: buyerQRBuffer,
               contentType: 'image/png'
             }
-          ]
+          ],
+          // Logging parameters
+          category: 'TICKET',
+          eventId: payment.eventId?.toString(),
+          orderId: payment.orderId,
+          userId: buyerUser._id.toString(),
+          enrollmentId: enrollment._id.toString()
         });
 
         console.log(`[WEBHOOK-NOTIFY] ✓ Buyer email queued (${buyerEmailData.email})`);
@@ -968,7 +979,12 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
           name: details.name,
           email: details.email || '',
           eventName,
-          qrCodeUrl: qrUrl
+          qrCodeUrl: qrUrl,
+          // Logging parameters
+          eventId: payment.eventId?.toString(),
+          orderId: payment.orderId,
+          userId: user._id.toString(),
+          enrollmentId: enrollment._id.toString()
         });
 
         console.log(`[WEBHOOK-NOTIFY] ✓ WhatsApp message queued for ${details.phone}`);
@@ -999,7 +1015,13 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
                 content: qrBuffer,
                 contentType: 'image/png'
               }
-            ]
+            ],
+            // Logging parameters
+            category: 'TICKET',
+            eventId: payment.eventId?.toString(),
+            orderId: payment.orderId,
+            userId: user._id.toString(),
+            enrollmentId: enrollment._id.toString()
           });
 
           console.log(`[WEBHOOK-NOTIFY] ✓ Email queued for ${details.email}`);
@@ -1272,7 +1294,9 @@ const sendVoucherQRs = async (payment) => {
           phone,
           name,
           voucherTitle: voucher.title,
-          qrCodeUrl: qrUrl
+          qrCodeUrl: qrUrl,
+          // Logging parameter
+          voucherId: voucherId
         });
 
         console.log(`[VOUCHER-QR] ✓ WhatsApp message queued for ${phone}`);
