@@ -809,10 +809,37 @@ export const sessionSchemas = {
       "any.only": "Session type must be OTO (One-to-One) or OTM (One-to-Many)",
       "any.required": "Session type is required",
     }),
+    category: Joi.string()
+      .valid(
+        "therapeutic",
+        "personal_development",
+        "health",
+        "mental_wellness",
+        "career",
+        "relationships",
+        "spirituality",
+        "other"
+      )
+      .required()
+      .messages({
+        "any.only": "Invalid session category",
+        "any.required": "Session category is required",
+      }),
     host: Joi.string().trim().max(100).required().messages({
       "string.empty": "Host name is required",
       "string.max": "Host name cannot exceed 100 characters",
     }),
+    hostEmail: Joi.string().email().optional().allow("", null).messages({
+      "string.email": "Please provide a valid host email",
+    }),
+    hostPhone: Joi.string()
+      .pattern(/^[0-9]{10,15}$/)
+      .optional()
+      .allow("", null)
+      .messages({
+        "string.pattern.base": "Host phone must be 10-15 digits",
+      }),
+    tags: Joi.array().items(Joi.string().trim().max(50)).max(10).optional(),
     availableSlots: Joi.number().integer().min(0).optional().messages({
       "number.base": "Available slots must be a number",
       "number.min": "Available slots cannot be negative",
@@ -858,9 +885,35 @@ export const sessionSchemas = {
     sessionType: Joi.string().valid("OTO", "OTM").optional().messages({
       "any.only": "Session type must be OTO (One-to-One) or OTM (One-to-Many)",
     }),
+    category: Joi.string()
+      .valid(
+        "therapeutic",
+        "personal_development",
+        "health",
+        "mental_wellness",
+        "career",
+        "relationships",
+        "spirituality",
+        "other"
+      )
+      .optional()
+      .messages({
+        "any.only": "Invalid session category",
+      }),
     host: Joi.string().trim().max(100).optional().messages({
       "string.max": "Host name cannot exceed 100 characters",
     }),
+    hostEmail: Joi.string().email().optional().allow("", null).messages({
+      "string.email": "Please provide a valid host email",
+    }),
+    hostPhone: Joi.string()
+      .pattern(/^[0-9]{10,15}$/)
+      .optional()
+      .allow("", null)
+      .messages({
+        "string.pattern.base": "Host phone must be 10-15 digits",
+      }),
+    tags: Joi.array().items(Joi.string().trim().max(50)).max(10).optional(),
     availableSlots: Joi.number().integer().min(0).optional().allow(null).messages({
       "number.base": "Available slots must be a number",
       "number.min": "Available slots cannot be negative",
@@ -888,6 +941,18 @@ export const sessionSchemas = {
       .default("createdAt"),
     sortOrder: Joi.string().valid("asc", "desc").default("desc"),
     sessionType: Joi.string().valid("OTO", "OTM").optional(),
+    category: Joi.string()
+      .valid(
+        "therapeutic",
+        "personal_development",
+        "health",
+        "mental_wellness",
+        "career",
+        "relationships",
+        "spirituality",
+        "other"
+      )
+      .optional(),
     isLive: Joi.boolean().optional(),
     host: Joi.string().trim().optional(),
     minPrice: Joi.number().min(0).optional(),
@@ -902,6 +967,55 @@ export const sessionSchemas = {
    */
   sessionId: Joi.object({
     id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Book session schema
+   */
+  book: Joi.object({
+    contactMethod: Joi.string().valid("email", "whatsapp", "both").default("both"),
+    userNotes: Joi.string().max(1000).optional(),
+  }),
+
+  /**
+   * Cancel booking schema
+   */
+  cancelBooking: Joi.object({
+    reason: Joi.string().max(500).optional(),
+  }),
+
+  /**
+   * Booking ID parameter validation
+   */
+  bookingId: Joi.object({
+    bookingId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Admin update booking schema
+   */
+  updateBooking: Joi.object({
+    status: Joi.string()
+      .valid("pending", "confirmed", "scheduled", "completed", "cancelled", "no_show")
+      .optional(),
+    adminNotes: Joi.string().max(1000).optional(),
+    scheduledSlot: Joi.date().iso().optional(),
+  }),
+
+  /**
+   * Query parameters for listing bookings
+   */
+  listBookings: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string().valid("bookedAt", "createdAt", "status").default("bookedAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    sessionId: schemas.mongoId.optional(),
+    status: Joi.string()
+      .valid("pending", "confirmed", "scheduled", "completed", "cancelled", "no_show")
+      .optional(),
+    startDate: Joi.date().iso().optional(),
+    endDate: Joi.date().iso().optional(),
   }),
 };
 

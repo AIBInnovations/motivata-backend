@@ -102,6 +102,27 @@ const sessionSchema = new mongoose.Schema(
     },
 
     /**
+     * Session category
+     */
+    category: {
+      type: String,
+      required: [true, "Session category is required"],
+      enum: {
+        values: [
+          "therapeutic",
+          "personal_development",
+          "health",
+          "mental_wellness",
+          "career",
+          "relationships",
+          "spirituality",
+          "other",
+        ],
+        message: "{VALUE} is not a valid category",
+      },
+    },
+
+    /**
      * Whether session is currently available for booking
      */
     isLive: {
@@ -118,6 +139,36 @@ const sessionSchema = new mongoose.Schema(
       trim: true,
       maxlength: [100, "Host name cannot exceed 100 characters"],
     },
+
+    /**
+     * Host email
+     */
+    hostEmail: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      match: [/^\S+@\S+\.\S+$/, "Please provide a valid email address"],
+    },
+
+    /**
+     * Host phone number
+     */
+    hostPhone: {
+      type: String,
+      trim: true,
+      match: [/^[0-9]{10,15}$/, "Phone number must be 10-15 digits"],
+    },
+
+    /**
+     * Session tags for search/filtering
+     */
+    tags: [
+      {
+        type: String,
+        trim: true,
+        maxlength: [50, "Tag cannot exceed 50 characters"],
+      },
+    ],
 
     /**
      * Number of available booking slots (mainly for OTM sessions)
@@ -253,10 +304,12 @@ sessionSchema.virtual("discountPercent").get(function () {
  */
 sessionSchema.index({ isDeleted: 1, isLive: 1 });
 sessionSchema.index({ sessionType: 1, isDeleted: 1 });
+sessionSchema.index({ category: 1, isDeleted: 1 });
 sessionSchema.index({ host: 1, isDeleted: 1 });
 sessionSchema.index({ sessionDate: 1 });
 sessionSchema.index({ createdAt: -1 });
 sessionSchema.index({ price: 1 });
+sessionSchema.index({ tags: 1 });
 
 /**
  * Pre-query middleware to exclude soft deleted documents

@@ -11,6 +11,8 @@ import Voucher from '../../schema/Voucher.Schema.js';
 import User from '../../schema/User.schema.js';
 import Event from '../../schema/Event.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
+import Session from '../../schema/Session.schema.js';
+import SessionBooking from '../../schema/SessionBooking.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
@@ -305,7 +307,12 @@ const handlePaymentFailed = async (paymentEntity) => {
 
   console.log(`✓ Payment marked as failed for order: ${orderId}`);
 
-  // Release voucher claim if voucher was used
+  // Handle type-specific failure actions (session booking cancellation, etc.)
+  if (payment.type === 'SESSION') {
+    await cancelSessionBooking(payment);
+  }
+
+  // Release voucher claim if voucher was used (for EVENT type)
   await releaseVoucherClaim(payment);
 };
 
@@ -464,7 +471,12 @@ const handlePaymentLinkCancelled = async (paymentLinkEntity) => {
 
   console.log(`✓ Payment link cancelled for order: ${orderId}`);
 
-  // Release voucher claim if voucher was used
+  // Handle type-specific failure actions (session booking cancellation, etc.)
+  if (payment.type === 'SESSION') {
+    await cancelSessionBooking(payment);
+  }
+
+  // Release voucher claim if voucher was used (for EVENT type)
   await releaseVoucherClaim(payment);
 };
 
@@ -496,7 +508,12 @@ const handlePaymentLinkExpired = async (paymentLinkEntity) => {
 
   console.log(`✓ Payment link expired for order: ${orderId}`);
 
-  // Release voucher claim if voucher was used
+  // Handle type-specific failure actions (session booking cancellation, etc.)
+  if (payment.type === 'SESSION') {
+    await cancelSessionBooking(payment);
+  }
+
+  // Release voucher claim if voucher was used (for EVENT type)
   await releaseVoucherClaim(payment);
 };
 
@@ -1326,8 +1343,347 @@ const sendVoucherQRs = async (payment) => {
 };
 
 /**
+ * Confirm session booking after successful payment
+ * Updates booking status, increments session booked slots, and sends Calendly link
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const confirmSessionBooking = async (payment) => {
+  try {
+    console.log('[SESSION-WEBHOOK] Starting session booking confirmation for payment:', payment.orderId);
+
+    const { bookingReference } = payment.metadata || {};
+
+    if (!bookingReference) {
+      console.error('[SESSION-WEBHOOK] No booking reference found in payment metadata');
+      return;
+    }
+
+    // Find the booking
+    const booking = await SessionBooking.findOne({ bookingReference });
+
+    if (!booking) {
+      console.error('[SESSION-WEBHOOK] Booking not found for reference:', bookingReference);
+      return;
+    }
+
+    // Check if booking is already confirmed
+    if (booking.paymentStatus === 'paid' && booking.status === 'confirmed') {
+      console.log('[SESSION-WEBHOOK] Booking already confirmed:', bookingReference);
+      return;
+    }
+
+    // Find the session
+    const session = await Session.findById(booking.sessionId);
+
+    if (!session) {
+      console.error('[SESSION-WEBHOOK] Session not found for booking:', bookingReference);
+      return;
+    }
+
+    // Update booking status
+    booking.paymentStatus = 'paid';
+    booking.status = 'confirmed';
+    await booking.save();
+
+    console.log('[SESSION-WEBHOOK] Booking confirmed:', {
+      bookingReference: booking.bookingReference,
+      sessionId: session._id,
+      sessionTitle: session.title
+    });
+
+    // Increment session booked slots
+    try {
+      await session.bookSlot();
+      console.log('[SESSION-WEBHOOK] Session slot booked:', {
+        sessionId: session._id,
+        bookedSlots: session.bookedSlots + 1
+      });
+    } catch (slotError) {
+      console.error('[SESSION-WEBHOOK] Error booking slot:', slotError.message);
+      // Continue - payment was successful
+    }
+
+    // Send Calendly link via email and WhatsApp
+    await sendSessionConfirmation(payment, booking, session);
+
+    console.log('[SESSION-WEBHOOK] ✓ Session booking confirmed successfully');
+
+  } catch (error) {
+    console.error('[SESSION-WEBHOOK] ✗ Error confirming session booking:', error.message);
+    // Don't throw - webhook should still succeed
+  }
+};
+
+/**
+ * Send session booking confirmation with Calendly link
+ * Sends to both email and WhatsApp if available
+ *
+ * @param {Object} payment - Payment document
+ * @param {Object} booking - SessionBooking document
+ * @param {Object} session - Session document
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const sendSessionConfirmation = async (payment, booking, session) => {
+  try {
+    console.log('[SESSION-CONFIRM] Sending session booking confirmation');
+
+    const { buyer } = payment.metadata || {};
+    const calendlyLink = session.calendlyLink;
+    const hostEmail = session.hostEmail;
+    const hostPhone = session.hostPhone;
+
+    // Prepare notification data
+    const userEmail = booking.userEmail || buyer?.email;
+    const userPhone = booking.userPhone || buyer?.phone;
+    const userName = buyer?.name || 'Customer';
+
+    console.log('[SESSION-CONFIRM] Recipient info:', {
+      email: userEmail || '(no email)',
+      phone: userPhone || '(no phone)',
+      calendlyLink: calendlyLink || '(no link)'
+    });
+
+    // Send email notification
+    if (userEmail) {
+      try {
+        const emailContent = {
+          to: userEmail,
+          subject: `Session Booking Confirmed - ${session.title}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Your Session Booking is Confirmed!</h2>
+              <p>Hi ${userName},</p>
+              <p>Thank you for booking <strong>${session.title}</strong> with ${session.host}.</p>
+
+              <div style="background-color: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="margin-top: 0;">Booking Details</h3>
+                <p><strong>Session:</strong> ${session.title}</p>
+                <p><strong>Host:</strong> ${session.host}</p>
+                <p><strong>Duration:</strong> ${session.duration} minutes</p>
+                <p><strong>Booking Reference:</strong> ${booking.bookingReference}</p>
+                <p><strong>Amount Paid:</strong> ₹${booking.amountPaid}</p>
+              </div>
+
+              ${calendlyLink ? `
+              <div style="background-color: #e8f4fd; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h3 style="margin-top: 0;">📅 Schedule Your Session</h3>
+                <p>Please use the link below to schedule your session at a convenient time:</p>
+                <a href="${calendlyLink}" style="display: inline-block; background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; margin-top: 10px;">Schedule Now</a>
+              </div>
+              ` : ''}
+
+              ${hostEmail || hostPhone ? `
+              <div style="margin-top: 20px;">
+                <h3>Contact Information</h3>
+                ${hostEmail ? `<p><strong>Email:</strong> ${hostEmail}</p>` : ''}
+                ${hostPhone ? `<p><strong>Phone:</strong> ${hostPhone}</p>` : ''}
+              </div>
+              ` : ''}
+
+              <p style="color: #666; font-size: 12px; margin-top: 30px;">
+                If you have any questions, please contact us at support@motivata.in
+              </p>
+            </div>
+          `,
+          text: `Your Session Booking is Confirmed!
+
+Hi ${userName},
+
+Thank you for booking "${session.title}" with ${session.host}.
+
+Booking Details:
+- Session: ${session.title}
+- Host: ${session.host}
+- Duration: ${session.duration} minutes
+- Booking Reference: ${booking.bookingReference}
+- Amount Paid: ₹${booking.amountPaid}
+
+${calendlyLink ? `Schedule Your Session: ${calendlyLink}` : ''}
+
+${hostEmail ? `Host Email: ${hostEmail}` : ''}
+${hostPhone ? `Host Phone: ${hostPhone}` : ''}
+
+If you have any questions, please contact us at support@motivata.in
+`,
+          // Logging parameters
+          category: 'SESSION_BOOKING',
+          sessionId: session._id?.toString(),
+          orderId: payment.orderId,
+          bookingReference: booking.bookingReference
+        };
+
+        await sendBulkEmails([emailContent]);
+        console.log('[SESSION-CONFIRM] ✓ Email sent successfully');
+      } catch (emailError) {
+        console.error('[SESSION-CONFIRM] ✗ Email sending failed:', emailError.message);
+      }
+    } else {
+      console.log('[SESSION-CONFIRM] ℹ No email address - skipping email notification');
+    }
+
+    // Send WhatsApp notification
+    if (userPhone) {
+      try {
+        // Import WhatsApp utility dynamically
+        const { sendWhatsAppMessage } = await import('../../utils/whatsapp.util.js');
+
+        let message = `🎉 *Session Booking Confirmed!*\n\n`;
+        message += `Hi ${userName},\n\n`;
+        message += `Your booking for *${session.title}* with ${session.host} is confirmed!\n\n`;
+        message += `📋 *Booking Details*\n`;
+        message += `• Reference: ${booking.bookingReference}\n`;
+        message += `• Duration: ${session.duration} minutes\n`;
+        message += `• Amount: ₹${booking.amountPaid}\n\n`;
+
+        if (calendlyLink) {
+          message += `📅 *Schedule Your Session*\n`;
+          message += `Click here to pick your slot: ${calendlyLink}\n\n`;
+        }
+
+        if (hostEmail || hostPhone) {
+          message += `📞 *Contact Host*\n`;
+          if (hostEmail) message += `Email: ${hostEmail}\n`;
+          if (hostPhone) message += `Phone: ${hostPhone}\n`;
+        }
+
+        await sendWhatsAppMessage({
+          phone: userPhone,
+          message,
+          // Logging parameters
+          category: 'SESSION_BOOKING',
+          sessionId: session._id?.toString(),
+          orderId: payment.orderId,
+          bookingReference: booking.bookingReference
+        });
+
+        console.log('[SESSION-CONFIRM] ✓ WhatsApp message sent successfully');
+      } catch (whatsappError) {
+        console.error('[SESSION-CONFIRM] ✗ WhatsApp sending failed:', whatsappError.message);
+      }
+    } else {
+      console.log('[SESSION-CONFIRM] ℹ No phone number - skipping WhatsApp notification');
+    }
+
+    console.log('[SESSION-CONFIRM] ✓ Session confirmation notifications completed');
+
+  } catch (error) {
+    console.error('[SESSION-CONFIRM] ✗ Error sending session confirmation:', error.message);
+    // Don't throw - webhook should still succeed
+  }
+};
+
+/**
+ * Handle session booking failure/cancellation
+ * Updates booking status and releases the pending slot
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const cancelSessionBooking = async (payment) => {
+  try {
+    console.log('[SESSION-WEBHOOK] Handling session booking failure for payment:', payment.orderId);
+
+    const { bookingReference } = payment.metadata || {};
+
+    if (!bookingReference) {
+      console.log('[SESSION-WEBHOOK] No booking reference found - skipping');
+      return;
+    }
+
+    // Find the booking
+    const booking = await SessionBooking.findOne({ bookingReference });
+
+    if (!booking) {
+      console.log('[SESSION-WEBHOOK] Booking not found for reference:', bookingReference);
+      return;
+    }
+
+    // Only cancel if booking is still pending
+    if (booking.status !== 'pending') {
+      console.log('[SESSION-WEBHOOK] Booking is not pending, skipping cancellation:', booking.status);
+      return;
+    }
+
+    // Cancel the booking
+    await booking.cancel('admin', 'Payment failed');
+
+    console.log('[SESSION-WEBHOOK] ✓ Session booking cancelled:', bookingReference);
+
+  } catch (error) {
+    console.error('[SESSION-WEBHOOK] ✗ Error cancelling session booking:', error.message);
+    // Don't throw - webhook should still succeed
+  }
+};
+
+/**
+ * Handle session booking refund
+ * Updates booking status and releases the session slot
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handleSessionRefund = async (payment) => {
+  try {
+    console.log('[SESSION-REFUND] Starting session refund for payment:', payment.orderId);
+
+    const { bookingReference } = payment.metadata || {};
+
+    if (!bookingReference) {
+      console.log('[SESSION-REFUND] No booking reference found - skipping');
+      return;
+    }
+
+    // Find the booking
+    const booking = await SessionBooking.findOne({ bookingReference });
+
+    if (!booking) {
+      console.log('[SESSION-REFUND] Booking not found for reference:', bookingReference);
+      return;
+    }
+
+    // Update booking status
+    booking.paymentStatus = 'refunded';
+    booking.status = 'cancelled';
+    booking.cancelledAt = new Date();
+    booking.cancellationReason = 'Payment refunded';
+    booking.cancelledBy = 'admin';
+    await booking.save();
+
+    console.log('[SESSION-REFUND] Booking marked as refunded:', bookingReference);
+
+    // Release the session slot
+    if (payment.sessionId) {
+      const session = await Session.findById(payment.sessionId);
+      if (session) {
+        await session.cancelBooking();
+        console.log('[SESSION-REFUND] Session slot released:', {
+          sessionId: session._id,
+          bookedSlots: session.bookedSlots
+        });
+      }
+    }
+
+    console.log('[SESSION-REFUND] ✓ Session refund processed successfully');
+
+  } catch (error) {
+    console.error('[SESSION-REFUND] ✗ Error processing session refund:', error.message);
+    // Don't throw - webhook should still succeed
+  }
+};
+
+/**
  * Update related entities after successful payment
- * Increments coupon usage count, creates event enrollment, and sends confirmation emails
+ * Routes to appropriate handler based on payment type
  *
  * @param {Object} payment - Payment document from database
  * @param {string} [payment.couponCode] - Coupon code used (if any)
@@ -1339,6 +1695,15 @@ const updateRelatedEntities = async (payment) => {
   // Log customer details if present
   logCustomerDetails(payment);
 
+  // Route to appropriate handler based on payment type
+  if (payment.type === 'SESSION') {
+    // Handle session booking confirmation
+    await confirmSessionBooking(payment);
+    console.log('✓ Session payment processed successfully.');
+    return;
+  }
+
+  // Default: EVENT type - existing flow
   // Create users and event enrollment
   const enrollmentData = await createEventEnrollment(payment);
 
@@ -1436,7 +1801,7 @@ const handleEnrollmentRefund = async (payment) => {
 
 /**
  * Reverse related entity updates after refund
- * Decrements coupon usage count and handles enrollment refund
+ * Routes to appropriate handler based on payment type
  *
  * @param {Object} payment - Payment document from database
  * @param {string} [payment.couponCode] - Coupon code used (if any)
@@ -1448,6 +1813,15 @@ const reverseRelatedEntities = async (payment) => {
   // Log customer details if present
   logCustomerDetails(payment);
 
+  // Route to appropriate handler based on payment type
+  if (payment.type === 'SESSION') {
+    // Handle session refund
+    await handleSessionRefund(payment);
+    console.log('✓ Session refund processed successfully.');
+    return;
+  }
+
+  // Default: EVENT type - existing flow
   // Handle enrollment refund
   await handleEnrollmentRefund(payment);
 
@@ -1464,6 +1838,22 @@ const reverseRelatedEntities = async (payment) => {
   }
 
   console.log('✓ Refund processed. Enrollment cancelled and ticket counts reversed.');
+};
+
+/**
+ * Handle session booking failure (called on payment failure)
+ * Routes to cancelSessionBooking for SESSION type payments
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handlePaymentFailureByType = async (payment) => {
+  if (payment.type === 'SESSION') {
+    await cancelSessionBooking(payment);
+  }
+  // For EVENT type, voucher release is already handled in releaseVoucherClaim
 };
 
 export default {

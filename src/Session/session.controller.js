@@ -4,7 +4,9 @@
  */
 
 import Session from "../../schema/Session.schema.js";
+import SessionBooking from "../../schema/SessionBooking.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
 
 /**
  * Create a new session
@@ -832,6 +834,340 @@ export const getSessionsForDropdown = async (req, res) => {
   }
 };
 
+/**
+ * Get session categories with counts
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with categories and counts
+ */
+export const getCategories = async (req, res) => {
+  try {
+    const categories = await Session.aggregate([
+      { $match: { isDeleted: false, isLive: true } },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    const categoryLabels = {
+      therapeutic: "Therapeutic",
+      personal_development: "Personal Development",
+      health: "Health",
+      mental_wellness: "Mental Wellness",
+      career: "Career",
+      relationships: "Relationships",
+      spirituality: "Spirituality",
+      other: "Other",
+    };
+
+    const result = categories.map((c) => ({
+      key: c._id,
+      label: categoryLabels[c._id] || c._id,
+      count: c.count,
+    }));
+
+    return responseUtil.success(res, "Categories retrieved successfully", { categories: result });
+  } catch (error) {
+    console.error("Get categories error:", error);
+    return responseUtil.internalError(res, "Failed to retrieve categories", error.message);
+  }
+};
+
+/**
+ * Book a session
+ * @param {Object} req - Express request object
+ * @param {Object} req.params.id - Session ID
+ * @param {Object} req.body - Booking data
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with booking details
+ */
+export const bookSession = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { contactMethod, userNotes } = req.body;
+
+    console.log("[Session] Booking session:", id, "for user:", userId);
+
+    const session = await Session.findById(id);
+    if (!session) {
+      return responseUtil.notFound(res, "Session not found");
+    }
+
+    if (!session.isLive) {
+      return responseUtil.badRequest(res, "Session is not currently available");
+    }
+
+    if (session.isFullyBooked) {
+      return responseUtil.conflict(res, "Session is fully booked", "SESSION_FULLY_BOOKED");
+    }
+
+    // Check for existing pending/confirmed booking
+    const existingBooking = await SessionBooking.findOne({
+      userId,
+      sessionId: id,
+      status: { $in: ["pending", "confirmed", "scheduled"] },
+    });
+
+    if (existingBooking) {
+      return responseUtil.conflict(res, "You already have an active booking for this session");
+    }
+
+    // Get user info
+    const User = (await import("../../schema/User.schema.js")).default;
+    const user = await User.findById(userId);
+    if (!user) {
+      return responseUtil.notFound(res, "User not found");
+    }
+
+    // Create booking
+    const booking = new SessionBooking({
+      userId,
+      sessionId: id,
+      userEmail: user.email,
+      userPhone: user.phone,
+      contactMethod: contactMethod || "both",
+      userNotes,
+      paymentStatus: session.price > 0 ? "pending" : "free",
+    });
+
+    await booking.save();
+
+    // Increment booked slots
+    await session.bookSlot();
+
+    console.log("[Session] Booking created:", booking.bookingReference);
+
+    return responseUtil.created(res, "Session booked successfully", {
+      booking: {
+        _id: booking._id,
+        bookingReference: booking.bookingReference,
+        sessionId: booking.sessionId,
+        sessionTitle: session.title,
+        host: session.host,
+        status: booking.status,
+        bookedAt: booking.bookedAt,
+        paymentStatus: booking.paymentStatus,
+      },
+      calendlyLink: session.calendlyLink,
+      nextSteps:
+        "Please select an available time slot on Calendly. You will receive a confirmation once your booking is confirmed.",
+    });
+  } catch (error) {
+    console.error("Book session error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid session ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to book session", error.message);
+  }
+};
+
+/**
+ * Get user's bookings
+ * @param {Object} req - Express request object
+ * @param {Object} req.query - Query parameters
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with user's bookings
+ */
+export const getUserBookings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { skip, limit, sort, page } = buildPaginationOptions(req.query);
+
+    const filter = { userId };
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [bookings, total] = await Promise.all([
+      SessionBooking.find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .populate("sessionId", "title host duration imageUrl price category"),
+      SessionBooking.countDocuments(filter),
+    ]);
+
+    return responseUtil.success(res, "Bookings retrieved successfully", {
+      bookings,
+      meta: buildPaginationMeta(total, page, limit),
+    });
+  } catch (error) {
+    console.error("Get user bookings error:", error);
+    return responseUtil.internalError(res, "Failed to retrieve bookings", error.message);
+  }
+};
+
+/**
+ * Get single booking by ID
+ * @param {Object} req - Express request object
+ * @param {Object} req.params.bookingId - Booking ID
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with booking details
+ */
+export const getBookingById = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const userId = req.user.id;
+
+    const booking = await SessionBooking.findOne({ _id: bookingId, userId }).populate("sessionId");
+
+    if (!booking) {
+      return responseUtil.notFound(res, "Booking not found");
+    }
+
+    return responseUtil.success(res, "Booking retrieved successfully", { booking });
+  } catch (error) {
+    console.error("Get booking error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid booking ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to retrieve booking", error.message);
+  }
+};
+
+/**
+ * Cancel booking (user)
+ * @param {Object} req - Express request object
+ * @param {Object} req.params.bookingId - Booking ID
+ * @param {Object} req.body.reason - Cancellation reason
+ * @param {Object} res - Express response object
+ * @returns {Object} Response confirming cancellation
+ */
+export const cancelBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const userId = req.user.id;
+    const { reason } = req.body;
+
+    console.log("[Session] Cancelling booking:", bookingId);
+
+    const booking = await SessionBooking.findOne({ _id: bookingId, userId });
+    if (!booking) {
+      return responseUtil.notFound(res, "Booking not found");
+    }
+
+    if (booking.status === "cancelled") {
+      return responseUtil.conflict(res, "Booking is already cancelled");
+    }
+
+    if (booking.status === "completed") {
+      return responseUtil.badRequest(res, "Cannot cancel a completed session");
+    }
+
+    // Update booking
+    await booking.cancel("user", reason);
+
+    // Release slot
+    const session = await Session.findById(booking.sessionId);
+    if (session) {
+      await session.cancelBooking();
+    }
+
+    console.log("[Session] Booking cancelled:", bookingId);
+
+    return responseUtil.success(res, "Booking cancelled successfully", {
+      booking: {
+        _id: booking._id,
+        status: booking.status,
+        cancelledAt: booking.cancelledAt,
+        cancellationReason: booking.cancellationReason,
+      },
+    });
+  } catch (error) {
+    console.error("Cancel booking error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid booking ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to cancel booking", error.message);
+  }
+};
+
+/**
+ * List all bookings (admin)
+ * @param {Object} req - Express request object
+ * @param {Object} req.query - Query parameters
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with all bookings
+ */
+export const listBookingsAdmin = async (req, res) => {
+  try {
+    const { skip, limit, sort, page } = buildPaginationOptions(req.query);
+
+    const filter = {};
+    if (req.query.sessionId) filter.sessionId = req.query.sessionId;
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.startDate || req.query.endDate) {
+      filter.bookedAt = {};
+      if (req.query.startDate) filter.bookedAt.$gte = new Date(req.query.startDate);
+      if (req.query.endDate) filter.bookedAt.$lte = new Date(req.query.endDate);
+    }
+
+    const [bookings, total] = await Promise.all([
+      SessionBooking.find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .populate("sessionId", "title host")
+        .populate("userId", "name email phone"),
+      SessionBooking.countDocuments(filter),
+    ]);
+
+    return responseUtil.success(res, "Bookings retrieved successfully", {
+      bookings,
+      meta: buildPaginationMeta(total, page, limit),
+    });
+  } catch (error) {
+    console.error("List bookings admin error:", error);
+    return responseUtil.internalError(res, "Failed to retrieve bookings", error.message);
+  }
+};
+
+/**
+ * Update booking (admin)
+ * @param {Object} req - Express request object
+ * @param {Object} req.params.bookingId - Booking ID
+ * @param {Object} req.body - Update data
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with updated booking
+ */
+export const updateBookingAdmin = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { status, adminNotes, scheduledSlot } = req.body;
+
+    console.log("[Session] Admin updating booking:", bookingId);
+
+    const booking = await SessionBooking.findById(bookingId);
+    if (!booking) {
+      return responseUtil.notFound(res, "Booking not found");
+    }
+
+    if (status) booking.status = status;
+    if (adminNotes) booking.adminNotes = adminNotes;
+    if (scheduledSlot) booking.scheduledSlot = scheduledSlot;
+
+    await booking.save();
+
+    console.log("[Session] Booking updated by admin:", bookingId);
+
+    return responseUtil.success(res, "Booking updated successfully", { booking });
+  } catch (error) {
+    console.error("Update booking admin error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid booking ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to update booking", error.message);
+  }
+};
+
 export default {
   createSession,
   getAllSessions,
@@ -846,4 +1182,11 @@ export default {
   getSessionBookingStats,
   toggleSessionLiveStatus,
   getSessionsForDropdown,
+  getCategories,
+  bookSession,
+  getUserBookings,
+  getBookingById,
+  cancelBooking,
+  listBookingsAdmin,
+  updateBookingAdmin,
 };

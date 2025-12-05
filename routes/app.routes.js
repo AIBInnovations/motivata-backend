@@ -12,7 +12,8 @@ import userEnrollmentRoutes from "../src/Enrollment/user.enrollment.route.js";
 import userTicketRoutes from "../src/Enrollment/user.ticket.route.js";
 import userVoucherRoutes from "../src/Enrollment/voucher.user.route.js";
 import userSessionRoutes from "../src/Session/session.user.route.js";
-import userQuizRoutes from "../src/Quiz/quiz.user.route.js";
+import userSOSRoutes from "../src/Quiz/sos.user.route.js";
+import userChallengeRoutes from "../src/Challenge/challenge.user.route.js";
 import responseUtil from "../utils/response.util.js";
 import services from "../src/Other/app/showDelete.js";
 
@@ -48,8 +49,11 @@ router.use("/vouchers", userVoucherRoutes);
 // Session routes - /api/app/sessions
 router.use("/sessions", userSessionRoutes);
 
-// Quiz routes - /api/app/quizzes
-router.use("/quizzes", userQuizRoutes);
+// SOS routes - /api/app/sos
+router.use("/sos", userSOSRoutes);
+
+// Challenge routes - /api/app/challenges
+router.use("/challenges", userChallengeRoutes);
 
 // Add more user routes here as needed
 // Example:

@@ -7,7 +7,8 @@ import adminEnrollmentRoutes from "../src/Enrollment/admin.enrollment.route.js";
 import adminTicketRoutes from "../src/Enrollment/admin.ticket.route.js";
 import adminVoucherRoutes from "../src/Enrollment/voucher.admin.route.js";
 import adminSessionRoutes from "../src/Session/session.admin.route.js";
-import adminQuizRoutes from "../src/Quiz/quiz.admin.route.js";
+import adminSOSRoutes from "../src/Quiz/sos.admin.route.js";
+import adminChallengeRoutes from "../src/Challenge/challenge.admin.route.js";
 import razorpayRoutes from "../src/razorpay/razorpay.route.js";
 import cashRoutes from "../src/cash/cash.route.js";
 import offlineCashRoutes from "../src/cash/offlineCash.admin.route.js";
@@ -45,8 +46,11 @@ router.use("/vouchers", adminVoucherRoutes);
 // Session routes - /api/web/sessions
 router.use("/sessions", adminSessionRoutes);
 
-// Quiz routes - /api/web/quizzes
-router.use("/quizzes", adminQuizRoutes);
+// SOS routes - /api/web/sos
+router.use("/sos", adminSOSRoutes);
+
+// Challenge routes - /api/web/challenges
+router.use("/challenges", adminChallengeRoutes);
 
 // Razorpay routes - /api/web/razorpay
 router.use("/razorpay", razorpayRoutes);
