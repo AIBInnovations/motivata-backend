@@ -85,6 +85,18 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
+     * Google Maps link for venue address (optional, relevant for OFFLINE/HYBRID modes)
+     */
+    gmapLink: {
+      type: String,
+      trim: true,
+      match: [
+        /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+/,
+        "Please provide a valid Google Maps link",
+      ],
+    },
+
+    /**
      * Event category
      */
     category: {
@@ -117,7 +129,11 @@ const eventSchema = new mongoose.Schema(
       required: [true, "Event start date is required"],
       validate: {
         validator: function (value) {
-          return value > new Date();
+          // Only validate future date for new documents
+          if (this.isNew) {
+            return value > new Date();
+          }
+          return true;
         },
         message: "Start date must be in the future",
       },
@@ -131,6 +147,8 @@ const eventSchema = new mongoose.Schema(
       required: [true, "Event end date is required"],
       validate: {
         validator: function (value) {
+          // Skip validation if startDate is not available (during updates)
+          if (!this.startDate) return true;
           return value > this.startDate;
         },
         message: "End date must be after start date",
@@ -302,10 +320,10 @@ const eventSchema = new mongoose.Schema(
 /**
  * Index for improving query performance
  */
-eventSchema.index({ isDeleted: 1, isLive: 1 });
-eventSchema.index({ category: 1, isDeleted: 1 });
-eventSchema.index({ startDate: 1, endDate: 1 });
-eventSchema.index({ mode: 1, city: 1 });
+// eventSchema.index({ isDeleted: 1, isLive: 1 });
+// eventSchema.index({ category: 1, isDeleted: 1 });
+// eventSchema.index({ startDate: 1, endDate: 1 });
+// eventSchema.index({ mode: 1, city: 1 });
 eventSchema.index({ createdAt: -1 });
 
 /**

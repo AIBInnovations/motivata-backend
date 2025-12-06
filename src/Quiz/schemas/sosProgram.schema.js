@@ -128,13 +128,15 @@ sosProgramSchema.index({ createdAt: -1 });
 sosProgramSchema.pre("save", function (next) {
   // GSOS must have exactly 1 day
   if (this.type === "GSOS" && this.durationDays !== 1) {
-    return next(new Error("Generic SOS (GSOS) program must have exactly 1 day duration"));
+    return next(
+      new Error("Generic SOS (GSOS) program must have exactly 1 day duration")
+    );
   }
 
   // ISOS must have 7, 15, or 30 days
-  if (this.type === "ISOS" && ![7, 15, 30].includes(this.durationDays)) {
-    return next(new Error("Intensive SOS (ISOS) program must be 7, 15, or 30 days"));
-  }
+  // if (this.type === "ISOS" && ![7, 15, 30].includes(this.durationDays)) {
+  //   return next(new Error("Intensive SOS (ISOS) program must be 7, 15, or 30 days"));
+  // }
 
   next();
 });
@@ -177,7 +179,9 @@ sosProgramSchema.methods.restore = function () {
  * @returns {Query} Mongoose query
  */
 sosProgramSchema.statics.findDeleted = function (filter = {}) {
-  return this.find({ ...filter, isDeleted: true }).select("+isDeleted +deletedAt +deletedBy");
+  return this.find({ ...filter, isDeleted: true }).select(
+    "+isDeleted +deletedAt +deletedBy"
+  );
 };
 
 /**

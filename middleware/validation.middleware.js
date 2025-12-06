@@ -293,6 +293,13 @@ export const eventSchemas = {
       then: Joi.string().trim().required(),
       otherwise: Joi.string().trim().optional(),
     }),
+    gmapLink: Joi.string()
+      .uri()
+      .pattern(/^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+/)
+      .optional()
+      .messages({
+        "string.pattern.base": "Please provide a valid Google Maps link",
+      }),
     category: Joi.string()
       .valid(
         "TECHNOLOGY",
@@ -346,6 +353,14 @@ export const eventSchemas = {
       then: Joi.string().trim().required(),
       otherwise: Joi.string().trim().optional(),
     }),
+    gmapLink: Joi.string()
+      .uri()
+      .pattern(/^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+/)
+      .optional()
+      .allow("", null)
+      .messages({
+        "string.pattern.base": "Please provide a valid Google Maps link",
+      }),
     category: Joi.string()
       .valid(
         "TECHNOLOGY",
@@ -1019,6 +1034,90 @@ export const sessionSchemas = {
   }),
 };
 
+/**
+ * Poll validation schemas
+ */
+export const pollSchemas = {
+  /**
+   * Create poll schema
+   */
+  create: Joi.object({
+    eventId: schemas.mongoId.required(),
+    questions: Joi.array()
+      .items(
+        Joi.object({
+          questionText: Joi.string().trim().min(1).max(500).required().messages({
+            "string.empty": "Question text is required",
+            "string.max": "Question text cannot exceed 500 characters",
+          }),
+          options: Joi.array()
+            .items(Joi.string().trim().min(1).max(200))
+            .min(2)
+            .required()
+            .messages({
+              "array.min": "At least 2 options are required for each question",
+            }),
+        })
+      )
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least 1 question is required",
+      }),
+  }),
+
+  /**
+   * Update poll schema
+   */
+  update: Joi.object({
+    questions: Joi.array()
+      .items(
+        Joi.object({
+          questionText: Joi.string().trim().min(1).max(500).required(),
+          options: Joi.array()
+            .items(Joi.string().trim().min(1).max(200))
+            .min(2)
+            .required(),
+        })
+      )
+      .min(1)
+      .optional(),
+    isActive: Joi.boolean().optional(),
+  }),
+
+  /**
+   * Poll ID parameter validation
+   */
+  pollId: Joi.object({
+    pollId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Event ID parameter validation
+   */
+  eventId: Joi.object({
+    eventId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Submit poll answers schema
+   */
+  submit: Joi.object({
+    answers: Joi.array()
+      .items(
+        Joi.object({
+          questionIndex: Joi.number().integer().min(0).required(),
+          selectedOptionIndex: Joi.number().integer().min(0).required(),
+        })
+      )
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least 1 answer is required",
+      }),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -1033,4 +1132,5 @@ export default {
   voucherSchemas,
   offlineCashSchemas,
   sessionSchemas,
+  pollSchemas,
 };

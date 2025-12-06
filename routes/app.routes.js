@@ -14,8 +14,10 @@ import userVoucherRoutes from "../src/Enrollment/voucher.user.route.js";
 import userSessionRoutes from "../src/Session/session.user.route.js";
 import userSOSRoutes from "../src/Quiz/sos.user.route.js";
 import userChallengeRoutes from "../src/Challenge/challenge.user.route.js";
+import userPollRoutes from "../src/Poll/poll.user.route.js";
 import responseUtil from "../utils/response.util.js";
 import services from "../src/Other/app/showDelete.js";
+import publicAssetRoutes from "../src/Asset/asset.public.route.js";
 
 /** @type {express.Router} */
 const router = express.Router();
@@ -54,6 +56,12 @@ router.use("/sos", userSOSRoutes);
 
 // Challenge routes - /api/app/challenges
 router.use("/challenges", userChallengeRoutes);
+
+// Poll routes - /api/app/polls
+router.use("/polls", userPollRoutes);
+
+// Asset routes - /api/app/assets
+router.use("/assets", publicAssetRoutes);
 
 // Add more user routes here as needed
 // Example:
