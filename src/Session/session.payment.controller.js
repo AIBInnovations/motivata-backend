@@ -20,11 +20,11 @@ import responseUtil from "../../utils/response.util.js";
 export const createSessionOrder = async (req, res) => {
   try {
     console.log("[SESSION-PAYMENT] createSessionOrder called");
-    console.log("[SESSION-PAYMENT] User:", req.user?._id);
+    console.log("[SESSION-PAYMENT] User:", req.user?.id);
     console.log("[SESSION-PAYMENT] Body:", JSON.stringify(req.body, null, 2));
 
     const { sessionId, currency = "INR", callbackUrl, userNotes } = req.body;
-    const userId = req.user._id;
+    const userId = req.user.id;
 
     // Validate sessionId is provided
     if (!sessionId) {
@@ -277,6 +277,23 @@ export const getSessionPaymentStatus = async (req, res) => {
       }
     }
 
+    // Prepare session data - only include calendlyLink if booking is confirmed
+    let sessionData = null;
+    if (payment.sessionId) {
+      sessionData = {
+        _id: payment.sessionId._id,
+        title: payment.sessionId.title,
+        host: payment.sessionId.host,
+        duration: payment.sessionId.duration,
+        sessionType: payment.sessionId.sessionType,
+      };
+
+      // Only include calendlyLink if booking is confirmed
+      if (booking && booking.status === "confirmed" && payment.status === "SUCCESS") {
+        sessionData.calendlyLink = payment.sessionId.calendlyLink;
+      }
+    }
+
     return responseUtil.success(res, "Session payment status retrieved", {
       orderId: payment.orderId,
       paymentId: payment.paymentId,
@@ -284,12 +301,16 @@ export const getSessionPaymentStatus = async (req, res) => {
       amount: payment.finalAmount,
       purchaseDateTime: payment.purchaseDateTime,
       failureReason: payment.failureReason,
-      session: payment.sessionId,
+      session: sessionData,
       booking: booking
         ? {
             bookingReference: booking.bookingReference,
             status: booking.status,
             paymentStatus: booking.paymentStatus,
+            // Only include calendlyLink if booking is confirmed
+            ...(booking.status === "confirmed" && payment.status === "SUCCESS" && payment.sessionId?.calendlyLink
+              ? { calendlyLink: payment.sessionId.calendlyLink }
+              : {}),
           }
         : null,
       createdAt: payment.createdAt,

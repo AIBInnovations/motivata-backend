@@ -22,9 +22,16 @@ import {
 } from "./sos.controller.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
 import { programSchemas, sosQuizSchemas, progressSchemas } from "./quiz.validation.js";
+import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 
 /** @type {express.Router} */
 const router = express.Router();
+
+/**
+ * All routes require authentication and admin access
+ */
+router.use(authenticate);
+router.use(isAdmin);
 
 // ============================================
 // SOS PROGRAM ROUTES

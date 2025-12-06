@@ -985,12 +985,29 @@ export const getUserBookings = async (req, res) => {
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .populate("sessionId", "title host duration imageUrl price category"),
+        .populate("sessionId", "title host duration imageUrl price category calendlyLink hostEmail hostPhone"),
       SessionBooking.countDocuments(filter),
     ]);
 
+    // Transform bookings to only include calendlyLink for confirmed bookings
+    const transformedBookings = bookings.map((booking) => {
+      const bookingObj = booking.toObject();
+
+      // Only include calendlyLink if booking is confirmed and paid
+      if (bookingObj.sessionId && bookingObj.status === "confirmed") {
+        // Keep calendlyLink for confirmed bookings
+      } else if (bookingObj.sessionId) {
+        // Remove calendlyLink for non-confirmed bookings
+        delete bookingObj.sessionId.calendlyLink;
+        delete bookingObj.sessionId.hostEmail;
+        delete bookingObj.sessionId.hostPhone;
+      }
+
+      return bookingObj;
+    });
+
     return responseUtil.success(res, "Bookings retrieved successfully", {
-      bookings,
+      bookings: transformedBookings,
       meta: buildPaginationMeta(total, page, limit),
     });
   } catch (error) {
@@ -1017,7 +1034,18 @@ export const getBookingById = async (req, res) => {
       return responseUtil.notFound(res, "Booking not found");
     }
 
-    return responseUtil.success(res, "Booking retrieved successfully", { booking });
+    // Transform booking to control calendlyLink visibility
+    const bookingObj = booking.toObject();
+
+    // Only include calendlyLink if booking is confirmed
+    if (bookingObj.sessionId && bookingObj.status !== "confirmed") {
+      // Remove sensitive session info for non-confirmed bookings
+      delete bookingObj.sessionId.calendlyLink;
+      delete bookingObj.sessionId.hostEmail;
+      delete bookingObj.sessionId.hostPhone;
+    }
+
+    return responseUtil.success(res, "Booking retrieved successfully", { booking: bookingObj });
   } catch (error) {
     console.error("Get booking error:", error);
 

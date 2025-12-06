@@ -16,9 +16,16 @@ import {
 } from "./challenge.controller.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
 import { challengeSchemas } from "./challenge.validation.js";
+import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 
 /** @type {express.Router} */
 const router = express.Router();
+
+/**
+ * All routes require authentication and admin access
+ */
+router.use(authenticate);
+router.use(isAdmin);
 
 /**
  * @route   GET /api/web/challenges/categories

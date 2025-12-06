@@ -39,11 +39,10 @@ const sessionBookingSchema = new mongoose.Schema(
     },
 
     /**
-     * Unique booking reference number
+     * Unique booking reference number (auto-generated in pre-save hook)
      */
     bookingReference: {
       type: String,
-      required: true,
       unique: true,
     },
 

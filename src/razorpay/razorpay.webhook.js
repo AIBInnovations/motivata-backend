@@ -1407,8 +1407,9 @@ const confirmSessionBooking = async (payment) => {
       // Continue - payment was successful
     }
 
-    // Send Calendly link via email and WhatsApp
-    await sendSessionConfirmation(payment, booking, session);
+    // NOTE: No email/WhatsApp notifications for session bookings
+    // User will see Calendly link in the app (session card / My Bookings)
+    // Only event enrollments and vouchers trigger notifications
 
     console.log('[SESSION-WEBHOOK] ✓ Session booking confirmed successfully');
 
@@ -1419,7 +1420,8 @@ const confirmSessionBooking = async (payment) => {
 };
 
 /**
- * Send session booking confirmation with Calendly link
+ * Send session booking confirmation (WITHOUT Calendly link)
+ * Calendly link is only shown in the app UI (session card and profile section)
  * Sends to both email and WhatsApp if available
  *
  * @param {Object} payment - Payment document
@@ -1431,12 +1433,14 @@ const confirmSessionBooking = async (payment) => {
  */
 const sendSessionConfirmation = async (payment, booking, session) => {
   try {
-    console.log('[SESSION-CONFIRM] Sending session booking confirmation');
+    console.log('[SESSION-CONFIRM] Sending session booking confirmation (without Calendly link)');
 
     const { buyer } = payment.metadata || {};
-    const calendlyLink = session.calendlyLink;
-    const hostEmail = session.hostEmail;
-    const hostPhone = session.hostPhone;
+
+    // NOTE: We intentionally DO NOT send calendlyLink in notifications
+    // Users will see the Calendly link only in the app:
+    // 1. On the session card (after booking is confirmed)
+    // 2. In the profile section under "My Bookings"
 
     // Prepare notification data
     const userEmail = booking.userEmail || buyer?.email;
@@ -1446,7 +1450,6 @@ const sendSessionConfirmation = async (payment, booking, session) => {
     console.log('[SESSION-CONFIRM] Recipient info:', {
       email: userEmail || '(no email)',
       phone: userPhone || '(no phone)',
-      calendlyLink: calendlyLink || '(no link)'
     });
 
     // Send email notification
@@ -1457,7 +1460,7 @@ const sendSessionConfirmation = async (payment, booking, session) => {
           subject: `Session Booking Confirmed - ${session.title}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2>Your Session Booking is Confirmed!</h2>
+              <h2>Your Session Booking is Confirmed! 🎉</h2>
               <p>Hi ${userName},</p>
               <p>Thank you for booking <strong>${session.title}</strong> with ${session.host}.</p>
 
@@ -1470,28 +1473,21 @@ const sendSessionConfirmation = async (payment, booking, session) => {
                 <p><strong>Amount Paid:</strong> ₹${booking.amountPaid}</p>
               </div>
 
-              ${calendlyLink ? `
               <div style="background-color: #e8f4fd; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <h3 style="margin-top: 0;">📅 Schedule Your Session</h3>
-                <p>Please use the link below to schedule your session at a convenient time:</p>
-                <a href="${calendlyLink}" style="display: inline-block; background-color: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; margin-top: 10px;">Schedule Now</a>
+                <h3 style="margin-top: 0;">📅 Next Steps</h3>
+                <p>Open the Motivata app to schedule your session. You'll find the scheduling link in:</p>
+                <ul>
+                  <li>Your session card</li>
+                  <li>Profile → My Bookings section</li>
+                </ul>
               </div>
-              ` : ''}
-
-              ${hostEmail || hostPhone ? `
-              <div style="margin-top: 20px;">
-                <h3>Contact Information</h3>
-                ${hostEmail ? `<p><strong>Email:</strong> ${hostEmail}</p>` : ''}
-                ${hostPhone ? `<p><strong>Phone:</strong> ${hostPhone}</p>` : ''}
-              </div>
-              ` : ''}
 
               <p style="color: #666; font-size: 12px; margin-top: 30px;">
                 If you have any questions, please contact us at support@motivata.in
               </p>
             </div>
           `,
-          text: `Your Session Booking is Confirmed!
+          text: `Your Session Booking is Confirmed! 🎉
 
 Hi ${userName},
 
@@ -1504,10 +1500,10 @@ Booking Details:
 - Booking Reference: ${booking.bookingReference}
 - Amount Paid: ₹${booking.amountPaid}
 
-${calendlyLink ? `Schedule Your Session: ${calendlyLink}` : ''}
-
-${hostEmail ? `Host Email: ${hostEmail}` : ''}
-${hostPhone ? `Host Phone: ${hostPhone}` : ''}
+Next Steps:
+Open the Motivata app to schedule your session. You'll find the scheduling link in:
+- Your session card
+- Profile → My Bookings section
 
 If you have any questions, please contact us at support@motivata.in
 `,
@@ -1540,17 +1536,8 @@ If you have any questions, please contact us at support@motivata.in
         message += `• Reference: ${booking.bookingReference}\n`;
         message += `• Duration: ${session.duration} minutes\n`;
         message += `• Amount: ₹${booking.amountPaid}\n\n`;
-
-        if (calendlyLink) {
-          message += `📅 *Schedule Your Session*\n`;
-          message += `Click here to pick your slot: ${calendlyLink}\n\n`;
-        }
-
-        if (hostEmail || hostPhone) {
-          message += `📞 *Contact Host*\n`;
-          if (hostEmail) message += `Email: ${hostEmail}\n`;
-          if (hostPhone) message += `Phone: ${hostPhone}\n`;
-        }
+        message += `📅 *Next Steps*\n`;
+        message += `Open the Motivata app to schedule your session. You'll find the scheduling link in your session card or Profile → My Bookings.\n`;
 
         await sendWhatsAppMessage({
           phone: userPhone,

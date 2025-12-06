@@ -10,9 +10,9 @@
  * @requires ./razorpay.webhook
  */
 
-import express from 'express';
-import { createOrder, getPaymentStatus } from './razorpay.controller.js';
-import { handleWebhook } from './razorpay.webhook.js';
+import express from "express";
+import { createOrder, getPaymentStatus } from "./razorpay.controller.js";
+import { handleWebhook } from "./razorpay.webhook.js";
 
 const router = express.Router();
 
@@ -122,7 +122,7 @@ const router = express.Router();
  *   }
  * }
  */
-router.post('/create-order', createOrder);
+router.post("/create-order", createOrder);
 
 /**
  * @route GET /api/web/razorpay/status/:orderId
@@ -172,7 +172,7 @@ router.post('/create-order', createOrder);
  *   }, 3000); // Poll every 3 seconds
  * };
  */
-router.get('/status/:orderId', getPaymentStatus);
+router.get("/status/:orderId", getPaymentStatus);
 
 /**
  * @route POST /api/web/razorpay/webhook
@@ -224,6 +224,39 @@ router.get('/status/:orderId', getPaymentStatus);
  *
  * @see {@link https://razorpay.com/docs/webhooks/} Razorpay Webhooks Documentation
  */
-router.post('/webhook', handleWebhook);
+router.post("/webhook", handleWebhook);
+
+/**
+ * App Callback - Redirects Razorpay callback to app via deep link
+ * GET /api/web/razorpay/app-callback
+ */
+router.get("/app-callback", (req, res) => {
+  const {
+    razorpay_payment_link_id,
+    razorpay_payment_link_status,
+    razorpay_payment_id,
+    razorpay_signature,
+  } = req.query;
+
+  console.log("[APP-CALLBACK] Received:", {
+    linkId: razorpay_payment_link_id,
+    status: razorpay_payment_link_status,
+    paymentId: razorpay_payment_id,
+  });
+
+  // Build deep link URL with payment details
+  const params = new URLSearchParams();
+  if (razorpay_payment_link_status)
+    params.set("status", razorpay_payment_link_status);
+  if (razorpay_payment_id) params.set("paymentId", razorpay_payment_id);
+  if (razorpay_payment_link_id) params.set("linkId", razorpay_payment_link_id);
+
+  const appDeepLink = `motivata://payment/callback?${params.toString()}`;
+
+  console.log("[APP-CALLBACK] Redirecting to:", appDeepLink);
+
+  // Redirect to app
+  res.redirect(appDeepLink);
+});
 
 export default router;
