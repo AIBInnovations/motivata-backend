@@ -6,7 +6,44 @@
 import Poll from "../../schema/Poll.schema.js";
 import PollSubmission from "../../schema/PollSubmission.schema.js";
 import EventEnrollment from "../../schema/EventEnrollment.schema.js";
+import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
+
+/**
+ * Helper function to check if user is enrolled in an event
+ * Checks both direct enrollment (userId) and ticket-based enrollment (phone in tickets Map)
+ */
+const checkUserEnrollment = async (eventId, userId) => {
+  // First check direct enrollment
+  const directEnrollment = await EventEnrollment.findOne({ eventId, userId });
+  if (directEnrollment) {
+    return true;
+  }
+
+  // Get user's phone number
+  const user = await User.findById(userId).select("phone");
+  if (!user || !user.phone) {
+    return false;
+  }
+
+  // Format phone number variations to check
+  const phone = user.phone;
+  const phoneVariations = [
+    phone,
+    `+91${phone}`,
+    phone.replace(/^\+91/, ""),
+  ];
+
+  // Check if user's phone exists in any enrollment's tickets for this event
+  const ticketEnrollment = await EventEnrollment.findOne({
+    eventId,
+    $or: phoneVariations.map((p) => ({
+      [`tickets.${p}`]: { $exists: true },
+    })),
+  });
+
+  return !!ticketEnrollment;
+};
 
 /**
  * Helper function to calculate poll statistics
@@ -69,13 +106,10 @@ export const getPollByEventId = async (req, res) => {
     const { eventId } = req.params;
     const userId = req.user.id;
 
-    // Check if user is enrolled in this event
-    const enrollment = await EventEnrollment.findOne({
-      eventId,
-      userId,
-    });
+    // Check if user is enrolled in this event (direct or via ticket)
+    const isEnrolled = await checkUserEnrollment(eventId, userId);
 
-    if (!enrollment) {
+    if (!isEnrolled) {
       return responseUtil.forbidden(
         res,
         "You must be enrolled in this event to view the poll"
@@ -143,13 +177,10 @@ export const submitPoll = async (req, res) => {
       );
     }
 
-    // Check if user is enrolled in this event
-    const enrollment = await EventEnrollment.findOne({
-      eventId: poll.eventId,
-      userId,
-    });
+    // Check if user is enrolled in this event (direct or via ticket)
+    const isEnrolled = await checkUserEnrollment(poll.eventId, userId);
 
-    if (!enrollment) {
+    if (!isEnrolled) {
       return responseUtil.forbidden(
         res,
         "You must be enrolled in this event to submit the poll"
