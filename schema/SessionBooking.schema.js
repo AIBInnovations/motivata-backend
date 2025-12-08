@@ -75,11 +75,10 @@ const sessionBookingSchema = new mongoose.Schema(
     },
 
     /**
-     * User email for booking communication
+     * User email for booking communication (optional)
      */
     userEmail: {
       type: String,
-      required: [true, "User email is required"],
       trim: true,
       lowercase: true,
     },

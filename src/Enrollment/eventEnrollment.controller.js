@@ -146,6 +146,47 @@ export const createEnrollment = async (req, res) => {
 };
 
 /**
+ * Helper to generate all possible phone variations for ticket lookup
+ * Handles both old (non-normalized) and new (normalized) phone formats
+ * @param {string} phone - User's phone number (typically normalized to 10 digits)
+ * @returns {string[]} Array of possible phone variations
+ */
+const getPhoneVariations = (phone) => {
+  const variations = [phone];
+  const normalized = phone.length > 10 ? phone.slice(-10) : phone;
+
+  if (!variations.includes(normalized)) {
+    variations.push(normalized);
+  }
+
+  // Add common variations with country codes
+  variations.push(`+91${normalized}`);
+  variations.push(`91${normalized}`);
+  variations.push(`0${normalized}`);
+
+  return variations;
+};
+
+/**
+ * Helper to find ticket by phone with variations
+ * @param {Map} tickets - Tickets Map from enrollment
+ * @param {string} phone - User's phone number
+ * @returns {{ ticket: Object|null, matchedPhone: string|null }}
+ */
+const findTicketInMap = (tickets, phone) => {
+  const variations = getPhoneVariations(phone);
+
+  for (const variation of variations) {
+    const ticket = tickets.get(variation);
+    if (ticket) {
+      return { ticket, matchedPhone: variation };
+    }
+  }
+
+  return { ticket: null, matchedPhone: null };
+};
+
+/**
  * Get user's enrollments
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -169,11 +210,19 @@ export const getUserEnrollments = async (req, res) => {
       return responseUtil.notFound(res, 'User not found');
     }
 
-    // Build query - find enrollments where user is owner OR has a ticket
+    // Generate all phone variations for ticket lookup
+    // Handles both old QRs (with country code) and new normalized phones
+    const phoneVariations = getPhoneVariations(user.phone);
+
+    // Build query - find enrollments where user is owner OR has a ticket with any phone variation
+    const ticketConditions = phoneVariations.map(phone => ({
+      [`tickets.${phone}`]: { $exists: true }
+    }));
+
     const query = {
       $or: [
         { userId: userId },
-        { [`tickets.${user.phone}`]: { $exists: true } }
+        ...ticketConditions
       ]
     };
 
@@ -201,13 +250,15 @@ export const getUserEnrollments = async (req, res) => {
     const enrichedEnrollments = enrollments.map(enrollment => {
       const isOwner = enrollment.userId.toString() === userId;
       const enrollmentObj = enrollment.toObject();
-      const myTicket = enrollment.tickets.get(user.phone) || null;
+
+      // Find ticket using phone variations
+      const { ticket: myTicket, matchedPhone } = findTicketInMap(enrollment.tickets, user.phone);
 
       return {
         ...enrollmentObj,
         relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
         myTicket: myTicket ? {
-          phone: user.phone,
+          phone: matchedPhone,
           status: myTicket.status,
           isTicketScanned: myTicket.isTicketScanned
         } : null,
@@ -255,12 +306,18 @@ export const getEnrollmentById = async (req, res) => {
         return responseUtil.notFound(res, 'User not found');
       }
 
-      // Find enrollment where user is owner OR has a ticket
+      // Generate phone variations for ticket lookup
+      const phoneVariations = getPhoneVariations(user.phone);
+      const ticketConditions = phoneVariations.map(phone => ({
+        [`tickets.${phone}`]: { $exists: true }
+      }));
+
+      // Find enrollment where user is owner OR has a ticket with any phone variation
       query = {
         _id: id,
         $or: [
           { userId: userId },
-          { [`tickets.${user.phone}`]: { $exists: true } }
+          ...ticketConditions
         ]
       };
     }
@@ -278,14 +335,16 @@ export const getEnrollmentById = async (req, res) => {
     if (!isAdmin && user) {
       const isOwner = enrollment.userId._id.toString() === userId;
       const enrollmentObj = enrollment.toObject();
-      const myTicket = enrollment.tickets.get(user.phone) || null;
+
+      // Find ticket using phone variations
+      const { ticket: myTicket, matchedPhone } = findTicketInMap(enrollment.tickets, user.phone);
 
       return responseUtil.success(res, 'Enrollment retrieved successfully', {
         enrollment: {
           ...enrollmentObj,
           relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
           myTicket: myTicket ? {
-            phone: user.phone,
+            phone: matchedPhone,
             status: myTicket.status,
             isTicketScanned: myTicket.isTicketScanned
           } : null,
@@ -466,12 +525,18 @@ export const cancelEnrollment = async (req, res) => {
         return responseUtil.notFound(res, 'User not found');
       }
 
-      // Find enrollment where user is owner OR has a ticket
+      // Generate phone variations for ticket lookup
+      const phoneVariations = getPhoneVariations(user.phone);
+      const ticketConditions = phoneVariations.map(p => ({
+        [`tickets.${p}`]: { $exists: true }
+      }));
+
+      // Find enrollment where user is owner OR has a ticket with any phone variation
       query = {
         _id: id,
         $or: [
           { userId: userId },
-          { [`tickets.${user.phone}`]: { $exists: true } }
+          ...ticketConditions
         ]
       };
     }
@@ -498,8 +563,12 @@ export const cancelEnrollment = async (req, res) => {
         return responseUtil.forbidden(res, 'You can only cancel your own ticket');
       }
 
-      // Non-owners can only cancel their own phone's ticket
-      if (phone !== user.phone) {
+      // Non-owners can only cancel their own phone's ticket (check all variations)
+      const userPhoneVariations = getPhoneVariations(user.phone);
+      const phoneVariations = phone ? getPhoneVariations(phone) : [];
+      const hasMatch = userPhoneVariations.some(up => phoneVariations.includes(up));
+
+      if (!hasMatch) {
         return responseUtil.forbidden(res, 'You can only cancel your own ticket');
       }
     }
@@ -518,21 +587,21 @@ export const cancelEnrollment = async (req, res) => {
         }
       }
     } else if (phone) {
-      // Cancel specific ticket by phone
-      const ticket = enrollment.tickets.get(phone);
+      // Cancel specific ticket by phone (using phone variations)
+      const { ticket, matchedPhone } = findTicketInMap(enrollment.tickets, phone);
 
-      if (!ticket) {
+      if (!ticket || !matchedPhone) {
         return responseUtil.notFound(res, `Ticket for phone ${phone} not found`);
       }
 
       if (ticket.status !== 'ACTIVE') {
-        return responseUtil.badRequest(res, `Ticket for phone ${phone} is not active`);
+        return responseUtil.badRequest(res, `Ticket for phone ${matchedPhone} is not active`);
       }
 
       ticket.status = 'CANCELLED';
       ticket.cancelledAt = new Date();
       ticket.cancellationReason = reason || null;
-      enrollment.tickets.set(phone, ticket);
+      enrollment.tickets.set(matchedPhone, ticket);
       cancelledCount = 1;
     } else {
       return responseUtil.badRequest(res, 'Either provide phone number to cancel specific ticket or set cancelAll to true');
@@ -581,12 +650,18 @@ export const checkEnrollmentStatus = async (req, res) => {
       return responseUtil.notFound(res, 'User not found');
     }
 
-    // Find enrollment where user is owner OR has a ticket
+    // Generate phone variations for ticket lookup
+    const phoneVariations = getPhoneVariations(user.phone);
+    const ticketConditions = phoneVariations.map(phone => ({
+      [`tickets.${phone}`]: { $exists: true }
+    }));
+
+    // Find enrollment where user is owner OR has a ticket with any phone variation
     const enrollment = await EventEnrollment.findOne({
       eventId,
       $or: [
         { userId: userId },
-        { [`tickets.${user.phone}`]: { $exists: true } }
+        ...ticketConditions
       ]
     });
 
@@ -603,15 +678,17 @@ export const checkEnrollmentStatus = async (req, res) => {
       }
     }
 
-    // Determine relationship and user's ticket
+    // Determine relationship and user's ticket using phone variations
     const isOwner = enrollment ? enrollment.userId.toString() === userId : false;
-    const myTicket = enrollment ? enrollment.tickets.get(user.phone) : null;
+    const { ticket: myTicket, matchedPhone } = enrollment
+      ? findTicketInMap(enrollment.tickets, user.phone)
+      : { ticket: null, matchedPhone: null };
 
     return responseUtil.success(res, 'Enrollment status retrieved', {
       isEnrolled: hasActiveTicket,
       relationship: enrollment ? (isOwner ? 'OWNER' : 'TICKET_HOLDER') : null,
       myTicket: myTicket ? {
-        phone: user.phone,
+        phone: matchedPhone,
         status: myTicket.status,
         isTicketScanned: myTicket.isTicketScanned
       } : null,

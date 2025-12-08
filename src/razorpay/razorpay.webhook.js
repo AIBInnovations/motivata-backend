@@ -180,44 +180,54 @@ export const handleWebhook = async (req, res) => {
     // Handle different event types
     const { event, payload: eventPayload } = payload;
 
+    console.log('[WEBHOOK] Processing event type:', event);
+
     switch (event) {
       case 'payment.captured':
+        console.log('[WEBHOOK] Routing to handlePaymentCaptured');
         await handlePaymentCaptured(eventPayload.payment.entity);
         break;
 
       case 'payment.failed':
+        console.log('[WEBHOOK] Routing to handlePaymentFailed');
         await handlePaymentFailed(eventPayload.payment.entity);
         break;
 
       case 'order.paid':
+        console.log('[WEBHOOK] Routing to handleOrderPaid');
         await handleOrderPaid(eventPayload.order.entity);
         break;
 
       case 'payment_link.paid':
+        console.log('[WEBHOOK] Routing to handlePaymentLinkPaid');
         await handlePaymentLinkPaid(eventPayload.payment_link.entity);
         break;
 
       case 'payment_link.cancelled':
+        console.log('[WEBHOOK] Routing to handlePaymentLinkCancelled');
         await handlePaymentLinkCancelled(eventPayload.payment_link.entity);
         break;
 
       case 'payment_link.expired':
+        console.log('[WEBHOOK] Routing to handlePaymentLinkExpired');
         await handlePaymentLinkExpired(eventPayload.payment_link.entity);
         break;
 
       case 'refund.created':
+        console.log('[WEBHOOK] Routing to handleRefundCreated');
         await handleRefundCreated(eventPayload.refund.entity);
         break;
 
       case 'refund.processed':
+        console.log('[WEBHOOK] Routing to handleRefundProcessed');
         await handleRefundProcessed(eventPayload.refund.entity);
         break;
 
       default:
-        console.log(`Unhandled event type: ${event}`);
+        console.log('[WEBHOOK] Unhandled event type:', event);
     }
 
-    console.log('=== Webhook Processing Complete ===\n');
+    console.log('[WEBHOOK] === Webhook Processing Complete ===');
 
     return responseUtil.success(res, 'Webhook processed successfully');
   } catch (error) {
@@ -241,19 +251,30 @@ export const handleWebhook = async (req, res) => {
  * @private
  */
 const handlePaymentCaptured = async (paymentEntity) => {
-  console.log('Processing payment.captured event');
+  console.log('[PAYMENT-CAPTURED] ========== START ==========');
+  console.log('[PAYMENT-CAPTURED] Payment entity:', JSON.stringify(paymentEntity, null, 2));
 
   const { id: paymentId, order_id: orderId } = paymentEntity;
+
+  console.log('[PAYMENT-CAPTURED] Looking for payment with orderId:', orderId);
 
   const payment = await Payment.findOne({ orderId });
 
   if (!payment) {
-    console.error(`Payment not found for order: ${orderId}`);
+    console.error('[PAYMENT-CAPTURED] FAILED: Payment not found for orderId:', orderId);
     return;
   }
 
+  console.log('[PAYMENT-CAPTURED] Found payment:', {
+    _id: payment._id,
+    orderId: payment.orderId,
+    type: payment.type,
+    status: payment.status,
+    metadata: payment.metadata ? Object.keys(payment.metadata) : 'none'
+  });
+
   if (payment.status === 'SUCCESS') {
-    console.log('Payment already marked as successful');
+    console.log('[PAYMENT-CAPTURED] Payment already marked as successful, skipping');
     return;
   }
 
@@ -267,10 +288,13 @@ const handlePaymentCaptured = async (paymentEntity) => {
   };
   await payment.save();
 
-  console.log(`✓ Payment updated: ${paymentId} for order: ${orderId}`);
+  console.log('[PAYMENT-CAPTURED] Payment updated to SUCCESS');
+  console.log('[PAYMENT-CAPTURED] Calling updateRelatedEntities...');
 
   // Update related entities
   await updateRelatedEntities(payment);
+
+  console.log('[PAYMENT-CAPTURED] ========== END ==========');
 };
 
 /**
@@ -327,19 +351,30 @@ const handlePaymentFailed = async (paymentEntity) => {
  * @private
  */
 const handleOrderPaid = async (orderEntity) => {
-  console.log('Processing order.paid event');
+  console.log('[ORDER-PAID] ========== START ==========');
+  console.log('[ORDER-PAID] Order entity:', JSON.stringify(orderEntity, null, 2));
 
   const { id: orderId } = orderEntity;
+
+  console.log('[ORDER-PAID] Looking for payment with orderId:', orderId);
 
   const payment = await Payment.findOne({ orderId });
 
   if (!payment) {
-    console.error(`Payment not found for order: ${orderId}`);
+    console.error('[ORDER-PAID] FAILED: Payment not found for orderId:', orderId);
     return;
   }
 
+  console.log('[ORDER-PAID] Found payment:', {
+    _id: payment._id,
+    orderId: payment.orderId,
+    type: payment.type,
+    status: payment.status,
+    metadata: payment.metadata ? Object.keys(payment.metadata) : 'none'
+  });
+
   if (payment.status === 'SUCCESS') {
-    console.log('Payment already marked as successful');
+    console.log('[ORDER-PAID] Payment already marked as successful, skipping');
     return;
   }
 
@@ -351,10 +386,13 @@ const handleOrderPaid = async (orderEntity) => {
   };
   await payment.save();
 
-  console.log(`✓ Order marked as paid: ${orderId}`);
+  console.log('[ORDER-PAID] Payment updated to SUCCESS');
+  console.log('[ORDER-PAID] Calling updateRelatedEntities...');
 
   // Update related entities
   await updateRelatedEntities(payment);
+
+  console.log('[ORDER-PAID] ========== END ==========');
 };
 
 /**
@@ -369,19 +407,37 @@ const handleOrderPaid = async (orderEntity) => {
  * @private
  */
 const handlePaymentLinkPaid = async (paymentLinkEntity) => {
-  console.log('Processing payment_link.paid event');
+  console.log('[PAYMENT-LINK-PAID] ========== START ==========');
+  console.log('[PAYMENT-LINK-PAID] Payment link entity:', JSON.stringify(paymentLinkEntity, null, 2));
 
   const { reference_id: orderId, order_id: razorpayOrderId } = paymentLinkEntity;
+
+  console.log('[PAYMENT-LINK-PAID] Looking for payment with orderId:', orderId);
+  console.log('[PAYMENT-LINK-PAID] Razorpay order ID:', razorpayOrderId);
 
   const payment = await Payment.findOne({ orderId });
 
   if (!payment) {
-    console.error(`Payment not found for order: ${orderId}`);
+    console.error('[PAYMENT-LINK-PAID] FAILED: Payment not found for orderId:', orderId);
+    // Try to find payment by reference_id in notes
+    const paymentByNotes = await Payment.findOne({ 'metadata.razorpayPaymentLinkEntity.reference_id': orderId });
+    if (paymentByNotes) {
+      console.log('[PAYMENT-LINK-PAID] Found payment by notes lookup:', paymentByNotes.orderId);
+    }
     return;
   }
 
+  console.log('[PAYMENT-LINK-PAID] Found payment:', {
+    _id: payment._id,
+    orderId: payment.orderId,
+    type: payment.type,
+    status: payment.status,
+    amount: payment.amount,
+    metadata: payment.metadata ? Object.keys(payment.metadata) : 'none'
+  });
+
   if (payment.status === 'SUCCESS') {
-    console.log('Payment already marked as successful');
+    console.log('[PAYMENT-LINK-PAID] Payment already marked as successful, skipping');
     return;
   }
 
@@ -437,10 +493,13 @@ const handlePaymentLinkPaid = async (paymentLinkEntity) => {
   payment.purchaseDateTime = new Date();
   await payment.save();
 
-  console.log(`✓ Payment link paid for order: ${orderId}`);
+  console.log('[PAYMENT-LINK-PAID] Payment updated to SUCCESS');
+  console.log('[PAYMENT-LINK-PAID] Calling updateRelatedEntities...');
 
   // Update related entities
   await updateRelatedEntities(payment);
+
+  console.log('[PAYMENT-LINK-PAID] ========== END ==========');
 };
 
 /**
@@ -756,11 +815,21 @@ const createEventEnrollment = async (payment) => {
     // Calculate price per ticket
     const ticketPrice = payment.finalAmount / totalTickets;
 
-    // Create tickets Map with phone numbers as keys
+    // Helper to normalize phone numbers (extract last 10 digits)
+    const normalizePhone = (phone) => {
+      if (phone && phone.length > 10) {
+        return phone.slice(-10);
+      }
+      return phone;
+    };
+
+    // Create tickets Map with normalized phone numbers as keys
+    // This ensures consistency with User.phone (which is also normalized)
     const ticketsMap = new Map();
 
-    // Add buyer's ticket
-    ticketsMap.set(buyer.phone, {
+    // Add buyer's ticket (using normalized phone)
+    const normalizedBuyerPhone = normalizePhone(buyer.phone);
+    ticketsMap.set(normalizedBuyerPhone, {
       status: 'ACTIVE',
       cancelledAt: null,
       cancellationReason: null,
@@ -769,9 +838,10 @@ const createEventEnrollment = async (payment) => {
       ticketScannedBy: null
     });
 
-    // Add other tickets
+    // Add other tickets (using normalized phones)
     for (const other of others) {
-      ticketsMap.set(other.phone, {
+      const normalizedOtherPhone = normalizePhone(other.phone);
+      ticketsMap.set(normalizedOtherPhone, {
         status: 'ACTIVE',
         cancelledAt: null,
         cancellationReason: null,
@@ -865,6 +935,15 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
       phone: payment.metadata?.buyer?.phone
     });
 
+    // Helper to normalize phone numbers (extract last 10 digits)
+    // Used for QR code data to match tickets Map keys
+    const normalizePhone = (phone) => {
+      if (phone && phone.length > 10) {
+        return phone.slice(-10);
+      }
+      return phone;
+    };
+
     const emails = [];
     const whatsappMessages = [];
     const eventName = event?.title || event?.name || 'Event';
@@ -877,14 +956,16 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
 
     // Process buyer's ticket
     try {
-      console.log(`[WEBHOOK-NOTIFY] Processing buyer ticket for phone: ${payment.metadata.buyer.phone}`);
+      const buyerPhone = payment.metadata.buyer.phone;
+      const normalizedBuyerPhone = normalizePhone(buyerPhone);
+      console.log(`[WEBHOOK-NOTIFY] Processing buyer ticket for phone: ${buyerPhone} (normalized: ${normalizedBuyerPhone})`);
 
-      // Generate QR code for buyer's ticket
+      // Generate QR code for buyer's ticket (using normalized phone to match tickets Map)
       const buyerQRBuffer = await generateTicketQRCode({
         enrollmentId: enrollment._id.toString(),
         userId: buyerUser._id.toString(),
         eventId: payment.eventId.toString(),
-        phone: payment.metadata.buyer.phone
+        phone: normalizedBuyerPhone
       });
 
       const buyerQRFilename = generateQRFilename({
@@ -965,14 +1046,16 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
     console.log(`[WEBHOOK-NOTIFY] Processing ${otherUsers.length} other ticket holder(s)`);
     for (const { user, details } of otherUsers) {
       try {
-        console.log(`[WEBHOOK-NOTIFY] Processing ticket for phone: ${details.phone}`);
+        const otherPhone = details.phone;
+        const normalizedOtherPhone = normalizePhone(otherPhone);
+        console.log(`[WEBHOOK-NOTIFY] Processing ticket for phone: ${otherPhone} (normalized: ${normalizedOtherPhone})`);
 
-        // Generate QR code for this ticket holder
+        // Generate QR code for this ticket holder (using normalized phone to match tickets Map)
         const qrBuffer = await generateTicketQRCode({
           enrollmentId: enrollment._id.toString(),
           userId: user._id.toString(),
           eventId: payment.eventId.toString(),
-          phone: details.phone
+          phone: normalizedOtherPhone
         });
 
         const qrFilename = generateQRFilename({
@@ -1353,68 +1436,92 @@ const sendVoucherQRs = async (payment) => {
  */
 const confirmSessionBooking = async (payment) => {
   try {
-    console.log('[SESSION-WEBHOOK] Starting session booking confirmation for payment:', payment.orderId);
+    console.log('[SESSION-WEBHOOK] ========== CONFIRM SESSION BOOKING START ==========');
+    console.log('[SESSION-WEBHOOK] Payment orderId:', payment.orderId);
+    console.log('[SESSION-WEBHOOK] Payment type:', payment.type);
+    console.log('[SESSION-WEBHOOK] Payment status:', payment.status);
+    console.log('[SESSION-WEBHOOK] Payment metadata:', JSON.stringify(payment.metadata, null, 2));
 
     const { bookingReference } = payment.metadata || {};
 
     if (!bookingReference) {
-      console.error('[SESSION-WEBHOOK] No booking reference found in payment metadata');
+      console.error('[SESSION-WEBHOOK] FAILED: No booking reference found in payment metadata');
+      console.log('[SESSION-WEBHOOK] Available metadata keys:', Object.keys(payment.metadata || {}));
       return;
     }
+
+    console.log('[SESSION-WEBHOOK] Looking for booking with reference:', bookingReference);
 
     // Find the booking
     const booking = await SessionBooking.findOne({ bookingReference });
 
     if (!booking) {
-      console.error('[SESSION-WEBHOOK] Booking not found for reference:', bookingReference);
+      console.error('[SESSION-WEBHOOK] FAILED: Booking not found for reference:', bookingReference);
+      // Try to find any booking with similar reference for debugging
+      const allBookings = await SessionBooking.find({}).select('bookingReference status').limit(5);
+      console.log('[SESSION-WEBHOOK] Recent bookings in DB:', allBookings.map(b => ({ ref: b.bookingReference, status: b.status })));
       return;
     }
 
+    console.log('[SESSION-WEBHOOK] Found booking:', {
+      _id: booking._id,
+      bookingReference: booking.bookingReference,
+      currentStatus: booking.status,
+      currentPaymentStatus: booking.paymentStatus,
+      sessionId: booking.sessionId,
+      userId: booking.userId
+    });
+
     // Check if booking is already confirmed
     if (booking.paymentStatus === 'paid' && booking.status === 'confirmed') {
-      console.log('[SESSION-WEBHOOK] Booking already confirmed:', bookingReference);
+      console.log('[SESSION-WEBHOOK] Booking already confirmed, skipping update');
       return;
     }
 
     // Find the session
+    console.log('[SESSION-WEBHOOK] Looking for session:', booking.sessionId);
     const session = await Session.findById(booking.sessionId);
 
     if (!session) {
-      console.error('[SESSION-WEBHOOK] Session not found for booking:', bookingReference);
+      console.error('[SESSION-WEBHOOK] FAILED: Session not found for booking');
       return;
     }
 
+    console.log('[SESSION-WEBHOOK] Found session:', {
+      _id: session._id,
+      title: session.title,
+      bookedSlots: session.bookedSlots,
+      availableSlots: session.availableSlots
+    });
+
     // Update booking status
+    console.log('[SESSION-WEBHOOK] Updating booking status from pending to confirmed...');
     booking.paymentStatus = 'paid';
     booking.status = 'confirmed';
     await booking.save();
 
-    console.log('[SESSION-WEBHOOK] Booking confirmed:', {
+    console.log('[SESSION-WEBHOOK] Booking updated successfully:', {
       bookingReference: booking.bookingReference,
-      sessionId: session._id,
-      sessionTitle: session.title
+      newStatus: booking.status,
+      newPaymentStatus: booking.paymentStatus
     });
 
     // Increment session booked slots
     try {
+      console.log('[SESSION-WEBHOOK] Incrementing session booked slots...');
       await session.bookSlot();
-      console.log('[SESSION-WEBHOOK] Session slot booked:', {
-        sessionId: session._id,
-        bookedSlots: session.bookedSlots + 1
-      });
+      console.log('[SESSION-WEBHOOK] Session slot booked, new bookedSlots:', session.bookedSlots);
     } catch (slotError) {
       console.error('[SESSION-WEBHOOK] Error booking slot:', slotError.message);
       // Continue - payment was successful
     }
 
-    // NOTE: No email/WhatsApp notifications for session bookings
-    // User will see Calendly link in the app (session card / My Bookings)
-    // Only event enrollments and vouchers trigger notifications
-
-    console.log('[SESSION-WEBHOOK] ✓ Session booking confirmed successfully');
+    console.log('[SESSION-WEBHOOK] Session booking confirmed successfully');
+    console.log('[SESSION-WEBHOOK] ========== CONFIRM SESSION BOOKING END ==========');
 
   } catch (error) {
-    console.error('[SESSION-WEBHOOK] ✗ Error confirming session booking:', error.message);
+    console.error('[SESSION-WEBHOOK] EXCEPTION in confirmSessionBooking:', error.message);
+    console.error('[SESSION-WEBHOOK] Stack:', error.stack);
     // Don't throw - webhook should still succeed
   }
 };
@@ -1679,17 +1786,26 @@ const handleSessionRefund = async (payment) => {
  * @private
  */
 const updateRelatedEntities = async (payment) => {
+  console.log('[UPDATE-ENTITIES] ========== START ==========');
+  console.log('[UPDATE-ENTITIES] Payment ID:', payment._id);
+  console.log('[UPDATE-ENTITIES] Payment orderId:', payment.orderId);
+  console.log('[UPDATE-ENTITIES] Payment type:', payment.type);
+  console.log('[UPDATE-ENTITIES] Payment status:', payment.status);
+
   // Log customer details if present
   logCustomerDetails(payment);
 
   // Route to appropriate handler based on payment type
   if (payment.type === 'SESSION') {
+    console.log('[UPDATE-ENTITIES] Detected SESSION type payment, calling confirmSessionBooking...');
     // Handle session booking confirmation
     await confirmSessionBooking(payment);
-    console.log('✓ Session payment processed successfully.');
+    console.log('[UPDATE-ENTITIES] Session payment processed');
+    console.log('[UPDATE-ENTITIES] ========== END ==========');
     return;
   }
 
+  console.log('[UPDATE-ENTITIES] Detected EVENT type payment (default flow)');
   // Default: EVENT type - existing flow
   // Create users and event enrollment
   const enrollmentData = await createEventEnrollment(payment);

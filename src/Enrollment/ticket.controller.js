@@ -13,6 +13,52 @@ import fs from "fs";
 import path from "path";
 
 /**
+ * Helper to normalize phone numbers (extract last 10 digits)
+ * Used to handle both old QR codes (with country code) and new normalized format
+ * @param {string} phone - Phone number to normalize
+ * @returns {string} Normalized phone number (last 10 digits)
+ */
+const normalizePhone = (phone) => {
+  if (phone && phone.length > 10) {
+    return phone.slice(-10);
+  }
+  return phone;
+};
+
+/**
+ * Find ticket in enrollment by phone number
+ * Tries exact match first, then normalized match for backward compatibility
+ * @param {Object} enrollment - EventEnrollment document
+ * @param {string} phone - Phone number from QR code
+ * @returns {{ ticket: Object|null, matchedPhone: string|null }} Ticket and the phone key that matched
+ */
+const findTicketByPhone = (enrollment, phone) => {
+  // Try exact match first
+  let ticket = enrollment.tickets.get(phone);
+  if (ticket) {
+    return { ticket, matchedPhone: phone };
+  }
+
+  // Try normalized phone (for old QR codes with non-normalized phones)
+  const normalized = normalizePhone(phone);
+  if (normalized !== phone) {
+    ticket = enrollment.tickets.get(normalized);
+    if (ticket) {
+      return { ticket, matchedPhone: normalized };
+    }
+  }
+
+  // Try to find by iterating (for edge cases where QR has normalized but DB has non-normalized)
+  for (const [storedPhone, storedTicket] of enrollment.tickets) {
+    if (normalizePhone(storedPhone) === normalized) {
+      return { ticket: storedTicket, matchedPhone: storedPhone };
+    }
+  }
+
+  return { ticket: null, matchedPhone: null };
+};
+
+/**
  * Generate JWT tokens for all tickets in enrollment
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -102,19 +148,19 @@ export const generateQRCode = async (req, res) => {
       return responseUtil.notFound(res, "Enrollment not found");
     }
 
-    // Check if ticket exists for this phone
-    const ticket = enrollment.tickets.get(phone);
+    // Check if ticket exists for this phone (handles normalized/non-normalized phones)
+    const { ticket, matchedPhone } = findTicketByPhone(enrollment, phone);
 
-    if (!ticket) {
+    if (!ticket || !matchedPhone) {
       return responseUtil.notFound(res, `Ticket for phone ${phone} not found`);
     }
 
-    // Create JWT token with phone
+    // Create JWT token with the matched phone (normalized)
     const tokenPayload = {
       enrollmentId: enrollment._id.toString(),
       userId: enrollment.userId.toString(),
       eventId: enrollment.eventId._id.toString(),
-      phone,
+      phone: matchedPhone,
       timestamp: Date.now(),
     };
 
@@ -139,7 +185,7 @@ export const generateQRCode = async (req, res) => {
     const filename = `ticket-${enrollment.eventId.name.replace(
       /\s+/g,
       "-"
-    )}-${phone}.png`;
+    )}-${matchedPhone}.png`;
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Content-Length", qrBuffer.length);
@@ -202,9 +248,10 @@ export const verifyTicket = async (req, res) => {
     }
 
     // Find enrollment
+    // Note: Don't filter by userId because enrollment belongs to buyer,
+    // but ticket holder might be a different user (friend bought for them)
     const enrollment = await EventEnrollment.findOne({
       _id: enrollmentId,
-      userId,
       eventId,
     })
       .populate("eventId", "name startDate endDate location")
@@ -218,10 +265,10 @@ export const verifyTicket = async (req, res) => {
       );
     }
 
-    // Get the specific ticket for this phone
-    const ticket = enrollment.tickets.get(phone);
+    // Get the specific ticket for this phone (handles normalized/non-normalized phones)
+    const { ticket, matchedPhone } = findTicketByPhone(enrollment, phone);
 
-    if (!ticket) {
+    if (!ticket || !matchedPhone) {
       return responseUtil.notFound(
         res,
         `Ticket for phone ${phone} not found`,
@@ -244,7 +291,7 @@ export const verifyTicket = async (req, res) => {
         isAlreadyScanned: true,
         scannedAt: ticket.ticketScannedAt,
         ticket: {
-          phone,
+          phone: matchedPhone,
           status: ticket.status,
         },
         enrollment: {
@@ -268,7 +315,7 @@ export const verifyTicket = async (req, res) => {
     ticket.isTicketScanned = true;
     ticket.ticketScannedAt = new Date();
     ticket.ticketScannedBy = req.user?.id || null; // If admin middleware adds admin/user info
-    enrollment.tickets.set(phone, ticket);
+    enrollment.tickets.set(matchedPhone, ticket);
     await enrollment.save();
 
     return responseUtil.success(
@@ -279,7 +326,7 @@ export const verifyTicket = async (req, res) => {
         isAlreadyScanned: false,
         scannedAt: ticket.ticketScannedAt,
         ticket: {
-          phone,
+          phone: matchedPhone,
           status: ticket.status,
         },
         enrollment: {
@@ -390,10 +437,10 @@ export const scanQRCode = async (req, res) => {
       return responseUtil.notFound(res, "Enrollment not found");
     }
 
-    // Check if ticket exists for this phone number
-    const ticket = enrollment.tickets.get(phone);
+    // Check if ticket exists for this phone number (handles normalized/non-normalized phones)
+    const { ticket, matchedPhone } = findTicketByPhone(enrollment, phone);
 
-    if (!ticket) {
+    if (!ticket || !matchedPhone) {
       return responseUtil.notFound(
         res,
         `Ticket for phone number ${phone} not found in this enrollment`
@@ -404,7 +451,7 @@ export const scanQRCode = async (req, res) => {
     if (ticket.status !== "ACTIVE") {
       return responseUtil.badRequest(
         res,
-        `Ticket for phone ${phone} is ${ticket.status.toLowerCase()}`
+        `Ticket for phone ${matchedPhone} is ${ticket.status.toLowerCase()}`
       );
     }
 
@@ -412,20 +459,22 @@ export const scanQRCode = async (req, res) => {
     if (ticket.isTicketScanned) {
       return responseUtil.badRequest(
         res,
-        `Ticket for phone ${phone} has already been scanned at ${ticket.ticketScannedAt}`
+        `Ticket for phone ${matchedPhone} has already been scanned at ${ticket.ticketScannedAt}`
       );
     }
 
     // Fetch user details
     // userId from query is the ticket holder's userId (could be buyer or other member)
+    // Also try with normalized phone for user lookup
+    const normalizedPhone = normalizePhone(phone);
     let user = null;
     if (userId) {
       user = await User.findById(userId).select("name email phone");
     }
 
-    // If user not found by userId or userId not provided, try to find by phone
+    // If user not found by userId or userId not provided, try to find by phone (normalized)
     if (!user) {
-      user = await User.findOne({ phone, isDeleted: false }).select("name email phone");
+      user = await User.findOne({ phone: normalizedPhone, isDeleted: false }).select("name email phone");
     }
 
     if (!user) {
@@ -444,7 +493,7 @@ export const scanQRCode = async (req, res) => {
     // Update ticket scan status for this specific phone
     ticket.isTicketScanned = true;
     ticket.ticketScannedAt = new Date();
-    enrollment.tickets.set(phone, ticket);
+    enrollment.tickets.set(matchedPhone, ticket);
     await enrollment.save();
 
     return responseUtil.success(res, "QR code scanned successfully", {
@@ -471,7 +520,7 @@ export const scanQRCode = async (req, res) => {
         isLive: event.isLive,
       },
       ticket: {
-        phone,
+        phone: matchedPhone,
         status: ticket.status,
         isTicketScanned: ticket.isTicketScanned,
         ticketScannedAt: ticket.ticketScannedAt,
