@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ticket - UTSAV EVENT 2025</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: transparent;
+      margin: 0;
+      padding: 0;
+    }
+
+    .ticket-container {
+      background-color: #0d0d0d;
+      border-radius: 0;
+      width: 380px;
+      padding: 24px 28px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Logo */
+    .logo {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .logo-img {
+      height: 40px;
+      width: auto;
+    }
+
+    /* Event Info Section */
+    .event-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .event-thumbnail {
+      width: 50px;
+      height: 50px;
+      border-radius: 10px;
+      object-fit: cover;
+      background-color: #2a2a2a;
+    }
+
+    .event-details {
+      flex: 1;
+    }
+
+    .event-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ffffff;
+      margin-bottom: 3px;
+    }
+
+    .event-mode {
+      font-size: 10px;
+      color: #888888;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+
+    .event-datetime {
+      font-size: 12px;
+      color: #cccccc;
+    }
+
+    .event-datetime sup {
+      font-size: 8px;
+    }
+
+    /* QR Code Section */
+    .qr-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 18px 0;
+    }
+
+    .qr-wrapper {
+      background-color: #ffffff;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+
+    .qr-code {
+      width: 140px;
+      height: 140px;
+      display: block;
+    }
+
+    .ticket-count {
+      font-size: 13px;
+      font-weight: 500;
+      color: #ffffff;
+      letter-spacing: 2px;
+      margin-bottom: 6px;
+    }
+
+    .ticket-price {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    /* Divider */
+    .divider {
+      border: none;
+      border-top: 2px dashed #333333;
+      margin: 18px 0;
+    }
+
+    /* Venue Section */
+    .venue-section {
+      text-align: center;
+    }
+
+    .venue-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #ffffff;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+
+    .booking-id {
+      font-size: 12px;
+      color: #666666;
+    }
+
+    .booking-id span {
+      color: #888888;
+    }
+  </style>
+</head>
+<body>
+  <div class="ticket-container">
+    <!-- Logo -->
+    <div class="logo">
+      <img src="{{logoDataUrl}}" alt="MOTIVATA" class="logo-img">
+    </div>
+
+    <!-- Event Info -->
+    <div class="event-info">
+      <div class="event-thumbnail" style="background: linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 22px; font-weight: bold;">U</div>
+      <div class="event-details">
+        <div class="event-name">UTSAV EVENT 2025</div>
+        <div class="event-mode">OFFLINE | INDORE</div>
+        <div class="event-datetime">Sunday, 21<sup>st</sup> Dec &nbsp;&nbsp;|&nbsp;&nbsp; 2 PM - 10 PM</div>
+      </div>
+    </div>
+
+    <!-- QR Code -->
+    <div class="qr-section">
+      <div class="qr-wrapper">
+        <img src="{{qrCodeDataUrl}}" alt="QR Code" class="qr-code">
+      </div>
+      <div class="ticket-count">TICKET FOR 1</div>
+      <div class="ticket-price">499 Rs</div>
+    </div>
+
+    <!-- Divider -->
+    <hr class="divider">
+
+    <!-- Venue -->
+    <div class="venue-section">
+      <div class="venue-name">ESSENTIA HOTEL, INDORE</div>
+      <div class="booking-id">Booking ID: <span>TYA8CM2</span></div>
+    </div>
+  </div>
+</body>
+</html>
