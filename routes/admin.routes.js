@@ -80,4 +80,29 @@ router.use("/assets", adminAssetRoutes);
 // router.use("/dashboard", adminDashboardRoutes);
 // router.use("/reports", adminReportsRoutes);
 
+
+// src/Account/deleteAccount
+
+router.post("/account/delete-account", (req, res) => {
+  // You said it should do nothing — just return 200
+  res.status(200).json({ success: true, message: "Account deletion request accepted." });
+});
+
+router.get("/delete-account", (req, res) => {
+  const html = `
+    <html>
+      <head><title>Delete Account</title></head>
+      <body>
+        <h1>Delete Your Account</h1>
+        <form method="POST" action="/api/web/account/delete-account">
+          <label>Email:</label>
+          <input type="email" name="email" required />
+          <button type="submit">Delete Account</button>
+        </form>
+      </body>
+    </html>
+  `;
+  res.send(html);
+});
+
 export default router;
