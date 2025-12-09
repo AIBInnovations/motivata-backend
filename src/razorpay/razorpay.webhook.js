@@ -968,34 +968,64 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
       // Build QR scan URL for ticket
       const buyerQrScanUrl = `https://motivata.synquic.com/api/app/tickets/qr-scan?enrollmentId=${enrollment._id.toString()}&userId=${buyerUser._id.toString()}&eventId=${payment.eventId.toString()}&phone=${normalizedBuyerPhone}`;
 
-      // Generate ticket image with embedded QR code
-      const buyerTicketBuffer = await generateTicketImage({
-        qrData: buyerQrScanUrl,
-        eventName,
-        eventMode: event?.mode || 'OFFLINE',
-        eventLocation: event?.location || event?.city || '',
-        eventStartDate: event?.startDate,
-        eventEndDate: event?.endDate,
-        ticketCount: 1,
-        ticketPrice: payment.metadata?.tierName ? `${payment.finalAmount / (payment.metadata?.totalTickets || 1)}` : (event?.price || ''),
-        venueName: event?.venue || event?.location || '',
-        bookingId: enrollment._id.toString()
-      });
+      let buyerTicketBuffer;
+      let buyerTicketUrl;
+      let buyerTicketFilename;
 
-      const buyerTicketFilename = generateTicketFilename({
-        eventName,
-        phone: payment.metadata.buyer.phone
-      });
+      try {
+        // Try to generate ticket image with embedded QR code
+        buyerTicketBuffer = await generateTicketImage({
+          qrData: buyerQrScanUrl,
+          eventName,
+          eventMode: event?.mode || 'OFFLINE',
+          eventLocation: event?.location || event?.city || '',
+          eventStartDate: event?.startDate,
+          eventEndDate: event?.endDate,
+          ticketCount: 1,
+          ticketPrice: payment.metadata?.tierName ? `${payment.finalAmount / (payment.metadata?.totalTickets || 1)}` : (event?.price || ''),
+          venueName: event?.venue || event?.location || '',
+          bookingId: enrollment._id.toString()
+        });
 
-      console.log(`[WEBHOOK-NOTIFY] ✓ Buyer ticket image generated: ${buyerTicketFilename} (${buyerTicketBuffer.length} bytes)`);
+        buyerTicketFilename = generateTicketFilename({
+          eventName,
+          phone: payment.metadata.buyer.phone
+        });
 
-      // Upload ticket image to Cloudinary for WhatsApp
-      const buyerTicketUrl = await uploadTicketImageToCloudinary({
-        imageBuffer: buyerTicketBuffer,
-        enrollmentId: enrollment._id.toString(),
-        phone: payment.metadata.buyer.phone,
-        eventName
-      });
+        console.log(`[WEBHOOK-NOTIFY] ✓ Buyer ticket image generated: ${buyerTicketFilename} (${buyerTicketBuffer.length} bytes)`);
+
+        // Upload ticket image to Cloudinary for WhatsApp
+        buyerTicketUrl = await uploadTicketImageToCloudinary({
+          imageBuffer: buyerTicketBuffer,
+          enrollmentId: enrollment._id.toString(),
+          phone: payment.metadata.buyer.phone,
+          eventName
+        });
+      } catch (ticketImageErr) {
+        // Fallback to QR-only if ticket image generation fails
+        console.warn(`[WEBHOOK-NOTIFY] Ticket image failed, falling back to QR-only: ${ticketImageErr.message}`);
+
+        buyerTicketBuffer = await generateTicketQRCode({
+          enrollmentId: enrollment._id.toString(),
+          userId: buyerUser._id.toString(),
+          eventId: payment.eventId.toString(),
+          phone: normalizedBuyerPhone
+        });
+
+        buyerTicketFilename = generateQRFilename({
+          eventName,
+          phone: payment.metadata.buyer.phone
+        });
+
+        buyerTicketUrl = await uploadQRCodeToCloudinary({
+          qrBuffer: buyerTicketBuffer,
+          enrollmentId: enrollment._id.toString(),
+          phone: payment.metadata.buyer.phone,
+          eventName
+        });
+
+        console.log(`[WEBHOOK-NOTIFY] ✓ QR code fallback uploaded: ${buyerTicketUrl}`);
+      }
 
       // Add WhatsApp message for buyer (always)
       whatsappMessages.push({
@@ -1067,34 +1097,64 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
         // Build QR scan URL for ticket
         const otherQrScanUrl = `https://motivata.synquic.com/api/app/tickets/qr-scan?enrollmentId=${enrollment._id.toString()}&userId=${user._id.toString()}&eventId=${payment.eventId.toString()}&phone=${normalizedOtherPhone}`;
 
-        // Generate ticket image with embedded QR code
-        const ticketBuffer = await generateTicketImage({
-          qrData: otherQrScanUrl,
-          eventName,
-          eventMode: event?.mode || 'OFFLINE',
-          eventLocation: event?.location || event?.city || '',
-          eventStartDate: event?.startDate,
-          eventEndDate: event?.endDate,
-          ticketCount: 1,
-          ticketPrice: payment.metadata?.tierName ? `${payment.finalAmount / (payment.metadata?.totalTickets || 1)}` : (event?.price || ''),
-          venueName: event?.venue || event?.location || '',
-          bookingId: enrollment._id.toString()
-        });
+        let ticketBuffer;
+        let ticketUrl;
+        let ticketFilename;
 
-        const ticketFilename = generateTicketFilename({
-          eventName,
-          phone: details.phone
-        });
+        try {
+          // Try to generate ticket image with embedded QR code
+          ticketBuffer = await generateTicketImage({
+            qrData: otherQrScanUrl,
+            eventName,
+            eventMode: event?.mode || 'OFFLINE',
+            eventLocation: event?.location || event?.city || '',
+            eventStartDate: event?.startDate,
+            eventEndDate: event?.endDate,
+            ticketCount: 1,
+            ticketPrice: payment.metadata?.tierName ? `${payment.finalAmount / (payment.metadata?.totalTickets || 1)}` : (event?.price || ''),
+            venueName: event?.venue || event?.location || '',
+            bookingId: enrollment._id.toString()
+          });
 
-        console.log(`[WEBHOOK-NOTIFY] ✓ Ticket image generated for ${details.phone}: ${ticketFilename} (${ticketBuffer.length} bytes)`);
+          ticketFilename = generateTicketFilename({
+            eventName,
+            phone: details.phone
+          });
 
-        // Upload ticket image to Cloudinary for WhatsApp
-        const ticketUrl = await uploadTicketImageToCloudinary({
-          imageBuffer: ticketBuffer,
-          enrollmentId: enrollment._id.toString(),
-          phone: details.phone,
-          eventName
-        });
+          console.log(`[WEBHOOK-NOTIFY] ✓ Ticket image generated for ${details.phone}: ${ticketFilename} (${ticketBuffer.length} bytes)`);
+
+          // Upload ticket image to Cloudinary for WhatsApp
+          ticketUrl = await uploadTicketImageToCloudinary({
+            imageBuffer: ticketBuffer,
+            enrollmentId: enrollment._id.toString(),
+            phone: details.phone,
+            eventName
+          });
+        } catch (ticketImageErr) {
+          // Fallback to QR-only if ticket image generation fails
+          console.warn(`[WEBHOOK-NOTIFY] Ticket image failed for ${details.phone}, falling back to QR-only: ${ticketImageErr.message}`);
+
+          ticketBuffer = await generateTicketQRCode({
+            enrollmentId: enrollment._id.toString(),
+            userId: user._id.toString(),
+            eventId: payment.eventId.toString(),
+            phone: normalizedOtherPhone
+          });
+
+          ticketFilename = generateQRFilename({
+            eventName,
+            phone: details.phone
+          });
+
+          ticketUrl = await uploadQRCodeToCloudinary({
+            qrBuffer: ticketBuffer,
+            enrollmentId: enrollment._id.toString(),
+            phone: details.phone,
+            eventName
+          });
+
+          console.log(`[WEBHOOK-NOTIFY] ✓ QR code fallback uploaded for ${details.phone}: ${ticketUrl}`);
+        }
 
         // Add WhatsApp message (always)
         whatsappMessages.push({

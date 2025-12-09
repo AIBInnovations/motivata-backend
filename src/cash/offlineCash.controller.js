@@ -570,38 +570,61 @@ export const redeemTickets = async (req, res) => {
           // Fetch full event details for ticket image
           const eventDetails = await Event.findById(record.eventId._id);
 
-          // Generate ticket image with embedded QR code
-          const ticketBuffer = await generateTicketImage({
-            qrData: enrollment.ticketLink,
-            eventName: record.eventId.name,
-            eventMode: eventDetails?.mode || 'OFFLINE',
-            eventLocation: eventDetails?.location || eventDetails?.city || '',
-            eventStartDate: eventDetails?.startDate,
-            eventEndDate: eventDetails?.endDate,
-            ticketCount: 1,
-            ticketPrice: record.priceCharged || eventDetails?.price || '',
-            venueName: eventDetails?.venue || eventDetails?.location || '',
-            bookingId: enrollment._id.toString()
-          });
+          let imageUrl;
+          try {
+            // Try to generate ticket image with embedded QR code
+            const ticketBuffer = await generateTicketImage({
+              qrData: enrollment.ticketLink,
+              eventName: record.eventId.name,
+              eventMode: eventDetails?.mode || 'OFFLINE',
+              eventLocation: eventDetails?.location || eventDetails?.city || '',
+              eventStartDate: eventDetails?.startDate,
+              eventEndDate: eventDetails?.endDate,
+              ticketCount: 1,
+              ticketPrice: record.priceCharged || eventDetails?.price || '',
+              venueName: eventDetails?.venue || eventDetails?.location || '',
+              bookingId: enrollment._id.toString()
+            });
 
-          console.log(`[OFFLINE_CASH] Ticket image generated (${ticketBuffer.length} bytes)`);
+            console.log(`[OFFLINE_CASH] Ticket image generated (${ticketBuffer.length} bytes)`);
 
-          // Upload to Cloudinary
-          const ticketImageUrl = await uploadTicketImageToCloudinary({
-            imageBuffer: ticketBuffer,
-            enrollmentId: enrollment._id.toString(),
-            phone: normalizedPhone,
-            eventName: record.eventId.name,
-          });
+            // Upload to Cloudinary
+            imageUrl = await uploadTicketImageToCloudinary({
+              imageBuffer: ticketBuffer,
+              enrollmentId: enrollment._id.toString(),
+              phone: normalizedPhone,
+              eventName: record.eventId.name,
+            });
 
-          console.log(`[OFFLINE_CASH] Ticket image uploaded to Cloudinary: ${ticketImageUrl}`);
+            console.log(`[OFFLINE_CASH] Ticket image uploaded to Cloudinary: ${imageUrl}`);
+          } catch (ticketImageErr) {
+            // Fallback to QR-only if ticket image generation fails
+            console.warn(`[OFFLINE_CASH] Ticket image failed, falling back to QR-only: ${ticketImageErr.message}`);
 
-          // Send WhatsApp with ticket image URL (non-blocking)
+            const QRCode = (await import('qrcode')).default;
+            const qrBuffer = await QRCode.toBuffer(enrollment.ticketLink, {
+              errorCorrectionLevel: "H",
+              type: "png",
+              width: 400,
+              margin: 2,
+            });
+
+            imageUrl = await uploadQRCodeToCloudinary({
+              qrBuffer,
+              enrollmentId: enrollment._id.toString(),
+              phone: normalizedPhone,
+              eventName: record.eventId.name,
+            });
+
+            console.log(`[OFFLINE_CASH] QR code fallback uploaded: ${imageUrl}`);
+          }
+
+          // Send WhatsApp with image URL (non-blocking)
           sendTicketWhatsApp({
             phone: normalizedPhone,
             name: attendee.name,
             eventName: record.eventId.name,
-            qrCodeUrl: ticketImageUrl,
+            qrCodeUrl: imageUrl,
             // Logging parameters
             eventId: record.eventId._id.toString(),
             userId: user._id.toString(),
@@ -610,8 +633,8 @@ export const redeemTickets = async (req, res) => {
             console.error(`[OFFLINE_CASH] WhatsApp error for ${normalizedPhone}:`, whatsappErr.message)
           );
         } catch (ticketErr) {
-          console.error(`[OFFLINE_CASH] Ticket image/WhatsApp error for ${normalizedPhone}:`, ticketErr.message);
-          // Don't fail the enrollment if ticket image/WhatsApp fails
+          console.error(`[OFFLINE_CASH] Ticket/WhatsApp error for ${normalizedPhone}:`, ticketErr.message);
+          // Don't fail the enrollment if ticket/WhatsApp fails
         }
       } catch (err) {
         console.error(`Error processing attendee ${normalizedPhone}:`, err);

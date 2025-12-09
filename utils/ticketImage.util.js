@@ -195,7 +195,13 @@ export const generateTicketImage = async ({
       encoding: 'buffer',
       puppeteerArgs: {
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process'
+        ],
       },
       selector: '.ticket-container',
     });
