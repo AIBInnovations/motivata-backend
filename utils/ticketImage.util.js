@@ -1,6 +1,7 @@
 /**
  * @fileoverview Ticket image generation utility
- * Generates ticket images with embedded QR codes using HTML template
+ * Generates ticket images with embedded QR codes using SVG + Sharp
+ * NO PUPPETEER - uses native image processing
  * @module utils/ticketImage
  */
 
@@ -8,14 +9,13 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
-import nodeHtmlToImage from 'node-html-to-image';
+import sharp from 'sharp';
 import cloudinary from '../config/cloudinary.config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Template and asset paths
-const TICKET_TEMPLATE_PATH = path.join(__dirname, '../templates/ticket.template.html');
+// Logo path
 const LOGO_PATH = path.join(__dirname, '../assets/w-font-logo-1024x512.png');
 
 // Cache logo as base64 to avoid repeated file reads
@@ -107,6 +107,97 @@ const generateQRCodeDataUrl = async (data) => {
 };
 
 /**
+ * Escape XML special characters
+ * @param {string} str - String to escape
+ * @returns {string} Escaped string
+ */
+const escapeXml = (str) => {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+};
+
+/**
+ * Generate SVG ticket template
+ * @param {Object} params - Template parameters
+ * @returns {string} SVG string
+ */
+const generateTicketSVG = ({
+  logoDataUrl,
+  qrCodeDataUrl,
+  eventName,
+  eventInitial,
+  eventMode,
+  eventLocation,
+  eventDateTime,
+  ticketCount,
+  ticketPrice,
+  venueName,
+  bookingId
+}) => {
+  // Escape all text content for XML
+  const safeEventName = escapeXml(eventName);
+  const safeEventInitial = escapeXml(eventInitial);
+  const safeEventMode = escapeXml(eventMode);
+  const safeEventLocation = escapeXml(eventLocation);
+  const safeEventDateTime = escapeXml(eventDateTime);
+  const safeTicketCount = escapeXml(ticketCount);
+  const safeTicketPrice = escapeXml(ticketPrice);
+  const safeVenueName = escapeXml(venueName);
+  const safeBookingId = escapeXml(bookingId);
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="380" height="520" viewBox="0 0 380 520" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <linearGradient id="thumbnailGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff6b6b"/>
+      <stop offset="100%" style="stop-color:#ffa500"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="380" height="520" fill="#0d0d0d"/>
+
+  <!-- Logo -->
+  <image x="90" y="24" width="200" height="40" href="${logoDataUrl}" preserveAspectRatio="xMidYMid meet"/>
+
+  <!-- Event Thumbnail (gradient circle with initial) -->
+  <rect x="28" y="84" width="50" height="50" rx="10" fill="url(#thumbnailGradient)"/>
+  <text x="53" y="117" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle">${safeEventInitial}</text>
+
+  <!-- Event Details -->
+  <text x="92" y="100" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#ffffff">${safeEventName}</text>
+  <text x="92" y="116" font-family="Arial, sans-serif" font-size="10" fill="#888888" letter-spacing="1">${safeEventMode} | ${safeEventLocation}</text>
+  <text x="92" y="132" font-family="Arial, sans-serif" font-size="12" fill="#cccccc">${safeEventDateTime}</text>
+
+  <!-- QR Code Section -->
+  <!-- White background for QR -->
+  <rect x="106" y="160" width="168" height="168" rx="12" fill="#ffffff"/>
+  <!-- QR Code Image -->
+  <image x="118" y="172" width="144" height="144" href="${qrCodeDataUrl}"/>
+
+  <!-- Ticket Count -->
+  <text x="190" y="355" font-family="Arial, sans-serif" font-size="13" font-weight="500" fill="#ffffff" text-anchor="middle" letter-spacing="2">TICKET FOR ${safeTicketCount}</text>
+
+  <!-- Ticket Price -->
+  <text x="190" y="378" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#ffffff" text-anchor="middle">${safeTicketPrice}</text>
+
+  <!-- Dashed Divider -->
+  <line x1="28" y1="410" x2="352" y2="410" stroke="#333333" stroke-width="2" stroke-dasharray="8,6"/>
+
+  <!-- Venue Name -->
+  <text x="190" y="448" font-family="Arial, sans-serif" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" letter-spacing="1">${safeVenueName}</text>
+
+  <!-- Booking ID -->
+  <text x="190" y="475" font-family="Arial, sans-serif" font-size="12" fill="#666666" text-anchor="middle">Booking ID: <tspan fill="#888888">${safeBookingId}</tspan></text>
+</svg>`;
+};
+
+/**
  * Generate ticket image with embedded QR code
  *
  * @param {Object} params - Ticket generation parameters
@@ -137,7 +228,7 @@ export const generateTicketImage = async ({
   bookingId
 }) => {
   try {
-    console.log(`[TICKET-IMAGE] ========== GENERATING TICKET IMAGE ==========`);
+    console.log(`[TICKET-IMAGE] ========== GENERATING TICKET IMAGE (SVG+Sharp) ==========`);
     console.log(`[TICKET-IMAGE] Event: ${eventName}`);
     console.log(`[TICKET-IMAGE] Booking ID: ${bookingId}`);
     console.log(`[TICKET-IMAGE] QR Data length: ${qrData?.length || 0}`);
@@ -153,12 +244,9 @@ export const generateTicketImage = async ({
     // Get logo data URL (cached)
     const logoDataUrl = getLogoDataUrl();
 
-    // Read HTML template
-    let templateHtml = fs.readFileSync(TICKET_TEMPLATE_PATH, 'utf-8');
-
     // Format event date and time
     const eventDateTime = eventStartDate
-      ? `${formatTicketDate(eventStartDate)} &nbsp;&nbsp;|&nbsp;&nbsp; ${formatTimeRange(eventStartDate, eventEndDate)}`
+      ? `${formatTicketDate(eventStartDate)}  |  ${formatTimeRange(eventStartDate, eventEndDate)}`
       : '';
 
     // Format ticket price
@@ -170,72 +258,33 @@ export const generateTicketImage = async ({
     // Short booking ID (last 7 characters)
     const shortBookingId = bookingId.slice(-7).toUpperCase();
 
-    // Replace all placeholders
-    const finalHtml = templateHtml
-      .replace(/\{\{logoDataUrl\}\}/g, logoDataUrl)
-      .replace(/\{\{qrCodeDataUrl\}\}/g, qrCodeDataUrl)
-      .replace(/\{\{eventName\}\}/g, eventName)
-      .replace(/\{\{eventInitial\}\}/g, eventInitial)
-      .replace(/\{\{eventMode\}\}/g, eventMode.toUpperCase())
-      .replace(/\{\{eventLocation\}\}/g, eventLocation.toUpperCase())
-      .replace(/\{\{eventDateTime\}\}/g, eventDateTime)
-      .replace(/\{\{ticketCount\}\}/g, String(ticketCount))
-      .replace(/\{\{ticketPrice\}\}/g, formattedPrice)
-      .replace(/\{\{venueName\}\}/g, venueName.toUpperCase())
-      .replace(/\{\{bookingId\}\}/g, shortBookingId);
+    // Generate SVG
+    const svgString = generateTicketSVG({
+      logoDataUrl,
+      qrCodeDataUrl,
+      eventName,
+      eventInitial,
+      eventMode: eventMode.toUpperCase(),
+      eventLocation: eventLocation.toUpperCase(),
+      eventDateTime,
+      ticketCount: String(ticketCount),
+      ticketPrice: formattedPrice,
+      venueName: venueName.toUpperCase(),
+      bookingId: shortBookingId
+    });
 
-    console.log(`[TICKET-IMAGE] HTML template populated`);
-    console.log(`[TICKET-IMAGE] Converting HTML to image...`);
+    console.log(`[TICKET-IMAGE] SVG generated (${svgString.length} chars)`);
 
-    // Convert HTML to PNG image with timeout
-    const TIMEOUT_MS = 30000; // 30 seconds timeout
-
-    // Determine Chrome executable path based on environment
-    // Try puppeteer's Chrome first, fall back to system chromium
-    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH ||
-      (process.platform === 'linux' ? '/home/ubuntu/.cache/puppeteer/chrome/linux-128.0.6613.119/chrome-linux64/chrome' : undefined);
-
-    console.log(`[TICKET-IMAGE] Platform: ${process.platform}`);
-    console.log(`[TICKET-IMAGE] Chrome path: ${executablePath || 'auto-detect'}`);
-
-    const puppeteerArgs = {
-      headless: 'new', // Use new headless mode (required for newer puppeteer)
-      executablePath,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process',
-        '--disable-software-rasterizer',
-        '--disable-web-security',
-        '--disable-features=IsolateOrigins,site-per-process'
-      ],
-    };
-
-    console.log(`[TICKET-IMAGE] Puppeteer args:`, JSON.stringify(puppeteerArgs, null, 2));
-
-    let imageBuffer;
-    try {
-      imageBuffer = await nodeHtmlToImage({
-        html: finalHtml,
-        type: 'png',
-        quality: 100,
-        encoding: 'buffer',
-        puppeteerArgs,
-        selector: '.ticket-container',
-      });
-    } catch (nodeHtmlError) {
-      console.log(`[TICKET-IMAGE] nodeHtmlToImage error: ${nodeHtmlError.message}`);
-      console.log(`[TICKET-IMAGE] Full error:`, nodeHtmlError);
-      throw nodeHtmlError;
-    }
+    // Convert SVG to PNG using Sharp
+    const imageBuffer = await sharp(Buffer.from(svgString))
+      .png()
+      .toBuffer();
 
     if (!imageBuffer || imageBuffer.length === 0) {
       throw new Error('Generated image buffer is empty');
     }
 
-    console.log(`[TICKET-IMAGE] Image generated: ${imageBuffer.length} bytes`);
+    console.log(`[TICKET-IMAGE] PNG generated: ${imageBuffer.length} bytes`);
     console.log(`[TICKET-IMAGE] ========== TICKET IMAGE COMPLETE ==========`);
 
     return imageBuffer;
