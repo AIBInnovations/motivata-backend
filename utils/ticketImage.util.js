@@ -190,6 +190,14 @@ export const generateTicketImage = async ({
     // Convert HTML to PNG image with timeout
     const TIMEOUT_MS = 30000; // 30 seconds timeout
 
+    // Determine Chrome executable path based on environment
+    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH ||
+      (process.platform === 'linux' ? '/home/ubuntu/.cache/puppeteer/chrome/linux-128.0.6613.119/chrome-linux64/chrome' : undefined);
+
+    if (executablePath) {
+      console.log(`[TICKET-IMAGE] Using Chrome at: ${executablePath}`);
+    }
+
     const imagePromise = nodeHtmlToImage({
       html: finalHtml,
       type: 'png',
@@ -197,6 +205,7 @@ export const generateTicketImage = async ({
       encoding: 'buffer',
       puppeteerArgs: {
         headless: true,
+        executablePath,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
