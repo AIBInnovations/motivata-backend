@@ -4,6 +4,7 @@
  */
 
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
+import CashEventEnrollment from '../../schema/CashEventEnrollment.schema.js';
 import Payment from '../../schema/Payment.schema.js';
 import Event from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
@@ -187,10 +188,10 @@ const findTicketInMap = (tickets, phone) => {
 };
 
 /**
- * Get user's enrollments
+ * Get user's enrollments (both online and cash/offline)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
- * @returns {Object} Response with user's enrollments
+ * @returns {Object} Response with user's enrollments from both sources
  */
 export const getUserEnrollments = async (req, res) => {
   try {
@@ -211,51 +212,62 @@ export const getUserEnrollments = async (req, res) => {
     }
 
     // Generate all phone variations for ticket lookup
-    // Handles both old QRs (with country code) and new normalized phones
     const phoneVariations = getPhoneVariations(user.phone);
 
+    // ============ FETCH ONLINE EVENT ENROLLMENTS ============
     // Build query - find enrollments where user is owner OR has a ticket with any phone variation
     const ticketConditions = phoneVariations.map(phone => ({
       [`tickets.${phone}`]: { $exists: true }
     }));
 
-    const query = {
+    const onlineQuery = {
       $or: [
         { userId: userId },
         ...ticketConditions
       ]
     };
 
-    if (status) query.status = status;
-    if (eventId) query.eventId = eventId;
+    if (status) onlineQuery.status = status;
+    if (eventId) onlineQuery.eventId = eventId;
 
-    // Calculate pagination
-    const skip = (page - 1) * limit;
-    const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+    // ============ FETCH CASH EVENT ENROLLMENTS ============
+    // Cash enrollments are simpler - one record per user, query by userId or phone
+    const cashQuery = {
+      $or: [
+        { userId: userId },
+        { phone: user.phone },
+        // Also check phone variations for cash enrollments
+        ...phoneVariations.map(p => ({ phone: p }))
+      ]
+    };
 
-    // Execute query with pagination
-    const [enrollments, totalCount] = await Promise.all([
-      EventEnrollment.find(query)
-        .sort(sortOptions)
-        .skip(skip)
-        .limit(Number(limit))
+    if (status) cashQuery.status = status;
+    if (eventId) cashQuery.eventId = eventId;
+
+    // Execute both queries in parallel
+    const [onlineEnrollments, cashEnrollments] = await Promise.all([
+      EventEnrollment.find(onlineQuery)
         .populate('eventId', 'name description startDate endDate mode city price imageUrls')
-        .populate('paymentId', 'orderId amount finalAmount discountAmount'),
-      EventEnrollment.countDocuments(query)
+        .populate('paymentId', 'orderId amount finalAmount discountAmount')
+        .lean(),
+      CashEventEnrollment.find(cashQuery)
+        .populate('eventId', 'name description startDate endDate mode city price imageUrls')
+        .populate('offlineCashId', 'priceCharged signature')
+        .lean()
     ]);
 
-    const totalPages = Math.ceil(totalCount / limit);
-
-    // Enrich enrollments with relationship and myTicket info
-    const enrichedEnrollments = enrollments.map(enrollment => {
+    // ============ NORMALIZE AND COMBINE RESULTS ============
+    // Enrich online enrollments
+    const enrichedOnlineEnrollments = onlineEnrollments.map(enrollment => {
       const isOwner = enrollment.userId.toString() === userId;
-      const enrollmentObj = enrollment.toObject();
 
-      // Find ticket using phone variations
-      const { ticket: myTicket, matchedPhone } = findTicketInMap(enrollment.tickets, user.phone);
+      // Find ticket using phone variations (need to convert back to Map for helper)
+      const ticketsMap = new Map(Object.entries(enrollment.tickets || {}));
+      const { ticket: myTicket, matchedPhone } = findTicketInMap(ticketsMap, user.phone);
 
       return {
-        ...enrollmentObj,
+        ...enrollment,
+        enrollmentType: 'ONLINE', // Mark as online payment enrollment
         relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
         myTicket: myTicket ? {
           phone: matchedPhone,
@@ -263,12 +275,57 @@ export const getUserEnrollments = async (req, res) => {
           isTicketScanned: myTicket.isTicketScanned
         } : null,
         // Hide other tickets if not owner
-        tickets: isOwner ? enrollmentObj.tickets : undefined
+        tickets: isOwner ? enrollment.tickets : undefined
       };
     });
 
+    // Normalize cash enrollments to match online enrollment structure
+    const enrichedCashEnrollments = cashEnrollments.map(cashEnrollment => {
+      const isOwner = cashEnrollment.userId.toString() === userId;
+
+      return {
+        _id: cashEnrollment._id,
+        eventId: cashEnrollment.eventId,
+        userId: cashEnrollment.userId,
+        enrollmentType: 'CASH', // Mark as cash/offline enrollment
+        ticketCount: 1, // Cash enrollments are always 1 ticket per record
+        tierName: 'Cash Payment',
+        ticketPrice: cashEnrollment.offlineCashId?.priceCharged || 0,
+        relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
+        myTicket: {
+          phone: cashEnrollment.phone,
+          status: cashEnrollment.status,
+          isTicketScanned: cashEnrollment.isTicketScanned
+        },
+        // Cash enrollment specific fields
+        ticketLink: cashEnrollment.ticketLink,
+        offlineCashId: cashEnrollment.offlineCashId,
+        createdAt: cashEnrollment.createdAt,
+        updatedAt: cashEnrollment.updatedAt
+      };
+    });
+
+    // Combine all enrollments
+    const allEnrollments = [...enrichedOnlineEnrollments, ...enrichedCashEnrollments];
+
+    // Sort combined results
+    const sortMultiplier = sortOrder === 'asc' ? 1 : -1;
+    allEnrollments.sort((a, b) => {
+      const aValue = a[sortBy] || a.createdAt;
+      const bValue = b[sortBy] || b.createdAt;
+      if (aValue < bValue) return -1 * sortMultiplier;
+      if (aValue > bValue) return 1 * sortMultiplier;
+      return 0;
+    });
+
+    // Apply pagination on combined results
+    const totalCount = allEnrollments.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const skip = (page - 1) * limit;
+    const paginatedEnrollments = allEnrollments.slice(skip, skip + Number(limit));
+
     return responseUtil.success(res, 'Enrollments retrieved successfully', {
-      enrollments: enrichedEnrollments,
+      enrollments: paginatedEnrollments,
       pagination: {
         currentPage: Number(page),
         totalPages,

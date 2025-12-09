@@ -6,43 +6,92 @@
 import Poll from "../../schema/Poll.schema.js";
 import PollSubmission from "../../schema/PollSubmission.schema.js";
 import EventEnrollment from "../../schema/EventEnrollment.schema.js";
+import CashEventEnrollment from "../../schema/CashEventEnrollment.schema.js";
 import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
+ * Helper function to normalize phone number to 10 digits
+ */
+const normalizePhone = (phone) => {
+  if (!phone) return null;
+  // Remove all non-digit characters and get last 10 digits
+  return phone.replace(/\D/g, "").slice(-10);
+};
+
+/**
+ * Helper function to get all phone variations for searching
+ */
+const getPhoneVariations = (phone) => {
+  if (!phone) return [];
+  const normalized = normalizePhone(phone);
+  if (!normalized) return [];
+
+  return [
+    normalized,                    // 9179621765
+    `+91${normalized}`,           // +919179621765
+    `91${normalized}`,            // 919179621765
+    phone,                         // original format
+    phone.replace(/^\+/, ""),     // without leading +
+  ];
+};
+
+/**
  * Helper function to check if user is enrolled in an event
- * Checks both direct enrollment (userId) and ticket-based enrollment (phone in tickets Map)
+ * Checks:
+ * 1. Direct EventEnrollment by userId
+ * 2. EventEnrollment tickets Map by phone
+ * 3. CashEventEnrollment by userId
+ * 4. CashEventEnrollment by phone
  */
 const checkUserEnrollment = async (eventId, userId) => {
-  // First check direct enrollment
+  // 1. Check direct EventEnrollment by userId
   const directEnrollment = await EventEnrollment.findOne({ eventId, userId });
   if (directEnrollment) {
     return true;
   }
 
-  // Get user's phone number
+  // 2. Check CashEventEnrollment by userId
+  const cashEnrollmentByUser = await CashEventEnrollment.findOne({
+    eventId,
+    userId,
+    status: "ACTIVE"
+  });
+  if (cashEnrollmentByUser) {
+    return true;
+  }
+
+  // Get user's phone number for phone-based checks
   const user = await User.findById(userId).select("phone");
   if (!user || !user.phone) {
     return false;
   }
 
-  // Format phone number variations to check
-  const phone = user.phone;
-  const phoneVariations = [
-    phone,
-    `+91${phone}`,
-    phone.replace(/^\+91/, ""),
-  ];
+  const phoneVariations = getPhoneVariations(user.phone);
+  const normalizedPhone = normalizePhone(user.phone);
 
-  // Check if user's phone exists in any enrollment's tickets for this event
+  // 3. Check if user's phone exists in any EventEnrollment's tickets Map
   const ticketEnrollment = await EventEnrollment.findOne({
     eventId,
     $or: phoneVariations.map((p) => ({
       [`tickets.${p}`]: { $exists: true },
     })),
   });
+  if (ticketEnrollment) {
+    return true;
+  }
 
-  return !!ticketEnrollment;
+  // 4. Check CashEventEnrollment by phone (uses 10-digit format)
+  const cashEnrollmentByPhone = await CashEventEnrollment.findOne({
+    eventId,
+    phone: normalizedPhone,
+    status: "ACTIVE"
+  });
+  if (cashEnrollmentByPhone) {
+    return true;
+  }
+
+  return false;
 };
 
 /**
