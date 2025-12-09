@@ -7,17 +7,12 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import QRCode from "qrcode";
-import nodeHtmlToImage from "node-html-to-image";
+import { generateTicketImage } from "../../../utils/ticketImage.util.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const settingsPath = path.join(__dirname, "../../../settings.json");
-const ticketTemplatePath = path.join(
-  __dirname,
-  "../../../templates/ticket.template.html"
-);
-const logoPath = path.join(__dirname, "../../../assets/w-font-logo-1024x512.png");
+// Note: fs is still used for reading settings.json in show-delete endpoint
 
 /** @type {express.Router} */
 const router = express.Router();
@@ -39,62 +34,32 @@ router.get("/show-delete", (req, res) => {
 });
 
 /**
- * POST /api/app/service/test-ticket
- * @description Test endpoint to generate ticket image with QR code and send via email
+ * GET /api/app/service/test-ticket
+ * @description Test endpoint to generate ticket image with embedded QR code
  * @param {express.Request} req - Express request object
- * @param {string} req.body.link - The link to encode in the QR code
  * @param {express.Response} res - Express response object
- * @returns {Object} JSON response with email send status
+ * @returns {Buffer} PNG image of the ticket
  */
 router.get("/test-ticket", async (req, res) => {
   try {
-    // Hardcoded link for testing
-    const link = "https://motivata.synquic.com/api/app/tickets/cash/qr-scan?enrollmentId=692d2a005c88ba59811d5c98&userId=692d2a005c88ba59811d5c95&eventId=69292ed8d2442cf27713bda5&phone=9406667051";
+    // Hardcoded test data
+    const testData = {
+      qrData: "https://motivata.synquic.com/api/app/tickets/cash/qr-scan?enrollmentId=692d2a005c88ba59811d5c98&userId=692d2a005c88ba59811d5c95&eventId=69292ed8d2442cf27713bda5&phone=9406667051",
+      eventName: "UTSAV EVENT 2025",
+      eventMode: "OFFLINE",
+      eventLocation: "INDORE",
+      eventStartDate: new Date("2025-12-21T14:00:00"),
+      eventEndDate: new Date("2025-12-21T22:00:00"),
+      ticketCount: 1,
+      ticketPrice: "499",
+      venueName: "ESSENTIA HOTEL, INDORE",
+      bookingId: "692d2a005c88ba59811d5c98"
+    };
 
-    console.log("[TEST-TICKET] Starting ticket generation for link:", link);
+    console.log("[TEST-TICKET] Starting ticket generation with test data");
 
-    // Generate QR code as data URL (base64)
-    const qrCodeDataUrl = await QRCode.toDataURL(link, {
-      errorCorrectionLevel: "H",
-      type: "image/png",
-      width: 200,
-      margin: 1,
-      color: {
-        dark: "#000000",
-        light: "#FFFFFF",
-      },
-    });
-
-    console.log("[TEST-TICKET] QR code generated successfully");
-
-    // Read logo and convert to base64
-    const logoBuffer = fs.readFileSync(logoPath);
-    const logoDataUrl = `data:image/png;base64,${logoBuffer.toString("base64")}`;
-
-    console.log("[TEST-TICKET] Logo loaded successfully");
-
-    // Read HTML template
-    const templateHtml = fs.readFileSync(ticketTemplatePath, "utf-8");
-
-    // Replace placeholders with actual data URLs
-    const finalHtml = templateHtml
-      .replace("{{qrCodeDataUrl}}", qrCodeDataUrl)
-      .replace("{{logoDataUrl}}", logoDataUrl);
-
-    console.log("[TEST-TICKET] Converting HTML to image...");
-
-    // Convert HTML to image (PNG)
-    const imageBuffer = await nodeHtmlToImage({
-      html: finalHtml,
-      type: "png",
-      quality: 100,
-      encoding: "buffer",
-      puppeteerArgs: {
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      },
-      selector: ".ticket-container",
-    });
+    // Generate ticket image using the utility
+    const imageBuffer = await generateTicketImage(testData);
 
     console.log(`[TEST-TICKET] Image generated: ${imageBuffer.length} bytes`);
 

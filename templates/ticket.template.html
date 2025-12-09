@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ticket - UTSAV EVENT 2025</title>
+  <title>Ticket - {{eventName}}</title>
   <style>
     * {
       margin: 0;
@@ -156,11 +156,11 @@
 
     <!-- Event Info -->
     <div class="event-info">
-      <div class="event-thumbnail" style="background: linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 22px; font-weight: bold;">U</div>
+      <div class="event-thumbnail" style="background: linear-gradient(135deg, #ff6b6b 0%, #ffa500 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 22px; font-weight: bold;">{{eventInitial}}</div>
       <div class="event-details">
-        <div class="event-name">UTSAV EVENT 2025</div>
-        <div class="event-mode">OFFLINE | INDORE</div>
-        <div class="event-datetime">Sunday, 21<sup>st</sup> Dec &nbsp;&nbsp;|&nbsp;&nbsp; 2 PM - 10 PM</div>
+        <div class="event-name">{{eventName}}</div>
+        <div class="event-mode">{{eventMode}} | {{eventLocation}}</div>
+        <div class="event-datetime">{{eventDateTime}}</div>
       </div>
     </div>
 
@@ -169,8 +169,8 @@
       <div class="qr-wrapper">
         <img src="{{qrCodeDataUrl}}" alt="QR Code" class="qr-code">
       </div>
-      <div class="ticket-count">TICKET FOR 1</div>
-      <div class="ticket-price">499 Rs</div>
+      <div class="ticket-count">TICKET FOR {{ticketCount}}</div>
+      <div class="ticket-price">{{ticketPrice}}</div>
     </div>
 
     <!-- Divider -->
@@ -178,8 +178,8 @@
 
     <!-- Venue -->
     <div class="venue-section">
-      <div class="venue-name">ESSENTIA HOTEL, INDORE</div>
-      <div class="booking-id">Booking ID: <span>TYA8CM2</span></div>
+      <div class="venue-name">{{venueName}}</div>
+      <div class="booking-id">Booking ID: <span>{{bookingId}}</span></div>
     </div>
   </div>
 </body>

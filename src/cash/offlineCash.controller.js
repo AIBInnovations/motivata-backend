@@ -12,8 +12,8 @@ import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { sendTicketWhatsApp, sendRedemptionLinkWhatsApp, sendBulkVoucherWhatsApp } from "../../utils/whatsapp.util.js";
 import { uploadQRCodeToCloudinary, generateVoucherQRCode, uploadVoucherQRCodeToCloudinary } from "../../utils/qrcode.util.js";
+import { generateTicketImage, uploadTicketImageToCloudinary } from "../../utils/ticketImage.util.js";
 import bcrypt from "bcrypt";
-import QRCode from "qrcode";
 
 const BASE_URL = process.env.BASE_URL || "https://motivata.synquic.com/api";
 
@@ -563,36 +563,45 @@ export const redeemTickets = async (req, res) => {
 
         createdEnrollments.push(enrollment);
 
-        // Generate QR code buffer and upload to Cloudinary
+        // Generate ticket image and upload to Cloudinary
         try {
-          console.log(`[OFFLINE_CASH] Generating QR code for ${normalizedPhone}`);
+          console.log(`[OFFLINE_CASH] Generating ticket image for ${normalizedPhone}`);
 
-          // Generate QR code as buffer (pointing to cash ticket scan URL)
-          const qrBuffer = await QRCode.toBuffer(enrollment.ticketLink, {
-            errorCorrectionLevel: "H",
-            type: "png",
-            width: 400,
-            margin: 2,
+          // Fetch full event details for ticket image
+          const eventDetails = await Event.findById(record.eventId._id);
+
+          // Generate ticket image with embedded QR code
+          const ticketBuffer = await generateTicketImage({
+            qrData: enrollment.ticketLink,
+            eventName: record.eventId.name,
+            eventMode: eventDetails?.mode || 'OFFLINE',
+            eventLocation: eventDetails?.location || eventDetails?.city || '',
+            eventStartDate: eventDetails?.startDate,
+            eventEndDate: eventDetails?.endDate,
+            ticketCount: 1,
+            ticketPrice: record.priceCharged || eventDetails?.price || '',
+            venueName: eventDetails?.venue || eventDetails?.location || '',
+            bookingId: enrollment._id.toString()
           });
 
-          console.log(`[OFFLINE_CASH] QR buffer generated (${qrBuffer.length} bytes)`);
+          console.log(`[OFFLINE_CASH] Ticket image generated (${ticketBuffer.length} bytes)`);
 
           // Upload to Cloudinary
-          const qrImageUrl = await uploadQRCodeToCloudinary({
-            qrBuffer,
+          const ticketImageUrl = await uploadTicketImageToCloudinary({
+            imageBuffer: ticketBuffer,
             enrollmentId: enrollment._id.toString(),
             phone: normalizedPhone,
             eventName: record.eventId.name,
           });
 
-          console.log(`[OFFLINE_CASH] QR uploaded to Cloudinary: ${qrImageUrl}`);
+          console.log(`[OFFLINE_CASH] Ticket image uploaded to Cloudinary: ${ticketImageUrl}`);
 
-          // Send WhatsApp with QR code image URL (non-blocking)
+          // Send WhatsApp with ticket image URL (non-blocking)
           sendTicketWhatsApp({
             phone: normalizedPhone,
             name: attendee.name,
             eventName: record.eventId.name,
-            qrCodeUrl: qrImageUrl,
+            qrCodeUrl: ticketImageUrl,
             // Logging parameters
             eventId: record.eventId._id.toString(),
             userId: user._id.toString(),
@@ -600,9 +609,9 @@ export const redeemTickets = async (req, res) => {
           }).catch((whatsappErr) =>
             console.error(`[OFFLINE_CASH] WhatsApp error for ${normalizedPhone}:`, whatsappErr.message)
           );
-        } catch (qrErr) {
-          console.error(`[OFFLINE_CASH] QR/WhatsApp error for ${normalizedPhone}:`, qrErr.message);
-          // Don't fail the enrollment if QR/WhatsApp fails
+        } catch (ticketErr) {
+          console.error(`[OFFLINE_CASH] Ticket image/WhatsApp error for ${normalizedPhone}:`, ticketErr.message);
+          // Don't fail the enrollment if ticket image/WhatsApp fails
         }
       } catch (err) {
         console.error(`Error processing attendee ${normalizedPhone}:`, err);

@@ -29,6 +29,11 @@ import {
   generateVoucherQRCode,
   uploadVoucherQRCodeToCloudinary
 } from '../../utils/qrcode.util.js';
+import {
+  generateTicketImage,
+  generateTicketFilename,
+  uploadTicketImageToCloudinary
+} from '../../utils/ticketImage.util.js';
 import { sendBulkTicketWhatsApp, sendBulkVoucherWhatsApp } from '../../utils/whatsapp.util.js';
 
 /**
@@ -960,24 +965,33 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
       const normalizedBuyerPhone = normalizePhone(buyerPhone);
       console.log(`[WEBHOOK-NOTIFY] Processing buyer ticket for phone: ${buyerPhone} (normalized: ${normalizedBuyerPhone})`);
 
-      // Generate QR code for buyer's ticket (using normalized phone to match tickets Map)
-      const buyerQRBuffer = await generateTicketQRCode({
-        enrollmentId: enrollment._id.toString(),
-        userId: buyerUser._id.toString(),
-        eventId: payment.eventId.toString(),
-        phone: normalizedBuyerPhone
+      // Build QR scan URL for ticket
+      const buyerQrScanUrl = `https://motivata.synquic.com/api/app/tickets/qr-scan?enrollmentId=${enrollment._id.toString()}&userId=${buyerUser._id.toString()}&eventId=${payment.eventId.toString()}&phone=${normalizedBuyerPhone}`;
+
+      // Generate ticket image with embedded QR code
+      const buyerTicketBuffer = await generateTicketImage({
+        qrData: buyerQrScanUrl,
+        eventName,
+        eventMode: event?.mode || 'OFFLINE',
+        eventLocation: event?.location || event?.city || '',
+        eventStartDate: event?.startDate,
+        eventEndDate: event?.endDate,
+        ticketCount: 1,
+        ticketPrice: payment.metadata?.tierName ? `${payment.finalAmount / (payment.metadata?.totalTickets || 1)}` : (event?.price || ''),
+        venueName: event?.venue || event?.location || '',
+        bookingId: enrollment._id.toString()
       });
 
-      const buyerQRFilename = generateQRFilename({
+      const buyerTicketFilename = generateTicketFilename({
         eventName,
         phone: payment.metadata.buyer.phone
       });
 
-      console.log(`[WEBHOOK-NOTIFY] ✓ Buyer QR code generated: ${buyerQRFilename} (${buyerQRBuffer.length} bytes)`);
+      console.log(`[WEBHOOK-NOTIFY] ✓ Buyer ticket image generated: ${buyerTicketFilename} (${buyerTicketBuffer.length} bytes)`);
 
-      // Upload QR to Cloudinary for WhatsApp
-      const buyerQRUrl = await uploadQRCodeToCloudinary({
-        qrBuffer: buyerQRBuffer,
+      // Upload ticket image to Cloudinary for WhatsApp
+      const buyerTicketUrl = await uploadTicketImageToCloudinary({
+        imageBuffer: buyerTicketBuffer,
         enrollmentId: enrollment._id.toString(),
         phone: payment.metadata.buyer.phone,
         eventName
@@ -989,7 +1003,7 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
         name: payment.metadata.buyer.name,
         email: payment.metadata.buyer.email || '',
         eventName,
-        qrCodeUrl: buyerQRUrl,
+        qrCodeUrl: buyerTicketUrl,
         // Logging parameters
         eventId: payment.eventId?.toString(),
         orderId: payment.orderId,
@@ -1021,8 +1035,8 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
           text: generateTicketEmailText(buyerEmailData),
           attachments: [
             {
-              filename: buyerQRFilename,
-              content: buyerQRBuffer,
+              filename: buyerTicketFilename,
+              content: buyerTicketBuffer,
               contentType: 'image/png'
             }
           ],
@@ -1050,24 +1064,33 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
         const normalizedOtherPhone = normalizePhone(otherPhone);
         console.log(`[WEBHOOK-NOTIFY] Processing ticket for phone: ${otherPhone} (normalized: ${normalizedOtherPhone})`);
 
-        // Generate QR code for this ticket holder (using normalized phone to match tickets Map)
-        const qrBuffer = await generateTicketQRCode({
-          enrollmentId: enrollment._id.toString(),
-          userId: user._id.toString(),
-          eventId: payment.eventId.toString(),
-          phone: normalizedOtherPhone
+        // Build QR scan URL for ticket
+        const otherQrScanUrl = `https://motivata.synquic.com/api/app/tickets/qr-scan?enrollmentId=${enrollment._id.toString()}&userId=${user._id.toString()}&eventId=${payment.eventId.toString()}&phone=${normalizedOtherPhone}`;
+
+        // Generate ticket image with embedded QR code
+        const ticketBuffer = await generateTicketImage({
+          qrData: otherQrScanUrl,
+          eventName,
+          eventMode: event?.mode || 'OFFLINE',
+          eventLocation: event?.location || event?.city || '',
+          eventStartDate: event?.startDate,
+          eventEndDate: event?.endDate,
+          ticketCount: 1,
+          ticketPrice: payment.metadata?.tierName ? `${payment.finalAmount / (payment.metadata?.totalTickets || 1)}` : (event?.price || ''),
+          venueName: event?.venue || event?.location || '',
+          bookingId: enrollment._id.toString()
         });
 
-        const qrFilename = generateQRFilename({
+        const ticketFilename = generateTicketFilename({
           eventName,
           phone: details.phone
         });
 
-        console.log(`[WEBHOOK-NOTIFY] ✓ QR code generated for ${details.phone}: ${qrFilename} (${qrBuffer.length} bytes)`);
+        console.log(`[WEBHOOK-NOTIFY] ✓ Ticket image generated for ${details.phone}: ${ticketFilename} (${ticketBuffer.length} bytes)`);
 
-        // Upload QR to Cloudinary for WhatsApp
-        const qrUrl = await uploadQRCodeToCloudinary({
-          qrBuffer,
+        // Upload ticket image to Cloudinary for WhatsApp
+        const ticketUrl = await uploadTicketImageToCloudinary({
+          imageBuffer: ticketBuffer,
           enrollmentId: enrollment._id.toString(),
           phone: details.phone,
           eventName
@@ -1079,7 +1102,7 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
           name: details.name,
           email: details.email || '',
           eventName,
-          qrCodeUrl: qrUrl,
+          qrCodeUrl: ticketUrl,
           // Logging parameters
           eventId: payment.eventId?.toString(),
           orderId: payment.orderId,
@@ -1111,8 +1134,8 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
             text: generateTicketEmailText(emailData),
             attachments: [
               {
-                filename: qrFilename,
-                content: qrBuffer,
+                filename: ticketFilename,
+                content: ticketBuffer,
                 contentType: 'image/png'
               }
             ],
