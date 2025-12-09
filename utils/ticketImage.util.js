@@ -191,38 +191,45 @@ export const generateTicketImage = async ({
     const TIMEOUT_MS = 30000; // 30 seconds timeout
 
     // Determine Chrome executable path based on environment
+    // Try puppeteer's Chrome first, fall back to system chromium
     const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH ||
       (process.platform === 'linux' ? '/home/ubuntu/.cache/puppeteer/chrome/linux-128.0.6613.119/chrome-linux64/chrome' : undefined);
 
-    if (executablePath) {
-      console.log(`[TICKET-IMAGE] Using Chrome at: ${executablePath}`);
+    console.log(`[TICKET-IMAGE] Platform: ${process.platform}`);
+    console.log(`[TICKET-IMAGE] Chrome path: ${executablePath || 'auto-detect'}`);
+
+    const puppeteerArgs = {
+      headless: 'new', // Use new headless mode (required for newer puppeteer)
+      executablePath,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-software-rasterizer',
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
+      ],
+    };
+
+    console.log(`[TICKET-IMAGE] Puppeteer args:`, JSON.stringify(puppeteerArgs, null, 2));
+
+    let imageBuffer;
+    try {
+      imageBuffer = await nodeHtmlToImage({
+        html: finalHtml,
+        type: 'png',
+        quality: 100,
+        encoding: 'buffer',
+        puppeteerArgs,
+        selector: '.ticket-container',
+      });
+    } catch (nodeHtmlError) {
+      console.log(`[TICKET-IMAGE] nodeHtmlToImage error: ${nodeHtmlError.message}`);
+      console.log(`[TICKET-IMAGE] Full error:`, nodeHtmlError);
+      throw nodeHtmlError;
     }
-
-    const imagePromise = nodeHtmlToImage({
-      html: finalHtml,
-      type: 'png',
-      quality: 100,
-      encoding: 'buffer',
-      puppeteerArgs: {
-        headless: true,
-        executablePath,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--single-process',
-          '--disable-software-rasterizer'
-        ],
-      },
-      selector: '.ticket-container',
-    });
-
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Ticket image generation timed out after 30 seconds')), TIMEOUT_MS);
-    });
-
-    const imageBuffer = await Promise.race([imagePromise, timeoutPromise]);
 
     if (!imageBuffer || imageBuffer.length === 0) {
       throw new Error('Generated image buffer is empty');

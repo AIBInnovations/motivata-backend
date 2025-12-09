@@ -599,7 +599,7 @@ export const redeemTickets = async (req, res) => {
             console.log(`[OFFLINE_CASH] Ticket image uploaded to Cloudinary: ${imageUrl}`);
           } catch (ticketImageErr) {
             // Fallback to QR-only if ticket image generation fails
-            console.warn(`[OFFLINE_CASH] Ticket image failed, falling back to QR-only: ${ticketImageErr.message}`);
+            console.log(`[OFFLINE_CASH] Ticket image FAILED, falling back to QR-only: ${ticketImageErr.message}`);
 
             const QRCode = (await import('qrcode')).default;
             const qrBuffer = await QRCode.toBuffer(enrollment.ticketLink, {

@@ -1003,7 +1003,7 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
         });
       } catch (ticketImageErr) {
         // Fallback to QR-only if ticket image generation fails
-        console.warn(`[WEBHOOK-NOTIFY] Ticket image failed, falling back to QR-only: ${ticketImageErr.message}`);
+        console.log(`[WEBHOOK-NOTIFY] Ticket image FAILED, falling back to QR-only: ${ticketImageErr.message}`);
 
         buyerTicketBuffer = await generateTicketQRCode({
           enrollmentId: enrollment._id.toString(),
