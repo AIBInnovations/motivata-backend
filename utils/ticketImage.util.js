@@ -187,8 +187,10 @@ export const generateTicketImage = async ({
     console.log(`[TICKET-IMAGE] HTML template populated`);
     console.log(`[TICKET-IMAGE] Converting HTML to image...`);
 
-    // Convert HTML to PNG image
-    const imageBuffer = await nodeHtmlToImage({
+    // Convert HTML to PNG image with timeout
+    const TIMEOUT_MS = 30000; // 30 seconds timeout
+
+    const imagePromise = nodeHtmlToImage({
       html: finalHtml,
       type: 'png',
       quality: 100,
@@ -200,18 +202,29 @@ export const generateTicketImage = async ({
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--single-process'
+          '--single-process',
+          '--disable-software-rasterizer'
         ],
       },
       selector: '.ticket-container',
     });
+
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Ticket image generation timed out after 30 seconds')), TIMEOUT_MS);
+    });
+
+    const imageBuffer = await Promise.race([imagePromise, timeoutPromise]);
+
+    if (!imageBuffer || imageBuffer.length === 0) {
+      throw new Error('Generated image buffer is empty');
+    }
 
     console.log(`[TICKET-IMAGE] Image generated: ${imageBuffer.length} bytes`);
     console.log(`[TICKET-IMAGE] ========== TICKET IMAGE COMPLETE ==========`);
 
     return imageBuffer;
   } catch (error) {
-    console.error(`[TICKET-IMAGE] Failed to generate ticket image:`, error);
+    console.error(`[TICKET-IMAGE] Failed to generate ticket image:`, error.message);
     throw new Error(`Ticket image generation failed: ${error.message}`);
   }
 };
