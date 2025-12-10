@@ -80,25 +80,117 @@ router.use("/assets", adminAssetRoutes);
 // router.use("/dashboard", adminDashboardRoutes);
 // router.use("/reports", adminReportsRoutes);
 
-
 // src/Account/deleteAccount
 
 router.post("/account/delete-account", (req, res) => {
   // You said it should do nothing — just return 200
-  res.status(200).json({ success: true, message: "Account deletion request accepted." });
+  res
+    .status(200)
+    .json({ success: true, message: "Account deletion request accepted." });
 });
 
 router.get("/delete-account", (req, res) => {
   const html = `
-    <html>
-      <head><title>Delete Account</title></head>
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Delete Account</title>
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #ffffff;
+            color: #191919;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+          }
+          .container {
+            width: 100%;
+            max-width: 400px;
+          }
+          h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+          }
+          .subtitle {
+            color: #6b6b6b;
+            font-size: 14px;
+            margin-bottom: 32px;
+          }
+          form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+          }
+          label {
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 6px;
+            display: block;
+          }
+          input[type="email"] {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 14px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            outline: none;
+            transition: border-color 0.15s ease;
+          }
+          input[type="email"]:focus {
+            border-color: #191919;
+          }
+          input[type="email"]::placeholder {
+            color: #a0a0a0;
+          }
+          button {
+            width: 100%;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            background: #191919;
+            color: #ffffff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            margin-top: 8px;
+          }
+          button:hover {
+            background: #333333;
+          }
+          .warning {
+            font-size: 12px;
+            color: #6b6b6b;
+            margin-top: 16px;
+            line-height: 1.5;
+          }
+        </style>
+      </head>
       <body>
-        <h1>Delete Your Account</h1>
-        <form method="POST" action="/api/web/account/delete-account">
-          <label>Email:</label>
-          <input type="email" name="email" required />
-          <button type="submit">Delete Account</button>
-        </form>
+        <div class="container">
+          <h1>Delete Account</h1>
+          <p class="subtitle">This action cannot be undone.</p>
+          <form method="POST" action="/api/web/account/delete-account">
+            <div>
+              <label for="email">Email address</label>
+              <input type="email" id="email" name="email" placeholder="you@example.com" required />
+            </div>
+            <button type="submit">Delete Account</button>
+          </form>
+          <p class="warning">By clicking "Delete Account", you confirm that you want to permanently delete your account and all associated data.</p>
+        </div>
       </body>
     </html>
   `;
