@@ -67,16 +67,12 @@ const sessionSchema = new mongoose.Schema(
 
     /**
      * Original price for comparison (for discounts)
+     * Note: Validation against price is done in controller to avoid
+     * Mongoose update operation issues where 'this' refers to old document state
      */
     compareAtPrice: {
       type: Number,
       min: [0, "Compare at price cannot be negative"],
-      validate: {
-        validator: function (value) {
-          return !value || value >= this.price;
-        },
-        message: "Compare at price must be greater than or equal to current price",
-      },
     },
 
     /**
