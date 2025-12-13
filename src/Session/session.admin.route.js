@@ -105,6 +105,37 @@ router.get(
 router.get("/dropdown", getSessionsForDropdown);
 
 /**
+ * @route   GET /api/web/sessions/bookings
+ * @desc    Get all bookings with filters
+ * @access  Admin
+ * @query   {number} [page=1] - Page number
+ * @query   {number} [limit=10] - Items per page
+ * @query   {string} [sessionId] - Filter by session
+ * @query   {string} [status] - Filter by status
+ * @query   {Date} [startDate] - Filter from date
+ * @query   {Date} [endDate] - Filter to date
+ * @returns {Object} Paginated bookings
+ */
+router.get("/bookings", validateQuery(sessionSchemas.listBookings), listBookingsAdmin);
+
+/**
+ * @route   PUT /api/web/sessions/bookings/:bookingId
+ * @desc    Update booking status/notes
+ * @access  Admin
+ * @param   {string} bookingId - Booking ID
+ * @body    {string} [status] - New status
+ * @body    {string} [adminNotes] - Admin notes
+ * @body    {Date} [scheduledSlot] - Scheduled time
+ * @returns {Object} Updated booking
+ */
+router.put(
+  "/bookings/:bookingId",
+  validateParams(sessionSchemas.bookingId),
+  validateBody(sessionSchemas.updateBooking),
+  updateBookingAdmin
+);
+
+/**
  * @route   GET /api/web/sessions/:id/booking-stats
  * @desc    Get session booking statistics
  * @access  Admin
@@ -196,37 +227,6 @@ router.delete(
   isSuperAdmin,
   validateParams(sessionSchemas.sessionId),
   permanentDeleteSession
-);
-
-/**
- * @route   GET /api/web/sessions/bookings
- * @desc    Get all bookings with filters
- * @access  Admin
- * @query   {number} [page=1] - Page number
- * @query   {number} [limit=10] - Items per page
- * @query   {string} [sessionId] - Filter by session
- * @query   {string} [status] - Filter by status
- * @query   {Date} [startDate] - Filter from date
- * @query   {Date} [endDate] - Filter to date
- * @returns {Object} Paginated bookings
- */
-router.get("/bookings", validateQuery(sessionSchemas.listBookings), listBookingsAdmin);
-
-/**
- * @route   PUT /api/web/sessions/bookings/:bookingId
- * @desc    Update booking status/notes
- * @access  Admin
- * @param   {string} bookingId - Booking ID
- * @body    {string} [status] - New status
- * @body    {string} [adminNotes] - Admin notes
- * @body    {Date} [scheduledSlot] - Scheduled time
- * @returns {Object} Updated booking
- */
-router.put(
-  "/bookings/:bookingId",
-  validateParams(sessionSchemas.bookingId),
-  validateBody(sessionSchemas.updateBooking),
-  updateBookingAdmin
 );
 
 export default router;

@@ -331,6 +331,19 @@ export const updateSession = async (req, res) => {
       }
     }
 
+    // If only price is being updated, check against existing compareAtPrice
+    if (updates.price != null && updates.compareAtPrice == null) {
+      const existingSession = await Session.findById(id);
+      if (existingSession && existingSession.compareAtPrice != null) {
+        if (existingSession.compareAtPrice < updates.price) {
+          return responseUtil.badRequest(
+            res,
+            "New price cannot exceed the existing compare at price. Update both values together if needed."
+          );
+        }
+      }
+    }
+
     // Validate OTO sessions have at most 1 slot
     const sessionTypeToCheck = updates.sessionType;
     if (sessionTypeToCheck === "OTO" && updates.availableSlots && updates.availableSlots > 1) {
