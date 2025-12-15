@@ -6,6 +6,9 @@
 import bcrypt from 'bcryptjs';
 import User from '../../schema/User.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
+import Connect from '../../schema/Connect.schema.js';
+import Like from '../../schema/Like.schema.js';
+import Post from '../../schema/Post.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
 
@@ -540,6 +543,7 @@ export const changePassword = async (req, res) => {
 
 /**
  * Delete user account (soft delete)
+ * Also soft deletes all Connect-related data (follows, likes, posts)
  * @async
  * @param {Object} req - Express request object
  * @param {Object} req.user - Authenticated user from middleware
@@ -548,14 +552,27 @@ export const changePassword = async (req, res) => {
  */
 export const deleteAccount = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const userId = req.user.id;
+    const user = await User.findById(userId);
 
     if (!user) {
       return responseUtil.notFound(res, 'User not found');
     }
 
-    // Soft delete the user
-    await user.softDelete();
+    // Soft delete all Connect-related data in parallel
+    await Promise.all([
+      // Soft delete the user
+      user.softDelete(),
+      // Soft delete all follow relationships (both followers and following)
+      Connect.softDeleteByUser(userId),
+      // Soft delete all likes by this user
+      Like.softDeleteByUser(userId),
+      // Soft delete all posts by this user
+      Post.updateMany(
+        { author: userId },
+        { isDeleted: true, deletedAt: new Date() }
+      ),
+    ]);
 
     return responseUtil.success(res, 'Account deleted successfully');
   } catch (error) {
@@ -707,6 +724,7 @@ export const updateUserById = async (req, res) => {
 
 /**
  * Soft delete user by ID (Admin only)
+ * Also soft deletes all Connect-related data (follows, likes, posts)
  * @async
  * @param {Object} req - Express request object
  * @param {Object} req.params - Request parameters
@@ -716,7 +734,8 @@ export const updateUserById = async (req, res) => {
  */
 export const deleteUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const userId = req.params.id;
+    const user = await User.findById(userId);
 
     if (!user) {
       return responseUtil.notFound(res, 'User not found');
@@ -726,7 +745,20 @@ export const deleteUserById = async (req, res) => {
       return responseUtil.badRequest(res, 'User already deleted');
     }
 
-    await user.softDelete();
+    // Soft delete all Connect-related data in parallel
+    await Promise.all([
+      // Soft delete the user
+      user.softDelete(),
+      // Soft delete all follow relationships (both followers and following)
+      Connect.softDeleteByUser(userId),
+      // Soft delete all likes by this user
+      Like.softDeleteByUser(userId),
+      // Soft delete all posts by this user
+      Post.updateMany(
+        { author: userId },
+        { isDeleted: true, deletedAt: new Date() }
+      ),
+    ]);
 
     return responseUtil.success(res, 'User deleted successfully');
   } catch (error) {

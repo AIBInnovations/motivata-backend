@@ -1118,6 +1118,87 @@ export const pollSchemas = {
   }),
 };
 
+/**
+ * Connect validation schemas (social feed feature)
+ */
+export const connectSchemas = {
+  /**
+   * Create post schema
+   * - Media is required (no text-only posts)
+   * - IMAGE: 1-10 URLs
+   * - VIDEO: exactly 1 URL
+   */
+  createPost: Joi.object({
+    caption: Joi.string().trim().max(2000).optional().allow("").default(""),
+    mediaType: Joi.string().valid("IMAGE", "VIDEO").required().messages({
+      "any.required": "Media type is required",
+      "any.only": "Media type must be IMAGE or VIDEO",
+    }),
+    mediaUrls: Joi.array()
+      .items(Joi.string().uri())
+      .min(1)
+      .max(10)
+      .required()
+      .messages({
+        "array.min": "At least one media URL is required",
+        "array.max": "Maximum 10 media URLs allowed",
+        "any.required": "Media URLs are required",
+      }),
+    mediaThumbnail: Joi.string().uri().optional().allow(null, ""),
+  }).custom((value, helpers) => {
+    // VIDEO must have exactly 1 URL
+    if (value.mediaType === "VIDEO" && value.mediaUrls && value.mediaUrls.length !== 1) {
+      return helpers.error("any.custom", {
+        message: "Video posts must have exactly one video URL",
+      });
+    }
+    return value;
+  }),
+
+  /**
+   * Feed query parameters
+   */
+  feedQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(50).default(10),
+  }),
+
+  /**
+   * Pagination query parameters
+   */
+  paginationQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+  }),
+
+  /**
+   * Search query parameters
+   */
+  searchQuery: Joi.object({
+    search: Joi.string().trim().min(2).max(100).required().messages({
+      "string.min": "Search query must be at least 2 characters",
+      "string.max": "Search query cannot exceed 100 characters",
+      "any.required": "Search query is required",
+    }),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+  }),
+
+  /**
+   * User ID parameter validation
+   */
+  userId: Joi.object({
+    userId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Post ID parameter validation
+   */
+  postId: Joi.object({
+    postId: schemas.mongoId.required(),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -1133,4 +1214,5 @@ export default {
   offlineCashSchemas,
   sessionSchemas,
   pollSchemas,
+  connectSchemas,
 };

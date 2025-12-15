@@ -62,6 +62,30 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /**
+     * Connect feature: follower count (denormalized for performance)
+     */
+    followerCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    /**
+     * Connect feature: following count (denormalized for performance)
+     */
+    followingCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    /**
+     * Connect feature: post count (denormalized for performance)
+     */
+    postCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,

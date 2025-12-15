@@ -15,6 +15,7 @@ import userSessionRoutes from "../src/Session/session.user.route.js";
 import userSOSRoutes from "../src/Quiz/sos.user.route.js";
 import userChallengeRoutes from "../src/Challenge/challenge.user.route.js";
 import userPollRoutes from "../src/Poll/poll.user.route.js";
+import userConnectRoutes from "../src/Connect/connect.user.route.js";
 import responseUtil from "../utils/response.util.js";
 import services from "../src/Other/app/showDelete.js";
 import publicAssetRoutes from "../src/Asset/asset.public.route.js";
@@ -59,6 +60,9 @@ router.use("/challenges", userChallengeRoutes);
 
 // Poll routes - /api/app/polls
 router.use("/polls", userPollRoutes);
+
+// Connect routes - /api/app/connect (social feed feature)
+router.use("/connect", userConnectRoutes);
 
 // Asset routes - /api/app/assets
 router.use("/assets", publicAssetRoutes);
