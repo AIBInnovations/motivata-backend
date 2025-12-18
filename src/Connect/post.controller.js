@@ -15,24 +15,31 @@ import responseUtil from "../../utils/response.util.js";
  * @param {Object} options - Options
  * @param {string} options.currentUserId - Current user ID
  * @param {Set} options.likedPostIds - Set of liked post IDs
+ * @param {Set} options.followingSet - Set of user IDs the current user is following
  * @returns {Object} Formatted post object
  */
-const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set() } = {}) => ({
-  id: post._id,
-  caption: post.caption,
-  mediaType: post.mediaType,
-  mediaUrls: post.mediaUrls,
-  mediaThumbnail: post.mediaThumbnail,
-  likeCount: post.likeCount,
-  shareCount: post.shareCount,
-  author: {
-    id: post.author._id,
-    name: post.author.name,
-  },
-  isLiked: currentUserId ? likedPostIds.has(post._id.toString()) : false,
-  isOwnPost: currentUserId ? post.author._id.toString() === currentUserId : false,
-  createdAt: post.createdAt,
-});
+const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set(), followingSet = new Set() } = {}) => {
+  const authorId = post.author._id.toString();
+  const isOwnPost = currentUserId ? authorId === currentUserId : false;
+
+  return {
+    id: post._id,
+    caption: post.caption,
+    mediaType: post.mediaType,
+    mediaUrls: post.mediaUrls,
+    mediaThumbnail: post.mediaThumbnail,
+    likeCount: post.likeCount,
+    shareCount: post.shareCount,
+    author: {
+      id: post.author._id,
+      name: post.author.name,
+      isFollowing: currentUserId && !isOwnPost ? followingSet.has(authorId) : false,
+    },
+    isLiked: currentUserId ? likedPostIds.has(post._id.toString()) : false,
+    isOwnPost,
+    createdAt: post.createdAt,
+  };
+};
 
 /**
  * Create a new post
@@ -113,6 +120,7 @@ export const getFeed = async (req, res) => {
     // Get list of users the current user follows
     const following = await Connect.find({ follower: currentUserId }).select("following");
     const followingIds = following.map((f) => f.following);
+    const followingSet = new Set(followingIds.map((id) => id.toString()));
 
     // Include own posts in the feed
     const authorIds = [currentUserId, ...followingIds];
@@ -141,7 +149,7 @@ export const getFeed = async (req, res) => {
     const likedPostIds = await Like.hasLikedPosts(currentUserId, postIds);
 
     const postsWithStatus = validPosts.map((post) =>
-      formatPostResponse(post, { currentUserId, likedPostIds })
+      formatPostResponse(post, { currentUserId, likedPostIds, followingSet })
     );
 
     const totalPages = Math.ceil(totalCount / limit);
@@ -190,15 +198,21 @@ export const getExploreFeed = async (req, res) => {
     // Filter out posts with deleted authors
     const validPosts = posts.filter((post) => post.author !== null);
 
-    // Get like status for all posts if user is logged in
+    // Get like status and following status for all posts if user is logged in
     let likedPostIds = new Set();
+    let followingSet = new Set();
     if (currentUserId) {
       const postIds = validPosts.map((p) => p._id);
-      likedPostIds = await Like.hasLikedPosts(currentUserId, postIds);
+      const [likedPosts, followingList] = await Promise.all([
+        Like.hasLikedPosts(currentUserId, postIds),
+        Connect.find({ follower: currentUserId }).select("following"),
+      ]);
+      likedPostIds = likedPosts;
+      followingSet = new Set(followingList.map((f) => f.following.toString()));
     }
 
     const postsWithStatus = validPosts.map((post) =>
-      formatPostResponse(post, { currentUserId, likedPostIds })
+      formatPostResponse(post, { currentUserId, likedPostIds, followingSet })
     );
 
     const totalPages = Math.ceil(totalCount / limit);
@@ -242,12 +256,12 @@ export const getMyPosts = async (req, res) => {
       Post.countDocuments(query),
     ]);
 
-    // Get like status for all posts
+    // Get like status for all posts (followingSet not needed - all posts are own)
     const postIds = posts.map((p) => p._id);
     const likedPostIds = await Like.hasLikedPosts(currentUserId, postIds);
 
     const postsWithStatus = posts.map((post) =>
-      formatPostResponse(post, { currentUserId, likedPostIds })
+      formatPostResponse(post, { currentUserId, likedPostIds, followingSet: new Set() })
     );
 
     const totalPages = Math.ceil(totalCount / limit);
@@ -298,15 +312,24 @@ export const getUserPosts = async (req, res) => {
       Post.countDocuments(query),
     ]);
 
-    // Get like status for all posts if user is logged in
+    // Get like status and following status if user is logged in
     let likedPostIds = new Set();
+    let followingSet = new Set();
     if (currentUserId) {
       const postIds = posts.map((p) => p._id);
-      likedPostIds = await Like.hasLikedPosts(currentUserId, postIds);
+      // Since all posts are by the same author, we just need to check if following that user
+      const [likedPosts, isFollowingAuthor] = await Promise.all([
+        Like.hasLikedPosts(currentUserId, postIds),
+        currentUserId !== userId ? Connect.isFollowing(currentUserId, userId) : false,
+      ]);
+      likedPostIds = likedPosts;
+      if (isFollowingAuthor) {
+        followingSet.add(userId);
+      }
     }
 
     const postsWithStatus = posts.map((post) =>
-      formatPostResponse(post, { currentUserId, likedPostIds })
+      formatPostResponse(post, { currentUserId, likedPostIds, followingSet })
     );
 
     const totalPages = Math.ceil(totalCount / limit);
@@ -357,15 +380,21 @@ export const getPostById = async (req, res) => {
       return responseUtil.notFound(res, "Post not found");
     }
 
-    // Check like status
+    // Check like status and following status
     let likedPostIds = new Set();
+    let followingSet = new Set();
     if (currentUserId) {
-      const isLiked = await Like.hasLiked(currentUserId, postId);
+      const authorId = post.author._id.toString();
+      const [isLiked, isFollowingAuthor] = await Promise.all([
+        Like.hasLiked(currentUserId, postId),
+        currentUserId !== authorId ? Connect.isFollowing(currentUserId, authorId) : false,
+      ]);
       if (isLiked) likedPostIds.add(post._id.toString());
+      if (isFollowingAuthor) followingSet.add(authorId);
     }
 
     return responseUtil.success(res, "Post fetched successfully", {
-      post: formatPostResponse(post, { currentUserId, likedPostIds }),
+      post: formatPostResponse(post, { currentUserId, likedPostIds, followingSet }),
     });
   } catch (error) {
     console.error("[POST] Get post by ID error:", error);

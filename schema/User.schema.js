@@ -86,6 +86,26 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    /**
+     * FCM tokens for push notifications (supports multiple devices)
+     */
+    fcmTokens: [
+      {
+        token: {
+          type: String,
+          required: true,
+        },
+        device: {
+          type: String,
+          enum: ["android", "ios"],
+          required: true,
+        },
+        updatedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
   },
   {
     timestamps: true,

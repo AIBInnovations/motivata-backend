@@ -16,6 +16,7 @@ import offlineCashRoutes from "../src/cash/offlineCash.admin.route.js";
 import adminSettingsRoutes from "../src/Other/admin/settings.route.js";
 import analyticsRoutes from "../src/Analytics/analytics.route.js";
 import adminAssetRoutes from "../src/Asset/asset.admin.route.js";
+import adminStoryRoutes from "../src/Story/story.admin.route.js";
 
 const router = express.Router();
 
@@ -74,6 +75,9 @@ router.use("/analytics", analyticsRoutes);
 
 // Asset routes - /api/web/assets
 router.use("/assets", adminAssetRoutes);
+
+// Story routes - /api/web/stories
+router.use("/stories", adminStoryRoutes);
 
 // Add more admin routes here as needed
 // Example:

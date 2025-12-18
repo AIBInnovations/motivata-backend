@@ -300,6 +300,7 @@ export const eventSchemas = {
       .messages({
         "string.pattern.base": "Please provide a valid Google Maps link",
       }),
+    featured: Joi.boolean().optional().default(false),
     category: Joi.string()
       .valid(
         "TECHNOLOGY",
@@ -361,6 +362,7 @@ export const eventSchemas = {
       .messages({
         "string.pattern.base": "Please provide a valid Google Maps link",
       }),
+    featured: Joi.boolean().optional(),
     category: Joi.string()
       .valid(
         "TECHNOLOGY",
@@ -427,6 +429,7 @@ export const eventSchemas = {
     mode: Joi.string().valid("ONLINE", "OFFLINE", "HYBRID").optional(),
     city: Joi.string().trim().optional(),
     isLive: Joi.boolean().optional(),
+    featured: Joi.boolean().optional(),
     minPrice: Joi.number().min(0).optional(),
     maxPrice: Joi.number().min(0).optional(),
     startDateFrom: Joi.date().iso().optional(),
@@ -1119,6 +1122,107 @@ export const pollSchemas = {
 };
 
 /**
+ * Story validation schemas (admin-only stories for Connect page)
+ */
+export const storySchemas = {
+  /**
+   * Create story schema
+   */
+  create: Joi.object({
+    title: Joi.string().trim().max(500).optional().allow("", null),
+    mediaUrl: Joi.string().uri().required().messages({
+      "any.required": "Media URL is required",
+      "string.uri": "Please provide a valid media URL",
+    }),
+    mediaType: Joi.string().valid("image", "video").required().messages({
+      "any.required": "Media type is required",
+      "any.only": "Media type must be image or video",
+    }),
+    cloudinaryPublicId: Joi.string().trim().optional().allow("", null),
+    ttl: Joi.string()
+      .valid(
+        "1_hour",
+        "6_hours",
+        "12_hours",
+        "1_day",
+        "3_days",
+        "7_days",
+        "30_days",
+        "forever"
+      )
+      .optional()
+      .default("1_day"),
+    displayOrder: Joi.number().integer().min(0).optional().default(0),
+  }),
+
+  /**
+   * Update story schema
+   */
+  update: Joi.object({
+    title: Joi.string().trim().max(500).optional().allow("", null),
+    mediaUrl: Joi.string().uri().optional(),
+    mediaType: Joi.string().valid("image", "video").optional(),
+    cloudinaryPublicId: Joi.string().trim().optional().allow("", null),
+    ttl: Joi.string()
+      .valid(
+        "1_hour",
+        "6_hours",
+        "12_hours",
+        "1_day",
+        "3_days",
+        "7_days",
+        "30_days",
+        "forever"
+      )
+      .optional(),
+    isActive: Joi.boolean().optional(),
+    displayOrder: Joi.number().integer().min(0).optional(),
+  }),
+
+  /**
+   * Reorder stories schema
+   */
+  reorder: Joi.object({
+    order: Joi.array()
+      .items(
+        Joi.object({
+          storyId: schemas.mongoId.required(),
+          displayOrder: Joi.number().integer().min(0).required(),
+        })
+      )
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one story order item is required",
+      }),
+  }),
+
+  /**
+   * Story ID parameter validation
+   */
+  storyId: Joi.object({
+    storyId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Query parameters for listing stories (admin)
+   */
+  listAdmin: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    includeExpired: Joi.string().valid("true", "false").optional(),
+  }),
+
+  /**
+   * Query parameters for listing stories (user)
+   */
+  listUser: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(50).default(20),
+  }),
+};
+
+/**
  * Connect validation schemas (social feed feature)
  */
 export const connectSchemas = {
@@ -1214,5 +1318,6 @@ export default {
   offlineCashSchemas,
   sessionSchemas,
   pollSchemas,
+  storySchemas,
   connectSchemas,
 };

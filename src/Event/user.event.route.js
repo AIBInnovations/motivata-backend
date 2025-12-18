@@ -9,7 +9,8 @@ import {
   getEventById,
   getUpcomingEvents,
   getEventsByCategory,
-  getEventTicketStats
+  getEventTicketStats,
+  getFeaturedEvents
 } from './event.controller.js';
 import { optionalAuth } from '../../middleware/auth.middleware.js';
 import { validateParams, validateQuery, eventSchemas, schemas } from '../../middleware/validation.middleware.js';
@@ -49,6 +50,19 @@ router.get(
     limit: Joi.number().integer().min(1).max(50).default(10)
   })),
   getUpcomingEvents
+);
+
+/**
+ * @route   GET /api/app/events/featured
+ * @desc    Get all featured events (live only)
+ * @access  Public
+ */
+router.get(
+  '/featured',
+  validateQuery(Joi.object({
+    limit: Joi.number().integer().min(1).max(50).default(10)
+  })),
+  getFeaturedEvents
 );
 
 /**

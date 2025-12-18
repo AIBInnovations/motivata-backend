@@ -55,6 +55,7 @@ export const getAllEvents = async (req, res) => {
       mode,
       city,
       isLive,
+      featured,
       minPrice,
       maxPrice,
       startDateFrom,
@@ -69,6 +70,7 @@ export const getAllEvents = async (req, res) => {
     if (mode) query.mode = mode;
     if (city) query.city = new RegExp(city, 'i');
     if (typeof isLive !== 'undefined') query.isLive = isLive;
+    if (typeof featured !== 'undefined') query.featured = featured;
 
     // Price range filter
     if (minPrice || maxPrice) {
@@ -515,6 +517,31 @@ export const getEventsForDropdown = async (req, res) => {
   }
 };
 
+/**
+ * Get all featured events
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with featured events
+ */
+export const getFeaturedEvents = async (req, res) => {
+  try {
+    const { limit = 10 } = req.query;
+
+    const events = await Event.find({
+      featured: true,
+      isLive: true
+    })
+      .sort({ startDate: 1 })
+      .limit(Number(limit))
+      .populate('createdBy', 'name email');
+
+    return responseUtil.success(res, 'Featured events fetched successfully', { events });
+  } catch (error) {
+    console.error('Get featured events error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch featured events', error.message);
+  }
+};
+
 export default {
   createEvent,
   getAllEvents,
@@ -528,5 +555,6 @@ export default {
   getUpcomingEvents,
   getEventsByCategory,
   getEventTicketStats,
-  getEventsForDropdown
+  getEventsForDropdown,
+  getFeaturedEvents
 };

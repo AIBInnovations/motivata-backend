@@ -97,6 +97,14 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
+     * Featured event flag - featured events are highlighted in the app
+     */
+    featured: {
+      type: Boolean,
+      default: false,
+    },
+
+    /**
      * Event category
      */
     category: {

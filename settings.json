@@ -1,3 +1,9 @@
 {
-  "showDelete": true
+  "showDelete": true,
+  "appVersion": {
+    "currentVersion": "1.0.0",
+    "minimumVersion": "1.0.0",
+    "forceUpdate": false,
+    "updateUrl": "https://play.google.com/store/apps/details?id=YOUR_APP_PACKAGE_ID"
+  }
 }

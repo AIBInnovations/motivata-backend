@@ -7,6 +7,7 @@ import Poll from "../../schema/Poll.schema.js";
 import PollSubmission from "../../schema/PollSubmission.schema.js";
 import Event from "../../schema/Event.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { sendPollNotification } from "../../utils/fcm.util.js";
 
 /**
  * Create a new poll for an event
@@ -34,6 +35,14 @@ export const createPoll = async (req, res) => {
     });
 
     await poll.save();
+
+    // Send push notification to enrolled users (async, don't wait)
+    sendPollNotification({
+      eventId,
+      pollId: poll._id,
+      eventName: event.name,
+      action: "created",
+    }).catch((err) => console.error("[FCM] Poll creation notification error:", err));
 
     return responseUtil.created(res, "Poll created successfully", poll);
   } catch (error) {
@@ -79,6 +88,19 @@ export const updatePoll = async (req, res) => {
 
     if (!poll) {
       return responseUtil.notFound(res, "Poll not found");
+    }
+
+    // Send push notification for question updates (not just isActive toggle)
+    if (questions !== undefined) {
+      const event = await Event.findById(poll.eventId);
+      if (event) {
+        sendPollNotification({
+          eventId: poll.eventId,
+          pollId: poll._id,
+          eventName: event.name,
+          action: "updated",
+        }).catch((err) => console.error("[FCM] Poll update notification error:", err));
+      }
     }
 
     return responseUtil.success(res, "Poll updated successfully", poll);
@@ -184,10 +206,60 @@ export const getPollStats = async (req, res) => {
   }
 };
 
+/**
+ * Manually send poll notification to all enrolled users
+ * POST /api/web/polls/:pollId/notify
+ */
+export const triggerPollNotification = async (req, res) => {
+  try {
+    const { pollId } = req.params;
+
+    const poll = await Poll.findById(pollId);
+    if (!poll) {
+      return responseUtil.notFound(res, "Poll not found");
+    }
+
+    const event = await Event.findById(poll.eventId);
+    if (!event) {
+      return responseUtil.notFound(res, "Event not found");
+    }
+
+    // Send notification
+    const result = await sendPollNotification({
+      eventId: poll.eventId,
+      pollId: poll._id,
+      eventName: event.name,
+      action: "created", // Use 'created' message for manual trigger
+    });
+
+    if (result.success) {
+      return responseUtil.success(res, "Poll notification sent successfully", {
+        successCount: result.successCount || 0,
+        failureCount: result.failureCount || 0,
+        message: result.message || null,
+      });
+    } else {
+      return responseUtil.internalError(
+        res,
+        "Failed to send poll notification",
+        result.error
+      );
+    }
+  } catch (error) {
+    console.error("Trigger poll notification error:", error);
+    return responseUtil.internalError(
+      res,
+      "Failed to send poll notification",
+      error.message
+    );
+  }
+};
+
 export default {
   createPoll,
   getPollByEventId,
   updatePoll,
   deletePoll,
   getPollStats,
+  triggerPollNotification,
 };
