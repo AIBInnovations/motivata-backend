@@ -70,4 +70,64 @@ router.put("/show-delete", (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/web/settings/app-version
+ * @desc    Get current app version settings
+ * @access  Admin
+ * @returns {Object} App version configuration
+ */
+router.get("/app-version", (req, res) => {
+  try {
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+    return responseUtil.success(res, "App version settings fetched", {
+      appVersion: settings.appVersion,
+    });
+  } catch (error) {
+    return responseUtil.internalError(res, "Failed to read settings", error.message);
+  }
+});
+
+/**
+ * @route   PUT /api/web/settings/app-version
+ * @desc    Update app version settings
+ * @access  Admin
+ * @body    {string} currentVersion - Latest app version on Play Store
+ * @body    {string} minimumVersion - Minimum required version (force update below this)
+ * @body    {boolean} forceUpdate - Whether force update is enabled
+ * @body    {string} updateUrl - Play Store URL for the app
+ * @returns {Object} Updated app version settings
+ */
+router.put("/app-version", (req, res) => {
+  try {
+    const { currentVersion, minimumVersion, forceUpdate, updateUrl } = req.body;
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+
+    if (!settings.appVersion) {
+      settings.appVersion = {};
+    }
+
+    if (currentVersion !== undefined) {
+      settings.appVersion.currentVersion = currentVersion;
+    }
+    if (minimumVersion !== undefined) {
+      settings.appVersion.minimumVersion = minimumVersion;
+    }
+    if (forceUpdate !== undefined) {
+      settings.appVersion.forceUpdate = forceUpdate;
+    }
+    if (updateUrl !== undefined) {
+      settings.appVersion.updateUrl = updateUrl;
+    }
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+    return responseUtil.success(res, "App version settings updated", {
+      appVersion: settings.appVersion,
+    });
+  } catch (error) {
+    return responseUtil.internalError(res, "Failed to update settings", error.message);
+  }
+});
+
 export default router;

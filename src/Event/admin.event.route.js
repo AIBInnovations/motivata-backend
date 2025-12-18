@@ -15,10 +15,12 @@ import {
   permanentDeleteEvent,
   updateExpiredEvents,
   getEventTicketStats,
-  getEventsForDropdown
+  getEventsForDropdown,
+  getFeaturedEvents
 } from './event.controller.js';
 import { authenticate, isAdmin, isSuperAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, eventSchemas } from '../../middleware/validation.middleware.js';
+import Joi from 'joi';
 
 const router = express.Router();
 
@@ -81,6 +83,20 @@ router.post(
 router.get(
   '/dropdown',
   getEventsForDropdown
+);
+
+/**
+ * @route   GET /api/web/events/featured
+ * @desc    Get all featured events
+ * @access  Admin
+ * @query   {number} [limit=10] - Maximum number of events to return
+ */
+router.get(
+  '/featured',
+  validateQuery(Joi.object({
+    limit: Joi.number().integer().min(1).max(50).default(10)
+  })),
+  getFeaturedEvents
 );
 
 /**

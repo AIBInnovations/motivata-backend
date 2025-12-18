@@ -5,6 +5,8 @@
 
 import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
+import Post from "../../schema/Post.schema.js";
+import Like from "../../schema/Like.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
@@ -351,12 +353,14 @@ export const searchUsers = async (req, res) => {
 
 /**
  * Get user profile by ID (for viewing other users' profiles)
+ * Includes user info and their recent posts
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
 export const getUserProfile = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { postsLimit = 10 } = req.query;
     const currentUserId = req.user?.id;
 
     const user = await User.findById(userId).select(
@@ -367,11 +371,44 @@ export const getUserProfile = async (req, res) => {
       return responseUtil.notFound(res, "User not found");
     }
 
-    // Check if current user is following this user
+    // Get user's recent posts
+    const posts = await Post.find({ author: userId })
+      .populate("author", "name email")
+      .sort({ createdAt: -1 })
+      .limit(Number(postsLimit));
+
+    // Get like status and following status if user is logged in
     let isFollowing = false;
-    if (currentUserId && currentUserId !== userId) {
-      isFollowing = await Connect.isFollowing(currentUserId, userId);
+    let likedPostIds = new Set();
+
+    if (currentUserId) {
+      const postIds = posts.map((p) => p._id);
+      const [followingStatus, likedPosts] = await Promise.all([
+        currentUserId !== userId ? Connect.isFollowing(currentUserId, userId) : false,
+        Like.hasLikedPosts(currentUserId, postIds),
+      ]);
+      isFollowing = followingStatus;
+      likedPostIds = likedPosts;
     }
+
+    // Format posts
+    const formattedPosts = posts.map((post) => ({
+      id: post._id,
+      caption: post.caption,
+      mediaType: post.mediaType,
+      mediaUrls: post.mediaUrls,
+      mediaThumbnail: post.mediaThumbnail,
+      likeCount: post.likeCount,
+      shareCount: post.shareCount,
+      author: {
+        id: post.author._id,
+        name: post.author.name,
+        isFollowing: currentUserId && currentUserId !== userId ? isFollowing : false,
+      },
+      isLiked: currentUserId ? likedPostIds.has(post._id.toString()) : false,
+      isOwnPost: currentUserId === userId,
+      createdAt: post.createdAt,
+    }));
 
     return responseUtil.success(res, "User profile fetched successfully", {
       user: {
@@ -386,6 +423,7 @@ export const getUserProfile = async (req, res) => {
         isFollowing,
         isOwnProfile: currentUserId === userId,
       },
+      posts: formattedPosts,
     });
   } catch (error) {
     console.error("[CONNECT] Get user profile error:", error);

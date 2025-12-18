@@ -7,3 +7,7 @@ docs
 documents
 
 .env
+
+*.md
+
+motivata-bd969-firebase-adminsdk-fbsvc-1a8015c788.json

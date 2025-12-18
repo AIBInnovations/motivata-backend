@@ -66,4 +66,14 @@ router.get(
   pollController.getPollStats
 );
 
+/**
+ * POST /api/web/polls/:pollId/notify
+ * Manually trigger push notification to all enrolled users
+ */
+router.post(
+  "/:pollId/notify",
+  validateParams(pollSchemas.pollId),
+  pollController.triggerPollNotification
+);
+
 export default router;
