@@ -4,10 +4,12 @@
  *
  * Routes for user viewing of stories.
  * These routes are publicly accessible (no auth required for viewing stories).
+ * Optional auth is used to track unique views per user.
  */
 
 import express from "express";
 import storyController from "./story.user.controller.js";
+import { optionalAuth } from "../../middleware/auth.middleware.js";
 import {
   validateParams,
   validateQuery,
@@ -35,9 +37,11 @@ router.get("/count", storyController.getStoryCount);
 /**
  * GET /api/app/stories/:storyId
  * Get a single story by ID
+ * Optional auth to track unique views per user
  */
 router.get(
   "/:storyId",
+  optionalAuth,
   validateParams(storySchemas.storyId),
   storyController.getStoryById
 );
@@ -45,9 +49,11 @@ router.get(
 /**
  * POST /api/app/stories/:storyId/view
  * Mark a story as viewed (increment view count)
+ * Optional auth to track unique views per user
  */
 router.post(
   "/:storyId/view",
+  optionalAuth,
   validateParams(storySchemas.storyId),
   storyController.markStoryViewed
 );
