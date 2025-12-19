@@ -109,6 +109,9 @@ export const markStoryViewed = async (req, res) => {
     const { storyId } = req.params;
     const userId = req.user?.id || null; // From optional auth
 
+    // Debug log
+    console.log("[STORY] markStoryViewed - userId:", userId, "hasAuthHeader:", !!req.headers.authorization);
+
     const now = new Date();
 
     // Check if story exists and is viewable
