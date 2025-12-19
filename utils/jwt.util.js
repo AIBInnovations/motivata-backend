@@ -3,7 +3,7 @@
  * @module utils/jwt
  */
 
-import jwt from 'jsonwebtoken';
+import jwt from "jsonwebtoken";
 
 /**
  * JWT configuration
@@ -14,10 +14,12 @@ import jwt from 'jsonwebtoken';
  * @property {string} refreshTokenExpiry - Refresh token expiration time
  */
 const config = {
-  accessTokenSecret: process.env.JWT_ACCESS_SECRET || 'access-secret-key-change-in-production',
-  refreshTokenSecret: process.env.JWT_REFRESH_SECRET || 'refresh-secret-key-change-in-production',
-  accessTokenExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',
-  refreshTokenExpiry: process.env.JWT_REFRESH_EXPIRY || '7d'
+  accessTokenSecret:
+    process.env.JWT_ACCESS_SECRET || "access-secret-key-change-in-production",
+  refreshTokenSecret:
+    process.env.JWT_REFRESH_SECRET || "refresh-secret-key-change-in-production",
+  accessTokenExpiry: process.env.JWT_ACCESS_EXPIRY || "15d",
+  refreshTokenExpiry: process.env.JWT_REFRESH_EXPIRY || "70d",
 };
 
 /**
@@ -30,17 +32,13 @@ const config = {
  * @returns {Object} Object containing accessToken and refreshToken
  */
 export const generateTokens = (payload) => {
-  const accessToken = jwt.sign(
-    payload,
-    config.accessTokenSecret,
-    { expiresIn: config.accessTokenExpiry }
-  );
+  const accessToken = jwt.sign(payload, config.accessTokenSecret, {
+    expiresIn: config.accessTokenExpiry,
+  });
 
-  const refreshToken = jwt.sign(
-    payload,
-    config.refreshTokenSecret,
-    { expiresIn: config.refreshTokenExpiry }
-  );
+  const refreshToken = jwt.sign(payload, config.refreshTokenSecret, {
+    expiresIn: config.refreshTokenExpiry,
+  });
 
   return { accessToken, refreshToken };
 };
@@ -86,11 +84,9 @@ export const refreshAccessToken = (refreshToken) => {
   // Remove exp and iat from the payload
   const { exp, iat, ...payload } = decoded;
 
-  const accessToken = jwt.sign(
-    payload,
-    config.accessTokenSecret,
-    { expiresIn: config.accessTokenExpiry }
-  );
+  const accessToken = jwt.sign(payload, config.accessTokenSecret, {
+    expiresIn: config.accessTokenExpiry,
+  });
 
   return { accessToken };
 };
@@ -113,5 +109,5 @@ export default {
   verifyAccessToken,
   verifyRefreshToken,
   refreshAccessToken,
-  decodeToken
+  decodeToken,
 };
