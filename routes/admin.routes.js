@@ -5,6 +5,7 @@ import adminCouponRoutes from "../src/Enrollment/admin.coupon.route.js";
 import adminPaymentRoutes from "../src/Enrollment/admin.payment.route.js";
 import adminEnrollmentRoutes from "../src/Enrollment/admin.enrollment.route.js";
 import adminTicketRoutes from "../src/Enrollment/admin.ticket.route.js";
+import ticketReshareRoutes from "../src/Enrollment/ticket.reshare.admin.route.js";
 import adminVoucherRoutes from "../src/Enrollment/voucher.admin.route.js";
 import adminSessionRoutes from "../src/Session/session.admin.route.js";
 import adminSOSRoutes from "../src/Quiz/sos.admin.route.js";
@@ -42,6 +43,9 @@ router.use("/enrollments", adminEnrollmentRoutes);
 
 // Ticket routes - /api/web/tickets
 router.use("/tickets", adminTicketRoutes);
+
+// Ticket reshare routes - /api/web/tickets/reshare
+router.use("/tickets/reshare", ticketReshareRoutes);
 
 // Voucher routes - /api/web/vouchers
 router.use("/vouchers", adminVoucherRoutes);

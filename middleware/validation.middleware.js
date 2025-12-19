@@ -1223,6 +1223,70 @@ export const storySchemas = {
 };
 
 /**
+ * Ticket Reshare validation schemas (admin ticket management)
+ */
+export const ticketReshareSchemas = {
+  /**
+   * Event ID parameter validation
+   */
+  eventId: Joi.object({
+    eventId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Query parameters for listing ticket holders
+   */
+  listQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    search: Joi.string().trim().optional(),
+    enrollmentType: Joi.string().valid("ONLINE", "CASH").optional(),
+    scannedStatus: Joi.string().valid("true", "false").optional(),
+  }),
+
+  /**
+   * Reshare route params validation
+   */
+  reshareParams: Joi.object({
+    enrollmentType: Joi.string().valid("ONLINE", "CASH").required().messages({
+      "any.only": "Enrollment type must be ONLINE or CASH",
+      "any.required": "Enrollment type is required",
+    }),
+    enrollmentId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Reshare request body validation
+   */
+  reshareBody: Joi.object({
+    phone: schemas.phone.optional(),
+    sendVia: Joi.string().valid("whatsapp", "email", "both").default("both"),
+  }),
+
+  /**
+   * Bulk reshare request body validation
+   */
+  bulkReshare: Joi.object({
+    tickets: Joi.array()
+      .items(
+        Joi.object({
+          enrollmentType: Joi.string().valid("ONLINE", "CASH").required(),
+          enrollmentId: schemas.mongoId.required(),
+          phone: schemas.phone.optional(),
+        })
+      )
+      .min(1)
+      .max(50)
+      .required()
+      .messages({
+        "array.min": "At least one ticket is required",
+        "array.max": "Maximum 50 tickets can be reshared at once",
+      }),
+    sendVia: Joi.string().valid("whatsapp", "email", "both").default("whatsapp"),
+  }),
+};
+
+/**
  * Connect validation schemas (social feed feature)
  */
 export const connectSchemas = {
@@ -1319,5 +1383,6 @@ export default {
   sessionSchemas,
   pollSchemas,
   storySchemas,
+  ticketReshareSchemas,
   connectSchemas,
 };

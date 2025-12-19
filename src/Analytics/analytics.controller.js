@@ -187,6 +187,9 @@ const getAdminCashTicketStats = async (dateFilter) => {
         redeemedRecords: {
           $sum: { $cond: [{ $eq: ["$redeemed", true] }, 1, 0] },
         },
+        redeemedTickets: {
+          $sum: { $cond: [{ $eq: ["$redeemed", true] }, "$ticketCount", 0] },
+        },
         totalRevenue: { $sum: "$priceCharged" },
       },
     },
@@ -209,6 +212,8 @@ const getAdminCashTicketStats = async (dateFilter) => {
         totalRecords: 1,
         redeemedRecords: 1,
         pendingRecords: { $subtract: ["$totalRecords", "$redeemedRecords"] },
+        redeemedTickets: 1,
+        pendingTickets: { $subtract: ["$totalTickets", "$redeemedTickets"] },
         totalRevenue: 1,
       },
     },
