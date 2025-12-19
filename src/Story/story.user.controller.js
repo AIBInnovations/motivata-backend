@@ -4,10 +4,36 @@
  *
  * Handles user-facing operations for stories.
  * Users can only view stories - they cannot create, update, or delete.
+ * Unique view tracking is done for authenticated users.
  */
 
 import Story from "../../schema/Story.schema.js";
+import StoryView from "../../schema/StoryView.schema.js";
 import responseUtil from "../../utils/response.util.js";
+
+/**
+ * Helper to record view and increment count only for unique views
+ * @param {string} storyId - Story ID
+ * @param {string|null} userId - User ID (null for anonymous)
+ * @returns {Promise<boolean>} - True if view was recorded, false if duplicate
+ */
+const recordUniqueView = async (storyId, userId) => {
+  // If user is not authenticated, always increment (can't track anonymous)
+  if (!userId) {
+    await Story.incrementViewCount(storyId);
+    return true;
+  }
+
+  // For authenticated users, check if they've already viewed
+  const isNewView = await StoryView.recordView(storyId, userId);
+
+  if (isNewView) {
+    await Story.incrementViewCount(storyId);
+    return true;
+  }
+
+  return false; // Already viewed by this user
+};
 
 /**
  * Get all active stories for display
@@ -47,6 +73,7 @@ export const getStoryById = async (req, res) => {
   try {
     const { storyId } = req.params;
     const { incrementView = true } = req.query;
+    const userId = req.user?.id || null; // From optional auth
 
     const now = new Date();
 
@@ -61,9 +88,9 @@ export const getStoryById = async (req, res) => {
       return responseUtil.notFound(res, "Story not found or has expired");
     }
 
-    // Increment view count if requested
+    // Increment view count if requested (unique per user)
     if (incrementView !== "false") {
-      await Story.incrementViewCount(storyId);
+      await recordUniqueView(storyId, userId);
     }
 
     return responseUtil.success(res, "Story fetched successfully", story);
@@ -80,6 +107,7 @@ export const getStoryById = async (req, res) => {
 export const markStoryViewed = async (req, res) => {
   try {
     const { storyId } = req.params;
+    const userId = req.user?.id || null; // From optional auth
 
     const now = new Date();
 
@@ -94,8 +122,8 @@ export const markStoryViewed = async (req, res) => {
       return responseUtil.notFound(res, "Story not found or has expired");
     }
 
-    // Increment view count
-    await Story.incrementViewCount(storyId);
+    // Increment view count (unique per user)
+    await recordUniqueView(storyId, userId);
 
     return responseUtil.success(res, "Story view recorded");
   } catch (error) {
