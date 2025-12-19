@@ -18,7 +18,7 @@ export const createStory = async (req, res) => {
   try {
     const { title, mediaUrl, mediaType, cloudinaryPublicId, ttl, displayOrder } =
       req.body;
-    const adminId = req.admin._id;
+    const adminId = req.user.id;
 
     // Validate required fields
     if (!mediaUrl) {
