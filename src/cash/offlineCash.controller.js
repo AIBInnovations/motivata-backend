@@ -5,6 +5,7 @@
 
 import OfflineCash from "../../schema/OfflineCash.schema.js";
 import CashEventEnrollment from "../../schema/CashEventEnrollment.schema.js";
+import EventEnrollment from "../../schema/EventEnrollment.schema.js";
 import Event from "../../schema/Event.schema.js";
 import User from "../../schema/User.schema.js";
 import Admin from "../../schema/Admin.schema.js";
@@ -112,6 +113,43 @@ export const createOfflineCash = async (req, res) => {
         res,
         "Unredeemed ticket link already exists for this phone and event",
         { existingLink: existing.link, signature: existing.signature }
+      );
+    }
+
+    // Check if phone already has a redeemed cash ticket for this event
+    const redeemedOfflineCash = await OfflineCash.findOne({
+      eventId,
+      generatedFor: normalizedPhone,
+      redeemed: true,
+    });
+    if (redeemedOfflineCash) {
+      return responseUtil.conflict(
+        res,
+        "This phone already has a redeemed cash ticket for this event"
+      );
+    }
+
+    // Check if phone already has a CashEventEnrollment for this event
+    const existingCashEnrollment = await CashEventEnrollment.findOne({
+      eventId,
+      phone: normalizedPhone,
+    });
+    if (existingCashEnrollment) {
+      return responseUtil.conflict(
+        res,
+        "This phone already has a cash ticket for this event"
+      );
+    }
+
+    // Check if phone exists in EventEnrollment tickets Map (online ticket)
+    const enrollmentWithPhone = await EventEnrollment.findOne({
+      eventId,
+      [`tickets.${normalizedPhone}`]: { $exists: true },
+    });
+    if (enrollmentWithPhone) {
+      return responseUtil.conflict(
+        res,
+        "This phone already has an online ticket for this event"
       );
     }
 
