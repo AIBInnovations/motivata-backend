@@ -388,6 +388,8 @@ export const validateRedemptionLink = async (req, res) => {
 
 /**
  * Redeem tickets (Public - processes form submission)
+ * IMPORTANT: All enrollments must succeed for redemption to complete.
+ * Pre-validates all attendees before creating any enrollments.
  */
 export const redeemTickets = async (req, res) => {
   try {
@@ -421,9 +423,96 @@ export const redeemTickets = async (req, res) => {
       );
     }
 
-    // Validate and claim voucher if provided
+    // ========== PRE-VALIDATION PHASE ==========
+    // Validate ALL attendees before creating any enrollments
+    console.log(`[OFFLINE_CASH] Pre-validating ${attendees.length} attendees for offlineCashId=${offlineCashId}`);
+
+    const validationErrors = [];
+    const normalizedPhones = [];
+    const phoneToAttendee = new Map();
+
+    // Step 1: Normalize phones and check for duplicates in the request
+    for (let i = 0; i < attendees.length; i++) {
+      const attendee = attendees[i];
+
+      if (!attendee.phone || !attendee.name) {
+        validationErrors.push({
+          index: i,
+          phone: attendee.phone || 'missing',
+          error: "Name and phone are required for each attendee"
+        });
+        continue;
+      }
+
+      const normalizedPhone = attendee.phone.slice(-10);
+
+      // Validate phone format (10 digits)
+      if (!/^\d{10}$/.test(normalizedPhone)) {
+        validationErrors.push({
+          index: i,
+          phone: attendee.phone,
+          error: "Invalid phone number format (must be 10 digits)"
+        });
+        continue;
+      }
+
+      // Check for duplicate phones in the request
+      if (phoneToAttendee.has(normalizedPhone)) {
+        const existingIndex = phoneToAttendee.get(normalizedPhone).index;
+        validationErrors.push({
+          index: i,
+          phone: normalizedPhone,
+          error: `Duplicate phone number (same as attendee #${existingIndex + 1})`
+        });
+        continue;
+      }
+
+      normalizedPhones.push(normalizedPhone);
+      phoneToAttendee.set(normalizedPhone, { ...attendee, index: i, normalizedPhone });
+    }
+
+    // Step 2: Check for existing enrollments in database (batch query)
+    if (normalizedPhones.length > 0) {
+      const existingEnrollments = await CashEventEnrollment.find({
+        eventId: record.eventId._id,
+        phone: { $in: normalizedPhones }
+      }).select('phone');
+
+      const existingPhones = new Set(existingEnrollments.map(e => e.phone));
+
+      for (const phone of existingPhones) {
+        const attendee = phoneToAttendee.get(phone);
+        validationErrors.push({
+          index: attendee.index,
+          phone: phone,
+          error: "Already enrolled for this event"
+        });
+        // Remove from valid list
+        phoneToAttendee.delete(phone);
+      }
+    }
+
+    // Step 3: Return early if any validation errors
+    if (validationErrors.length > 0) {
+      console.log(`[OFFLINE_CASH] Pre-validation failed: ${validationErrors.length} error(s)`);
+      return responseUtil.badRequest(
+        res,
+        `Cannot redeem tickets: ${validationErrors.length} attendee(s) have validation errors`,
+        {
+          errors: validationErrors.map(e => ({
+            attendee: e.index + 1,
+            phone: e.phone,
+            reason: e.error
+          }))
+        }
+      );
+    }
+
+    console.log(`[OFFLINE_CASH] Pre-validation passed for ${phoneToAttendee.size} attendees`);
+
+    // ========== VOUCHER HANDLING ==========
     let claimedVoucher = null;
-    let voucherClaimedPhones = []; // Track which phones got the voucher
+    let voucherClaimedPhones = [];
     if (code) {
       const voucher = await Voucher.findOne({
         code: code.toUpperCase(),
@@ -448,100 +537,68 @@ export const redeemTickets = async (req, res) => {
       }
 
       // Get all attendee phone numbers
-      const attendeePhones = attendees.map((a) => a.phone.slice(-10));
+      const attendeePhones = Array.from(phoneToAttendee.keys());
 
       // Filter out phones that have already claimed this voucher
       const eligiblePhones = attendeePhones.filter(phone => !voucher.hasPhoneClaimed(phone));
 
       if (eligiblePhones.length === 0) {
         console.log('[OFFLINE_CASH] All phones have already claimed this voucher');
-        // Don't fail - just proceed without voucher
       } else {
-        // Check availability and determine how many phones can claim
         const availableSlots = voucher.maxUsage - voucher.claimedPhones.length;
 
         if (availableSlots <= 0) {
-          console.log('[OFFLINE_CASH] No vouchers available - proceeding without voucher');
+          console.log('[OFFLINE_CASH] No voucher slots available');
         } else {
-          // Partial claiming: only claim for available slots
           const phonesToClaim = eligiblePhones.slice(0, availableSlots);
           const phonesLeftOut = eligiblePhones.slice(availableSlots);
 
           if (phonesLeftOut.length > 0) {
-            console.log('[OFFLINE_CASH] Partial claiming - some phones left out:', {
-              claiming: phonesToClaim,
-              leftOut: phonesLeftOut
-            });
+            console.log(`[OFFLINE_CASH] Partial voucher claim: ${phonesToClaim.length} of ${eligiblePhones.length}`);
           }
 
-          // Atomically claim the voucher for eligible phones
           claimedVoucher = await Voucher.claimVoucher(voucher._id, phonesToClaim);
 
           if (!claimedVoucher) {
-            console.log('[OFFLINE_CASH] Race condition - voucher ran out during claim');
-            // Don't fail the redemption, just proceed without voucher
+            console.log('[OFFLINE_CASH] Voucher claim race condition');
           } else {
             voucherClaimedPhones = phonesToClaim;
-            console.log(
-              `[OFFLINE_CASH] Voucher ${code} claimed for phones:`,
-              phonesToClaim
-            );
+            console.log(`[OFFLINE_CASH] Voucher ${code} claimed for ${phonesToClaim.length} phone(s)`);
 
-            // Confirm voucher claim immediately for cash payments (payment already collected)
             try {
               const confirmedVoucher = await Voucher.confirmVoucherClaim(voucher._id, phonesToClaim.length);
               if (confirmedVoucher) {
-                console.log(`[OFFLINE_CASH] ✓ Voucher claim confirmed:`, {
-                  voucherId: voucher._id,
-                  phoneCount: phonesToClaim.length,
-                  newUsageCount: confirmedVoucher.usageCount
-                });
-                // Update claimedVoucher with the confirmed state
+                console.log(`[OFFLINE_CASH] Voucher claim confirmed: usageCount=${confirmedVoucher.usageCount}`);
                 claimedVoucher = confirmedVoucher;
               } else {
-                console.warn(`[OFFLINE_CASH] Failed to confirm voucher claim:`, voucher._id);
+                console.warn(`[OFFLINE_CASH] Voucher confirm failed: ${voucher._id}`);
               }
             } catch (confirmError) {
-              console.error(`[OFFLINE_CASH] ✗ Error confirming voucher claim:`, confirmError.message);
-              // Continue even if confirmation fails - voucher is already claimed
+              console.error(`[OFFLINE_CASH] Voucher confirm error: ${confirmError.message}`);
             }
           }
         }
       }
     }
 
+    // ========== ENROLLMENT CREATION PHASE ==========
+    // All validations passed - create enrollments
     const createdEnrollments = [];
-    const errors = [];
+    const enrollmentErrors = [];
 
-    for (const attendee of attendees) {
-      const normalizedPhone = attendee.phone.slice(-10);
-
+    for (const [normalizedPhone, attendeeData] of phoneToAttendee) {
       try {
-        // Check if user exists, create if not
+        // Find or create user
         let user = await User.findOne({ phone: normalizedPhone });
 
         if (!user) {
-          // Create user with phone as password
           const hashedPassword = await bcrypt.hash(normalizedPhone, 10);
           user = await User.create({
-            name: attendee.name,
+            name: attendeeData.name,
             phone: normalizedPhone,
             password: hashedPassword,
           });
-        }
-
-        // Check if already enrolled for this event
-        const existingEnrollment = await CashEventEnrollment.findOne({
-          eventId: record.eventId._id,
-          phone: normalizedPhone,
-        });
-
-        if (existingEnrollment) {
-          errors.push({
-            phone: normalizedPhone,
-            error: "Already enrolled for this event",
-          });
-          continue;
+          console.log(`[OFFLINE_CASH] Created user: ${normalizedPhone}`);
         }
 
         // Generate ticket link
@@ -553,7 +610,7 @@ export const redeemTickets = async (req, res) => {
           userId: user._id,
           offlineCashId: record._id,
           phone: normalizedPhone,
-          name: attendee.name,
+          name: attendeeData.name,
           ticketLink,
         });
 
@@ -561,18 +618,71 @@ export const redeemTickets = async (req, res) => {
         enrollment.ticketLink = `${BASE_URL}/app/tickets/cash/qr-scan?enrollmentId=${enrollment._id}&userId=${user._id}&eventId=${record.eventId._id}&phone=${normalizedPhone}`;
         await enrollment.save();
 
-        createdEnrollments.push(enrollment);
+        createdEnrollments.push({ enrollment, user, attendeeData });
+        console.log(`[OFFLINE_CASH] Enrollment created: ${normalizedPhone}`);
 
-        // Generate ticket image and upload to Cloudinary
+      } catch (err) {
+        console.error(`[OFFLINE_CASH] Enrollment error for ${normalizedPhone}: ${err.message}`);
+        enrollmentErrors.push({ phone: normalizedPhone, error: err.message });
+      }
+    }
+
+    // ========== ROLLBACK IF PARTIAL FAILURE ==========
+    // If not ALL enrollments were created, rollback and fail
+    if (enrollmentErrors.length > 0) {
+      console.log(`[OFFLINE_CASH] Partial failure: ${enrollmentErrors.length} error(s), rolling back ${createdEnrollments.length} enrollment(s)`);
+
+      // Delete the enrollments that were created
+      for (const { enrollment } of createdEnrollments) {
         try {
-          console.log(`[OFFLINE_CASH] Generating ticket image for ${normalizedPhone}`);
+          await CashEventEnrollment.findByIdAndDelete(enrollment._id);
+          console.log(`[OFFLINE_CASH] Rolled back enrollment: ${enrollment.phone}`);
+        } catch (rollbackErr) {
+          console.error(`[OFFLINE_CASH] Rollback error for ${enrollment.phone}: ${rollbackErr.message}`);
+        }
+      }
 
-          // Fetch full event details for ticket image
-          const eventDetails = await Event.findById(record.eventId._id);
+      // Rollback voucher claim if any
+      if (claimedVoucher && voucherClaimedPhones.length > 0) {
+        try {
+          // Remove claimed phones from voucher
+          await Voucher.findByIdAndUpdate(claimedVoucher._id, {
+            $pull: { claimedPhones: { $in: voucherClaimedPhones } },
+            $inc: { usageCount: -voucherClaimedPhones.length }
+          });
+          console.log(`[OFFLINE_CASH] Rolled back voucher claim for ${voucherClaimedPhones.length} phone(s)`);
+        } catch (voucherRollbackErr) {
+          console.error(`[OFFLINE_CASH] Voucher rollback error: ${voucherRollbackErr.message}`);
+        }
+      }
 
+      return responseUtil.internalError(
+        res,
+        `Failed to create all enrollments. ${enrollmentErrors.length} failed, ${createdEnrollments.length} rolled back.`,
+        {
+          errors: enrollmentErrors.map(e => ({
+            phone: e.phone,
+            reason: e.error
+          }))
+        }
+      );
+    }
+
+    // ========== ALL ENROLLMENTS SUCCEEDED - MARK AS REDEEMED ==========
+    record.redeemed = true;
+    record.redeemedAt = new Date();
+    await record.save();
+    console.log(`[OFFLINE_CASH] Redemption complete: offlineCashId=${offlineCashId}, enrollments=${createdEnrollments.length}`);
+
+    // ========== POST-REDEMPTION: SEND TICKETS (NON-BLOCKING) ==========
+    // Send ticket images and WhatsApp messages asynchronously
+    const sendTicketsAsync = async () => {
+      const eventDetails = await Event.findById(record.eventId._id);
+
+      for (const { enrollment, user, attendeeData } of createdEnrollments) {
+        try {
           let imageUrl;
           try {
-            // Try to generate ticket image with embedded QR code
             const ticketBuffer = await generateTicketImage({
               qrData: enrollment.ticketLink,
               eventName: record.eventId.name,
@@ -586,20 +696,14 @@ export const redeemTickets = async (req, res) => {
               bookingId: enrollment._id.toString()
             });
 
-            console.log(`[OFFLINE_CASH] Ticket image generated (${ticketBuffer.length} bytes)`);
-
-            // Upload to Cloudinary
             imageUrl = await uploadTicketImageToCloudinary({
               imageBuffer: ticketBuffer,
               enrollmentId: enrollment._id.toString(),
-              phone: normalizedPhone,
+              phone: enrollment.phone,
               eventName: record.eventId.name,
             });
-
-            console.log(`[OFFLINE_CASH] Ticket image uploaded to Cloudinary: ${imageUrl}`);
           } catch (ticketImageErr) {
-            // Fallback to QR-only if ticket image generation fails
-            console.log(`[OFFLINE_CASH] Ticket image FAILED, falling back to QR-only: ${ticketImageErr.message}`);
+            console.log(`[OFFLINE_CASH] Ticket image failed for ${enrollment.phone}, using QR fallback`);
 
             const QRCode = (await import('qrcode')).default;
             const qrBuffer = await QRCode.toBuffer(enrollment.ticketLink, {
@@ -612,121 +716,92 @@ export const redeemTickets = async (req, res) => {
             imageUrl = await uploadQRCodeToCloudinary({
               qrBuffer,
               enrollmentId: enrollment._id.toString(),
-              phone: normalizedPhone,
+              phone: enrollment.phone,
               eventName: record.eventId.name,
             });
-
-            console.log(`[OFFLINE_CASH] QR code fallback uploaded: ${imageUrl}`);
           }
 
-          // Send WhatsApp with image URL (non-blocking)
-          sendTicketWhatsApp({
-            phone: normalizedPhone,
-            name: attendee.name,
+          // Send WhatsApp
+          await sendTicketWhatsApp({
+            phone: enrollment.phone,
+            name: attendeeData.name,
             eventName: record.eventId.name,
             qrCodeUrl: imageUrl,
-            // Logging parameters
             eventId: record.eventId._id.toString(),
             userId: user._id.toString(),
             enrollmentId: enrollment._id.toString(),
-          }).catch((whatsappErr) =>
-            console.error(`[OFFLINE_CASH] WhatsApp error for ${normalizedPhone}:`, whatsappErr.message)
-          );
+          });
         } catch (ticketErr) {
-          console.error(`[OFFLINE_CASH] Ticket/WhatsApp error for ${normalizedPhone}:`, ticketErr.message);
-          // Don't fail the enrollment if ticket/WhatsApp fails
+          console.error(`[OFFLINE_CASH] Ticket/WhatsApp error for ${enrollment.phone}: ${ticketErr.message}`);
         }
-      } catch (err) {
-        console.error(`Error processing attendee ${normalizedPhone}:`, err);
-        errors.push({ phone: normalizedPhone, error: err.message });
       }
-    }
+    };
 
-    // Mark as redeemed if at least one enrollment succeeded
-    if (createdEnrollments.length > 0) {
-      record.redeemed = true;
-      record.redeemedAt = new Date();
-      await record.save();
-    }
+    // Fire and forget - don't block the response
+    sendTicketsAsync().catch(err => {
+      console.error(`[OFFLINE_CASH] Async ticket sending error: ${err.message}`);
+    });
 
-    // Send voucher QR codes if voucher was claimed
-    if (claimedVoucher && voucherClaimedPhones.length > 0 && createdEnrollments.length > 0) {
-      try {
-        console.log('[OFFLINE_CASH] ========== SENDING VOUCHER QR CODES ==========');
-        console.log('[OFFLINE_CASH] Voucher:', claimedVoucher.code);
-        console.log('[OFFLINE_CASH] Claimed phones:', voucherClaimedPhones);
+    // Send voucher QR codes if voucher was claimed (non-blocking)
+    if (claimedVoucher && voucherClaimedPhones.length > 0) {
+      const sendVoucherQRsAsync = async () => {
+        console.log(`[OFFLINE_CASH] Sending voucher QRs: code=${claimedVoucher.code}, phones=${voucherClaimedPhones.length}`);
 
         const voucherWhatsappMessages = [];
 
-        for (const enrollment of createdEnrollments) {
+        for (const { enrollment, attendeeData } of createdEnrollments) {
           try {
             const normalizedPhone = enrollment.phone;
 
-            // Check if this phone was claimed for the voucher
             if (!voucherClaimedPhones.includes(normalizedPhone)) {
-              console.log(`[OFFLINE_CASH] Phone ${normalizedPhone} not in voucher claimed phones - skipping`);
               continue;
             }
 
-            console.log(`[OFFLINE_CASH] Generating voucher QR for phone: ${normalizedPhone}`);
-
-            // Generate voucher QR code
             const qrBuffer = await generateVoucherQRCode({
               phone: normalizedPhone,
               voucherCode: claimedVoucher.code
             });
 
-            console.log(`[OFFLINE_CASH] ✓ Voucher QR generated (${qrBuffer.length} bytes)`);
-
-            // Upload QR to Cloudinary
             const qrUrl = await uploadVoucherQRCodeToCloudinary({
               qrBuffer,
               voucherCode: claimedVoucher.code,
               phone: normalizedPhone
             });
 
-            console.log(`[OFFLINE_CASH] ✓ Voucher QR uploaded: ${qrUrl}`);
-
-            // Add to WhatsApp messages queue
             voucherWhatsappMessages.push({
               phone: normalizedPhone,
-              name: enrollment.name,
+              name: attendeeData.name,
               voucherTitle: claimedVoucher.title,
               qrCodeUrl: qrUrl
             });
-
-            console.log(`[OFFLINE_CASH] ✓ Voucher WhatsApp message queued for ${normalizedPhone}`);
           } catch (voucherQrErr) {
-            console.error(`[OFFLINE_CASH] ✗ Voucher QR error for ${enrollment.phone}:`, voucherQrErr.message);
-            // Continue with other phones
+            console.error(`[OFFLINE_CASH] Voucher QR error for ${enrollment.phone}: ${voucherQrErr.message}`);
           }
         }
 
-        // Send WhatsApp messages for vouchers
         if (voucherWhatsappMessages.length > 0) {
           try {
-            console.log(`[OFFLINE_CASH] Sending ${voucherWhatsappMessages.length} voucher WhatsApp message(s)...`);
             await sendBulkVoucherWhatsApp(voucherWhatsappMessages);
-            console.log('[OFFLINE_CASH] ✓ Voucher WhatsApp messages sent successfully');
+            console.log(`[OFFLINE_CASH] Voucher WhatsApp sent: ${voucherWhatsappMessages.length} message(s)`);
           } catch (whatsappErr) {
-            console.error('[OFFLINE_CASH] ✗ Voucher WhatsApp sending failed:', whatsappErr.message);
+            console.error(`[OFFLINE_CASH] Voucher WhatsApp error: ${whatsappErr.message}`);
           }
         }
+      };
 
-        console.log('[OFFLINE_CASH] ========== VOUCHER QR SENDING COMPLETE ==========');
-      } catch (voucherQrError) {
-        console.error('[OFFLINE_CASH] ✗ Error in voucher QR sending process:', voucherQrError.message);
-        // Don't fail the redemption if voucher QR sending fails
-      }
+      // Fire and forget
+      sendVoucherQRsAsync().catch(err => {
+        console.error(`[OFFLINE_CASH] Async voucher QR error: ${err.message}`);
+      });
     }
 
-    return responseUtil.success(res, "Tickets redeemed", {
+    return responseUtil.success(res, "Tickets redeemed successfully", {
       enrollmentsCreated: createdEnrollments.length,
-      enrollments: createdEnrollments.map((e) => ({
-        id: e._id,
-        phone: e.phone,
-        name: e.name,
-        ticketLink: e.ticketLink,
+      enrollments: createdEnrollments.map(({ enrollment }) => ({
+        id: enrollment._id,
+        phone: enrollment.phone,
+        name: enrollment.name,
+        ticketLink: enrollment.ticketLink,
       })),
       voucher: claimedVoucher
         ? {
@@ -736,10 +811,9 @@ export const redeemTickets = async (req, res) => {
             claimedPhones: voucherClaimedPhones,
           }
         : null,
-      errors: errors.length > 0 ? errors : null,
     });
   } catch (error) {
-    console.error("Redeem tickets error:", error);
+    console.error(`[OFFLINE_CASH] Redeem tickets error: ${error.message}`);
     return responseUtil.internalError(
       res,
       "Failed to redeem tickets",
