@@ -30,6 +30,7 @@ const communicationLogSchema = new mongoose.Schema(
       enum: {
         values: [
           "TICKET",
+          "TICKET_RESHARE",
           "VOUCHER",
           "REDEMPTION_LINK",
           "ENROLLMENT_CONFIRMATION",
