@@ -5,6 +5,7 @@ dotenv.config();
 // app imports
 import app from "./config/express.config.js";
 import connectDB from "./config/database.config.js";
+import { runCashTicketAudit } from "./scripts/cashTicketAudit.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -36,6 +37,12 @@ const startServer = async () => {
     validateEnvironment();
 
     await connectDB();
+
+    // Run cash ticket audit on startup (non-blocking)
+    runCashTicketAudit().catch((err) => {
+      console.error("> Cash ticket audit failed:", err.message);
+    });
+
     app.listen(PORT, () => {
       console.log(`> Server is running on port ${PORT}`);
     });
