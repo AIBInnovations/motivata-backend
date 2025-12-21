@@ -896,6 +896,17 @@ export const scanCashTicket = async (req, res) => {
     }
 
     if (enrollment.isTicketScanned) {
+      // Fetch voucher for already scanned ticket
+      const claimedVoucher = await Voucher.findOne({
+        claimedPhones: normalizedPhone,
+        isActive: true,
+        $or: [
+          { events: { $size: 0 } },
+          { events: { $exists: false } },
+          { events: eventId }
+        ]
+      }).select('_id code title description');
+
       return responseUtil.success(res, "Ticket already scanned", {
         isValid: true,
         isAlreadyScanned: true,
@@ -906,6 +917,12 @@ export const scanCashTicket = async (req, res) => {
           phone: enrollment.phone,
           event: enrollment.eventId,
         },
+        voucher: claimedVoucher ? {
+          id: claimedVoucher._id,
+          code: claimedVoucher.code,
+          title: claimedVoucher.title,
+          description: claimedVoucher.description,
+        } : null,
       });
     }
 
@@ -914,6 +931,17 @@ export const scanCashTicket = async (req, res) => {
     enrollment.ticketScannedAt = new Date();
     enrollment.ticketScannedBy = req.user?.id || null;
     await enrollment.save();
+
+    // Fetch voucher claimed by this phone for this event
+    const claimedVoucher = await Voucher.findOne({
+      claimedPhones: normalizedPhone,
+      isActive: true,
+      $or: [
+        { events: { $size: 0 } },
+        { events: { $exists: false } },
+        { events: eventId }
+      ]
+    }).select('_id code title description');
 
     return responseUtil.success(res, "Ticket verified - Entry granted", {
       isValid: true,
@@ -926,6 +954,12 @@ export const scanCashTicket = async (req, res) => {
         event: enrollment.eventId,
         user: enrollment.userId,
       },
+      voucher: claimedVoucher ? {
+        id: claimedVoucher._id,
+        code: claimedVoucher.code,
+        title: claimedVoucher.title,
+        description: claimedVoucher.description,
+      } : null,
     });
   } catch (error) {
     console.error("Scan cash ticket error:", error);
