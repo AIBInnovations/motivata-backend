@@ -8,6 +8,7 @@ import QRCode from "qrcode";
 import EventEnrollment from "../../schema/EventEnrollment.schema.js";
 import Event from "../../schema/Event.schema.js";
 import User from "../../schema/User.schema.js";
+import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
 import fs from "fs";
 import path from "path";
@@ -496,6 +497,17 @@ export const scanQRCode = async (req, res) => {
     enrollment.tickets.set(matchedPhone, ticket);
     await enrollment.save();
 
+    // Fetch voucher claimed by this phone for this event
+    const claimedVoucher = await Voucher.findOne({
+      claimedPhones: normalizedPhone,
+      isActive: true,
+      $or: [
+        { events: { $size: 0 } },
+        { events: { $exists: false } },
+        { events: eventId }
+      ]
+    }).select('_id code title description');
+
     return responseUtil.success(res, "QR code scanned successfully", {
       user: {
         id: user._id,
@@ -532,6 +544,12 @@ export const scanQRCode = async (req, res) => {
         ticketCount: enrollment.ticketCount,
         createdAt: enrollment.createdAt,
       },
+      voucher: claimedVoucher ? {
+        id: claimedVoucher._id,
+        code: claimedVoucher.code,
+        title: claimedVoucher.title,
+        description: claimedVoucher.description,
+      } : null,
     });
   } catch (error) {
     console.error("Scan QR code error:", error);
