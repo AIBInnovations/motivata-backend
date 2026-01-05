@@ -6,6 +6,7 @@
 import Coupon from '../../schema/Coupon.schema.js';
 import Payment from '../../schema/Payment.schema.js';
 import responseUtil from '../../utils/response.util.js';
+import { toIST, nowIST } from '../../utils/timezone.util.js';
 
 /**
  * Create a new coupon (Admin only)
@@ -19,6 +20,14 @@ export const createCoupon = async (req, res) => {
       ...req.body,
       createdBy: req.user.id
     };
+
+    // Convert dates to IST
+    if (couponData.validFrom) {
+      couponData.validFrom = toIST(couponData.validFrom);
+    }
+    if (couponData.validUntil) {
+      couponData.validUntil = toIST(couponData.validUntil);
+    }
 
     const coupon = new Coupon(couponData);
     await coupon.save();
@@ -115,7 +124,7 @@ export const getAllCoupons = async (req, res) => {
  */
 export const getActiveCoupons = async (req, res) => {
   try {
-    const now = new Date();
+    const now = nowIST();
 
     const coupons = await Coupon.find({
       isActive: true,
@@ -198,7 +207,7 @@ export const validateCoupon = async (req, res) => {
     if (amount < coupon.minPurchaseAmount) {
       return responseUtil.badRequest(
         res,
-        `Minimum purchase amount of ¹${coupon.minPurchaseAmount} required`
+        `Minimum purchase amount of ï¿½${coupon.minPurchaseAmount} required`
       );
     }
 
@@ -252,6 +261,14 @@ export const updateCoupon = async (req, res) => {
       ...req.body,
       updatedBy: req.user.id
     };
+
+    // Convert dates to IST if provided
+    if (updateData.validFrom) {
+      updateData.validFrom = toIST(updateData.validFrom);
+    }
+    if (updateData.validUntil) {
+      updateData.validUntil = toIST(updateData.validUntil);
+    }
 
     const coupon = await Coupon.findByIdAndUpdate(
       id,

@@ -4,6 +4,7 @@
  */
 
 import mongoose from 'mongoose';
+import { nowIST } from '../utils/timezone.util.js';
 
 const couponSchema = new mongoose.Schema({
   /**
@@ -192,7 +193,7 @@ couponSchema.statics.findDeleted = function(filter = {}) {
  */
 couponSchema.methods.softDelete = function(adminId) {
   this.isDeleted = true;
-  this.deletedAt = new Date();
+  this.deletedAt = nowIST();
   this.deletedBy = adminId;
   return this.save();
 };

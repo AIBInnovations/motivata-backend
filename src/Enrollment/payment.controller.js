@@ -8,6 +8,8 @@ import Coupon from '../../schema/Coupon.schema.js';
 import Event from '../../schema/Event.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import PaymentServiceFactory from '../../services/payment/PaymentServiceFactory.js';
+import { nowIST } from '../../utils/timezone.util.js';
+import { reserveSeats, releaseSeatReservation } from '../SeatArrangement/seatArrangement.controller.js';
 
 /**
  * Get payment service instance
@@ -46,9 +48,24 @@ export const createPaymentOrder = async (req, res) => {
       }
 
       // Check if event has already started or ended
-      const now = new Date();
+      const now = nowIST();
       if (now > event.endDate) {
         return responseUtil.badRequest(res, 'Event has ended');
+      }
+
+      // If event has seat arrangement, validate seat selection
+      if (event.hasSeatArrangement) {
+        const { selectedSeats } = metadata || {};
+
+        if (!selectedSeats || !Array.isArray(selectedSeats) || selectedSeats.length === 0) {
+          return responseUtil.badRequest(res, 'Seat selection is required for this event');
+        }
+
+        // Validate count matches total tickets
+        const totalTickets = metadata.totalTickets || 1;
+        if (selectedSeats.length !== totalTickets) {
+          return responseUtil.badRequest(res, `Must select ${totalTickets} seat(s)`);
+        }
       }
     }
 
@@ -61,7 +78,7 @@ export const createPaymentOrder = async (req, res) => {
       }
 
       // Validate coupon
-      const now = new Date();
+      const now = nowIST();
       if (!coupon.isActive) {
         return responseUtil.badRequest(res, 'Coupon is not active');
       }
@@ -137,6 +154,27 @@ export const createPaymentOrder = async (req, res) => {
 
     await payment.save();
 
+    // Reserve seats if event has seat arrangement
+    if (type === 'EVENT' && eventId) {
+      const event = await Event.findById(eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement && metadata?.selectedSeats) {
+        try {
+          await reserveSeats({
+            eventId,
+            selectedSeats: metadata.selectedSeats,
+            userId,
+            orderId: gatewayOrder.id
+          });
+          console.log('[PAYMENT] Seats reserved for order:', gatewayOrder.id);
+        } catch (seatError) {
+          // Seat reservation failed - rollback payment
+          await Payment.deleteOne({ _id: payment._id });
+          console.error('[PAYMENT] Seat reservation failed:', seatError.message);
+          return responseUtil.badRequest(res, seatError.message || 'Selected seats are no longer available');
+        }
+      }
+    }
+
     // Get gateway config for client
     const gatewayConfig = paymentService.getGatewayConfig();
 
@@ -211,7 +249,7 @@ export const verifyPayment = async (req, res) => {
     payment.paymentId = paymentId;
     payment.signature = signature;
     payment.status = 'SUCCESS';
-    payment.purchaseDateTime = new Date();
+    payment.purchaseDateTime = nowIST();
     await payment.save();
 
     // Increment coupon usage if coupon was used
@@ -437,6 +475,20 @@ export const handlePaymentFailure = async (req, res) => {
     payment.status = 'FAILED';
     payment.failureReason = reason || 'Payment failed';
     await payment.save();
+
+    // Release seat reservations if event has seat arrangement
+    if (payment.eventId && payment.metadata?.selectedSeats) {
+      const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement) {
+        try {
+          await releaseSeatReservation({ orderId: payment.orderId });
+          console.log('[PAYMENT] Seats released for failed payment:', payment.orderId);
+        } catch (seatError) {
+          console.error('[PAYMENT] Failed to release seats:', seatError.message);
+          // Continue anyway - seats will be released by cleanup job
+        }
+      }
+    }
 
     return responseUtil.success(res, 'Payment failure recorded');
   } catch (error) {

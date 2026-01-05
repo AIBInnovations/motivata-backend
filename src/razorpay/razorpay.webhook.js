@@ -13,9 +13,17 @@ import Event from '../../schema/Event.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import Session from '../../schema/Session.schema.js';
 import SessionBooking from '../../schema/SessionBooking.schema.js';
+import MembershipPlan from '../../schema/MembershipPlan.schema.js';
+import UserMembership from '../../schema/UserMembership.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
+import { nowIST } from '../../utils/timezone.util.js';
+import {
+  confirmSeatBooking,
+  releaseSeatReservation,
+  cancelSeatBooking,
+} from '../SeatArrangement/seatArrangement.controller.js';
 import {
   generateEnrollmentEmail,
   generateEnrollmentEmailText,
@@ -286,7 +294,7 @@ const handlePaymentCaptured = async (paymentEntity) => {
   // Update payment record
   payment.paymentId = paymentId;
   payment.status = 'SUCCESS';
-  payment.purchaseDateTime = new Date();
+  payment.purchaseDateTime = nowIST();
   payment.metadata = {
     ...payment.metadata,
     razorpayPaymentEntity: paymentEntity
@@ -336,10 +344,21 @@ const handlePaymentFailed = async (paymentEntity) => {
 
   console.log(`✓ Payment marked as failed for order: ${orderId}`);
 
-  // Handle type-specific failure actions (session booking cancellation, etc.)
-  if (payment.type === 'SESSION') {
-    await cancelSessionBooking(payment);
+  // Release seat reservations if event has seat arrangement
+  if (payment.eventId && payment.metadata?.selectedSeats) {
+    try {
+      const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement) {
+        await releaseSeatReservation({ orderId: payment.orderId });
+        console.log('[WEBHOOK] Seats released for failed payment:', payment.orderId);
+      }
+    } catch (seatError) {
+      console.error('[WEBHOOK] Seat release error:', seatError.message);
+    }
   }
+
+  // Handle type-specific failure actions
+  await handlePaymentFailureByType(payment);
 
   // Release voucher claim if voucher was used (for EVENT type)
   await releaseVoucherClaim(payment);
@@ -384,7 +403,7 @@ const handleOrderPaid = async (orderEntity) => {
   }
 
   payment.status = 'SUCCESS';
-  payment.purchaseDateTime = new Date();
+  payment.purchaseDateTime = nowIST();
   payment.metadata = {
     ...payment.metadata,
     razorpayOrderEntity: orderEntity
@@ -495,7 +514,7 @@ const handlePaymentLinkPaid = async (paymentLinkEntity) => {
   }
 
   payment.status = 'SUCCESS';
-  payment.purchaseDateTime = new Date();
+  payment.purchaseDateTime = nowIST();
   await payment.save();
 
   console.log('[PAYMENT-LINK-PAID] Payment updated to SUCCESS');
@@ -535,10 +554,21 @@ const handlePaymentLinkCancelled = async (paymentLinkEntity) => {
 
   console.log(`✓ Payment link cancelled for order: ${orderId}`);
 
-  // Handle type-specific failure actions (session booking cancellation, etc.)
-  if (payment.type === 'SESSION') {
-    await cancelSessionBooking(payment);
+  // Release seat reservations if event has seat arrangement
+  if (payment.eventId && payment.metadata?.selectedSeats) {
+    try {
+      const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement) {
+        await releaseSeatReservation({ orderId: payment.orderId });
+        console.log('[WEBHOOK] Seats released for cancelled payment link:', payment.orderId);
+      }
+    } catch (seatError) {
+      console.error('[WEBHOOK] Seat release error:', seatError.message);
+    }
   }
+
+  // Handle type-specific failure actions
+  await handlePaymentFailureByType(payment);
 
   // Release voucher claim if voucher was used (for EVENT type)
   await releaseVoucherClaim(payment);
@@ -572,10 +602,21 @@ const handlePaymentLinkExpired = async (paymentLinkEntity) => {
 
   console.log(`✓ Payment link expired for order: ${orderId}`);
 
-  // Handle type-specific failure actions (session booking cancellation, etc.)
-  if (payment.type === 'SESSION') {
-    await cancelSessionBooking(payment);
+  // Release seat reservations if event has seat arrangement
+  if (payment.eventId && payment.metadata?.selectedSeats) {
+    try {
+      const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement) {
+        await releaseSeatReservation({ orderId: payment.orderId });
+        console.log('[WEBHOOK] Seats released for expired payment link:', payment.orderId);
+      }
+    } catch (seatError) {
+      console.error('[WEBHOOK] Seat release error:', seatError.message);
+    }
   }
+
+  // Handle type-specific failure actions
+  await handlePaymentFailureByType(payment);
 
   // Release voucher claim if voucher was used (for EVENT type)
   await releaseVoucherClaim(payment);
@@ -792,6 +833,24 @@ const createEventEnrollment = async (payment) => {
       otherUsers.push({ user: otherUser, details: other });
     }
 
+    // Helper to normalize phone numbers (extract last 10 digits)
+    const normalizePhone = (phone) => {
+      if (phone && phone.length > 10) {
+        return phone.slice(-10);
+      }
+      return phone;
+    };
+
+    // Collect all new phone numbers
+    const newPhones = [];
+    const normalizedBuyerPhone = normalizePhone(buyer.phone);
+    newPhones.push(normalizedBuyerPhone);
+
+    for (const other of others) {
+      const normalizedOtherPhone = normalizePhone(other.phone);
+      newPhones.push(normalizedOtherPhone);
+    }
+
     // Check if enrollment already exists for this user and event
     const existingEnrollment = await EventEnrollment.findOne({
       userId: buyerUser._id,
@@ -799,16 +858,130 @@ const createEventEnrollment = async (payment) => {
     });
 
     if (existingEnrollment) {
-      console.log('[ENROLLMENT] Enrollment already exists for this user and event');
-      console.log('[ENROLLMENT] Returning existing enrollment data for email sending');
+      console.log('[ENROLLMENT] Enrollment already exists - checking for duplicate phones');
 
-      // Fetch event details for email
+      // Check if any new phone already exists in tickets
+      const existingTickets = existingEnrollment.tickets;
+      const duplicatePhones = [];
+
+      for (const phone of newPhones) {
+        if (existingTickets.has(phone)) {
+          duplicatePhones.push(phone);
+        }
+      }
+
+      if (duplicatePhones.length > 0) {
+        console.error('[ENROLLMENT] Duplicate phone numbers found:', duplicatePhones);
+        throw new Error(`Phone number(s) already have tickets: ${duplicatePhones.join(', ')}`);
+      }
+
+      console.log('[ENROLLMENT] No duplicate phones - adding new tickets to existing enrollment');
+
+      // Calculate new ticket price from current payment
+      const newTicketPrice = payment.finalAmount / totalTickets;
+      const newTicketCount = totalTickets;
+
+      // Add buyer's ticket
+      existingTickets.set(normalizedBuyerPhone, {
+        status: 'ACTIVE',
+        cancelledAt: null,
+        cancellationReason: null,
+        isTicketScanned: false,
+        ticketScannedAt: null,
+        ticketScannedBy: null
+      });
+
+      // Add other tickets
+      for (const other of others) {
+        const normalizedOtherPhone = normalizePhone(other.phone);
+        existingTickets.set(normalizedOtherPhone, {
+          status: 'ACTIVE',
+          cancelledAt: null,
+          cancellationReason: null,
+          isTicketScanned: false,
+          ticketScannedAt: null,
+          ticketScannedBy: null
+        });
+      }
+
+      // Calculate weighted average ticket price
+      const oldTotalCost = existingEnrollment.ticketPrice * existingEnrollment.ticketCount;
+      const newTotalCost = newTicketPrice * newTicketCount;
+      const combinedTicketCount = existingEnrollment.ticketCount + newTicketCount;
+      const averageTicketPrice = (oldTotalCost + newTotalCost) / combinedTicketCount;
+
+      // Update enrollment
+      existingEnrollment.tickets = existingTickets;
+      existingEnrollment.ticketCount = combinedTicketCount;
+      existingEnrollment.ticketPrice = averageTicketPrice;
+
+      await existingEnrollment.save();
+
+      console.log('[ENROLLMENT] Updated existing enrollment:', {
+        enrollmentId: existingEnrollment._id,
+        oldTicketCount: existingEnrollment.ticketCount - newTicketCount,
+        newTicketCount: newTicketCount,
+        totalTicketCount: existingEnrollment.ticketCount,
+        newTicketPrice: newTicketPrice,
+        averageTicketPrice: averageTicketPrice,
+        newPhones: newPhones
+      });
+
+      // Fetch event and update ticket counts
       let event = null;
       if (payment.eventId) {
         event = await Event.findById(payment.eventId);
+
+        // Confirm seat booking and assign seats for new tickets (if event has seat arrangement)
+        if (event?.hasSeatArrangement) {
+          try {
+            await confirmSeatBooking({
+              orderId: payment.orderId,
+              enrollmentId: existingEnrollment._id,
+            });
+
+            // Assign seats to new tickets
+            const { selectedSeats } = payment.metadata || {};
+            if (selectedSeats && selectedSeats.length > 0) {
+              for (const { phone, seatLabel } of selectedSeats) {
+                const normalizedPhone = normalizePhone(phone);
+                const ticketData = existingEnrollment.tickets.get(normalizedPhone);
+
+                if (ticketData) {
+                  existingEnrollment.tickets.set(normalizedPhone, {
+                    ...ticketData,
+                    assignedSeat: seatLabel,
+                  });
+                }
+              }
+
+              await existingEnrollment.save();
+              console.log('[ENROLLMENT] Seats assigned to new tickets in existing enrollment');
+            }
+          } catch (seatError) {
+            console.error('[ENROLLMENT] Seat confirmation error for existing enrollment:', seatError.message);
+          }
+        }
+        if (event) {
+          event.ticketsSold = (event.ticketsSold || 0) + newTicketCount;
+
+          // Decrement availableSeats if it exists
+          if (event.availableSeats != null && event.availableSeats > 0) {
+            event.availableSeats = Math.max(0, event.availableSeats - newTicketCount);
+          }
+
+          await event.save();
+
+          console.log('[ENROLLMENT] Event ticket counts updated:', {
+            eventId: event._id,
+            ticketsSold: event.ticketsSold,
+            availableSeats: event.availableSeats,
+            addedTickets: newTicketCount
+          });
+        }
       }
 
-      // Return existing enrollment data so emails can still be sent
+      // Return updated enrollment data for email sending
       return {
         enrollment: existingEnrollment,
         buyerUser,
@@ -820,20 +993,11 @@ const createEventEnrollment = async (payment) => {
     // Calculate price per ticket
     const ticketPrice = payment.finalAmount / totalTickets;
 
-    // Helper to normalize phone numbers (extract last 10 digits)
-    const normalizePhone = (phone) => {
-      if (phone && phone.length > 10) {
-        return phone.slice(-10);
-      }
-      return phone;
-    };
-
     // Create tickets Map with normalized phone numbers as keys
     // This ensures consistency with User.phone (which is also normalized)
     const ticketsMap = new Map();
 
-    // Add buyer's ticket (using normalized phone)
-    const normalizedBuyerPhone = normalizePhone(buyer.phone);
+    // Add buyer's ticket (using normalized phone - already declared above)
     ticketsMap.set(normalizedBuyerPhone, {
       status: 'ACTIVE',
       cancelledAt: null,
@@ -882,6 +1046,39 @@ const createEventEnrollment = async (payment) => {
     let event = null;
     if (payment.eventId) {
       event = await Event.findById(payment.eventId);
+
+      // Confirm seat booking and assign seats to tickets
+      if (event?.hasSeatArrangement) {
+        try {
+          // Confirm seat booking (RESERVED → BOOKED)
+          await confirmSeatBooking({
+            orderId: payment.orderId,
+            enrollmentId: enrollment._id,
+          });
+
+          // Assign seats to tickets in enrollment
+          const { selectedSeats } = payment.metadata || {};
+          if (selectedSeats && selectedSeats.length > 0) {
+            for (const { phone, seatLabel } of selectedSeats) {
+              const normalizedPhone = normalizePhone(phone);
+              const ticketData = enrollment.tickets.get(normalizedPhone);
+
+              if (ticketData) {
+                enrollment.tickets.set(normalizedPhone, {
+                  ...ticketData,
+                  assignedSeat: seatLabel,
+                });
+              }
+            }
+
+            await enrollment.save();
+            console.log('[ENROLLMENT] Seats assigned to tickets:', selectedSeats);
+          }
+        } catch (seatError) {
+          console.error('[ENROLLMENT] Seat confirmation error:', seatError.message);
+          // Continue - enrollment is created, seats can be manually fixed by admin
+        }
+      }
       if (event) {
         event.ticketsSold = (event.ticketsSold || 0) + totalTickets;
 
@@ -1572,9 +1769,7 @@ const confirmSessionBooking = async (payment) => {
 
     console.log('[SESSION-WEBHOOK] Found session:', {
       _id: session._id,
-      title: session.title,
-      bookedSlots: session.bookedSlots,
-      availableSlots: session.availableSlots
+      title: session.title
     });
 
     // Update booking status
@@ -1588,16 +1783,6 @@ const confirmSessionBooking = async (payment) => {
       newStatus: booking.status,
       newPaymentStatus: booking.paymentStatus
     });
-
-    // Increment session booked slots
-    try {
-      console.log('[SESSION-WEBHOOK] Incrementing session booked slots...');
-      await session.bookSlot();
-      console.log('[SESSION-WEBHOOK] Session slot booked, new bookedSlots:', session.bookedSlots);
-    } catch (slotError) {
-      console.error('[SESSION-WEBHOOK] Error booking slot:', slotError.message);
-      // Continue - payment was successful
-    }
 
     console.log('[SESSION-WEBHOOK] Session booking confirmed successfully');
     console.log('[SESSION-WEBHOOK] ========== CONFIRM SESSION BOOKING END ==========');
@@ -1831,7 +2016,7 @@ const handleSessionRefund = async (payment) => {
     // Update booking status
     booking.paymentStatus = 'refunded';
     booking.status = 'cancelled';
-    booking.cancelledAt = new Date();
+    booking.cancelledAt = nowIST();
     booking.cancellationReason = 'Payment refunded';
     booking.cancelledBy = 'admin';
     await booking.save();
@@ -1859,6 +2044,154 @@ const handleSessionRefund = async (payment) => {
 };
 
 /**
+ * Confirm membership payment and activate membership
+ * Updates UserMembership status and increments plan purchase count
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const confirmMembershipPayment = async (payment) => {
+  try {
+    console.log('[MEMBERSHIP-WEBHOOK] Starting membership payment confirmation');
+    console.log('[MEMBERSHIP-WEBHOOK] Payment orderId:', payment.orderId);
+    console.log('[MEMBERSHIP-WEBHOOK] Payment metadata:', JSON.stringify(payment.metadata, null, 2));
+
+    const { userMembershipId, phone, membershipPlanId } = payment.metadata || {};
+
+    if (!userMembershipId) {
+      console.error('[MEMBERSHIP-WEBHOOK] No userMembershipId found in payment metadata');
+      return;
+    }
+
+    console.log('[MEMBERSHIP-WEBHOOK] Looking for membership:', userMembershipId);
+
+    const membership = await UserMembership.findById(userMembershipId);
+
+    if (!membership) {
+      console.error('[MEMBERSHIP-WEBHOOK] Membership not found:', userMembershipId);
+      return;
+    }
+
+    console.log('[MEMBERSHIP-WEBHOOK] Found membership:', {
+      _id: membership._id,
+      phone: membership.phone,
+      status: membership.status,
+      paymentStatus: membership.paymentStatus
+    });
+
+    if (membership.paymentStatus === 'SUCCESS') {
+      console.log('[MEMBERSHIP-WEBHOOK] Membership payment already confirmed, skipping');
+      return;
+    }
+
+    const normalizedPhone = phone ? phone.slice(-10) : membership.phone;
+    const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+
+    await membership.confirmPayment(payment.paymentId, user?._id);
+
+    console.log('[MEMBERSHIP-WEBHOOK] Membership payment confirmed');
+
+    const plan = await MembershipPlan.findById(membershipPlanId || membership.membershipPlanId);
+    if (plan) {
+      await plan.incrementPurchaseCount();
+      console.log('[MEMBERSHIP-WEBHOOK] Plan purchase count incremented');
+    }
+
+    console.log('[MEMBERSHIP-WEBHOOK] Membership activation completed successfully');
+  } catch (error) {
+    console.error('[MEMBERSHIP-WEBHOOK] Error confirming membership payment:', error.message);
+  }
+};
+
+/**
+ * Handle membership payment failure
+ * Marks membership as failed
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handleMembershipFailure = async (payment) => {
+  try {
+    console.log('[MEMBERSHIP-WEBHOOK] Handling membership payment failure');
+
+    const { userMembershipId } = payment.metadata || {};
+
+    if (!userMembershipId) {
+      console.log('[MEMBERSHIP-WEBHOOK] No userMembershipId found - skipping');
+      return;
+    }
+
+    const membership = await UserMembership.findById(userMembershipId);
+
+    if (!membership) {
+      console.log('[MEMBERSHIP-WEBHOOK] Membership not found:', userMembershipId);
+      return;
+    }
+
+    if (membership.status !== 'ACTIVE' || membership.paymentStatus !== 'PENDING') {
+      console.log('[MEMBERSHIP-WEBHOOK] Membership not in pending state, skipping');
+      return;
+    }
+
+    membership.paymentStatus = 'FAILED';
+    membership.status = 'CANCELLED';
+    membership.cancellationReason = 'Payment failed';
+    await membership.save();
+
+    console.log('[MEMBERSHIP-WEBHOOK] Membership marked as failed');
+  } catch (error) {
+    console.error('[MEMBERSHIP-WEBHOOK] Error handling membership failure:', error.message);
+  }
+};
+
+/**
+ * Handle membership refund
+ * Marks membership as refunded and decrements plan purchase count
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handleMembershipRefund = async (payment) => {
+  try {
+    console.log('[MEMBERSHIP-REFUND] Starting membership refund');
+
+    const { userMembershipId, membershipPlanId } = payment.metadata || {};
+
+    if (!userMembershipId) {
+      console.log('[MEMBERSHIP-REFUND] No userMembershipId found - skipping');
+      return;
+    }
+
+    const membership = await UserMembership.findById(userMembershipId);
+
+    if (!membership) {
+      console.log('[MEMBERSHIP-REFUND] Membership not found:', userMembershipId);
+      return;
+    }
+
+    await membership.markAsRefunded();
+
+    console.log('[MEMBERSHIP-REFUND] Membership marked as refunded');
+
+    const plan = await MembershipPlan.findById(membershipPlanId || membership.membershipPlanId);
+    if (plan) {
+      await plan.decrementPurchaseCount();
+      console.log('[MEMBERSHIP-REFUND] Plan purchase count decremented');
+    }
+
+    console.log('[MEMBERSHIP-REFUND] Membership refund completed successfully');
+  } catch (error) {
+    console.error('[MEMBERSHIP-REFUND] Error handling membership refund:', error.message);
+  }
+};
+
+/**
  * Update related entities after successful payment
  * Routes to appropriate handler based on payment type
  *
@@ -1881,9 +2214,16 @@ const updateRelatedEntities = async (payment) => {
   // Route to appropriate handler based on payment type
   if (payment.type === 'SESSION') {
     console.log('[UPDATE-ENTITIES] Detected SESSION type payment, calling confirmSessionBooking...');
-    // Handle session booking confirmation
     await confirmSessionBooking(payment);
     console.log('[UPDATE-ENTITIES] Session payment processed');
+    console.log('[UPDATE-ENTITIES] ========== END ==========');
+    return;
+  }
+
+  if (payment.type === 'MEMBERSHIP') {
+    console.log('[UPDATE-ENTITIES] Detected MEMBERSHIP type payment, calling confirmMembershipPayment...');
+    await confirmMembershipPayment(payment);
+    console.log('[UPDATE-ENTITIES] Membership payment processed');
     console.log('[UPDATE-ENTITIES] ========== END ==========');
     return;
   }
@@ -1912,6 +2252,7 @@ const updateRelatedEntities = async (payment) => {
   }
 
   console.log('✓ Payment processed. Users, enrollment, and emails sent successfully.');
+  console.log('[UPDATE-ENTITIES] ========== END ==========');
 };
 
 /**
@@ -1948,7 +2289,7 @@ const handleEnrollmentRefund = async (payment) => {
       ticketsMap.set(phone, {
         ...ticketData,
         status: 'REFUNDED',
-        cancelledAt: new Date(),
+        cancelledAt: nowIST(),
         cancellationReason: 'Payment refunded'
       });
     }
@@ -1958,9 +2299,27 @@ const handleEnrollmentRefund = async (payment) => {
 
     console.log('[REFUND] All tickets marked as REFUNDED');
 
-    // Reverse event ticket counts
+    // Release booked seats for refunded enrollment
     if (payment.eventId) {
       const event = await Event.findById(payment.eventId);
+
+      if (event?.hasSeatArrangement) {
+        try {
+          // Release all seats for this enrollment
+          for (const [phone, ticketData] of enrollment.tickets.entries()) {
+            if (ticketData.assignedSeat) {
+              await cancelSeatBooking({
+                enrollmentId: enrollment._id,
+                phone,
+              });
+            }
+          }
+          console.log('[REFUND] Seats released for refunded enrollment:', enrollment._id);
+        } catch (seatError) {
+          console.error('[REFUND] Seat release on refund error:', seatError.message);
+        }
+      }
+
       if (event) {
         event.ticketsSold = Math.max(0, (event.ticketsSold || 0) - enrollment.ticketCount);
 
@@ -2001,9 +2360,14 @@ const reverseRelatedEntities = async (payment) => {
 
   // Route to appropriate handler based on payment type
   if (payment.type === 'SESSION') {
-    // Handle session refund
     await handleSessionRefund(payment);
     console.log('✓ Session refund processed successfully.');
+    return;
+  }
+
+  if (payment.type === 'MEMBERSHIP') {
+    await handleMembershipRefund(payment);
+    console.log('✓ Membership refund processed successfully.');
     return;
   }
 
@@ -2027,8 +2391,8 @@ const reverseRelatedEntities = async (payment) => {
 };
 
 /**
- * Handle session booking failure (called on payment failure)
- * Routes to cancelSessionBooking for SESSION type payments
+ * Handle payment failure by type
+ * Routes to type-specific failure handlers
  *
  * @param {Object} payment - Payment document from database
  *
@@ -2038,6 +2402,8 @@ const reverseRelatedEntities = async (payment) => {
 const handlePaymentFailureByType = async (payment) => {
   if (payment.type === 'SESSION') {
     await cancelSessionBooking(payment);
+  } else if (payment.type === 'MEMBERSHIP') {
+    await handleMembershipFailure(payment);
   }
   // For EVENT type, voucher release is already handled in releaseVoucherClaim
 };

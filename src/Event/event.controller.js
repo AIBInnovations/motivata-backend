@@ -5,6 +5,7 @@
 
 import Event from '../../schema/Event.schema.js';
 import responseUtil from '../../utils/response.util.js';
+import { toIST } from '../../utils/timezone.util.js';
 
 /**
  * Create a new event
@@ -18,6 +19,14 @@ export const createEvent = async (req, res) => {
       ...req.body,
       createdBy: req.user.id
     };
+
+    // Convert dates to IST if provided
+    if (eventData.startDate) {
+      eventData.startDate = toIST(eventData.startDate);
+    }
+    if (eventData.endDate) {
+      eventData.endDate = toIST(eventData.endDate);
+    }
 
     const event = new Event(eventData);
     await event.save();
@@ -46,6 +55,9 @@ export const createEvent = async (req, res) => {
  */
 export const getAllEvents = async (req, res) => {
   try {
+    // Update all expired events first
+    await Event.updateExpiredEvents();
+
     const {
       page = 1,
       limit = 10,
@@ -79,11 +91,11 @@ export const getAllEvents = async (req, res) => {
       if (maxPrice) query.price.$lte = Number(maxPrice);
     }
 
-    // Date range filter
+    // Date range filter - convert to IST
     if (startDateFrom || startDateTo) {
       query.startDate = {};
-      if (startDateFrom) query.startDate.$gte = new Date(startDateFrom);
-      if (startDateTo) query.startDate.$lte = new Date(startDateTo);
+      if (startDateFrom) query.startDate.$gte = toIST(new Date(startDateFrom));
+      if (startDateTo) query.startDate.$lte = toIST(new Date(startDateTo));
     }
 
     // Search filter
@@ -176,6 +188,14 @@ export const updateEvent = async (req, res) => {
       ...req.body,
       updatedBy: req.user.id
     };
+
+    // Convert dates to IST if provided
+    if (updates.startDate) {
+      updates.startDate = toIST(updates.startDate);
+    }
+    if (updates.endDate) {
+      updates.endDate = toIST(updates.endDate);
+    }
 
     // Remove fields that shouldn't be updated directly
     delete updates.createdBy;
@@ -377,10 +397,13 @@ export const updateExpiredEvents = async (_req, res) => {
  */
 export const getUpcomingEvents = async (req, res) => {
   try {
+    // Update all expired events first
+    await Event.updateExpiredEvents();
+
     const { limit = 10 } = req.query;
 
     const events = await Event.find({
-      startDate: { $gt: new Date() },
+      startDate: { $gt: toIST(new Date()) },
       isLive: true
     })
       .sort({ startDate: 1 })
@@ -402,6 +425,9 @@ export const getUpcomingEvents = async (req, res) => {
  */
 export const getEventsByCategory = async (req, res) => {
   try {
+    // Update all expired events first
+    await Event.updateExpiredEvents();
+
     const { category } = req.params;
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
@@ -440,6 +466,9 @@ export const getEventsByCategory = async (req, res) => {
  */
 export const getEventTicketStats = async (req, res) => {
   try {
+    // Update all expired events first
+    await Event.updateExpiredEvents();
+
     const { id } = req.params;
 
     const event = await Event.findById(id)
@@ -525,6 +554,9 @@ export const getEventsForDropdown = async (req, res) => {
  */
 export const getFeaturedEvents = async (req, res) => {
   try {
+    // Update all expired events first
+    await Event.updateExpiredEvents();
+
     const { limit = 10 } = req.query;
 
     const events = await Event.find({
