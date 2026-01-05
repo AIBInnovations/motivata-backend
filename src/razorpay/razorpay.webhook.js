@@ -20,6 +20,11 @@ import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
 import { nowIST } from '../../utils/timezone.util.js';
 import {
+  confirmSeatBooking,
+  releaseSeatReservation,
+  cancelSeatBooking,
+} from '../SeatArrangement/seatArrangement.controller.js';
+import {
   generateEnrollmentEmail,
   generateEnrollmentEmailText,
   generateTicketEmail,
@@ -339,6 +344,19 @@ const handlePaymentFailed = async (paymentEntity) => {
 
   console.log(`✓ Payment marked as failed for order: ${orderId}`);
 
+  // Release seat reservations if event has seat arrangement
+  if (payment.eventId && payment.metadata?.selectedSeats) {
+    try {
+      const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement) {
+        await releaseSeatReservation({ orderId: payment.orderId });
+        console.log('[WEBHOOK] Seats released for failed payment:', payment.orderId);
+      }
+    } catch (seatError) {
+      console.error('[WEBHOOK] Seat release error:', seatError.message);
+    }
+  }
+
   // Handle type-specific failure actions
   await handlePaymentFailureByType(payment);
 
@@ -536,6 +554,19 @@ const handlePaymentLinkCancelled = async (paymentLinkEntity) => {
 
   console.log(`✓ Payment link cancelled for order: ${orderId}`);
 
+  // Release seat reservations if event has seat arrangement
+  if (payment.eventId && payment.metadata?.selectedSeats) {
+    try {
+      const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement) {
+        await releaseSeatReservation({ orderId: payment.orderId });
+        console.log('[WEBHOOK] Seats released for cancelled payment link:', payment.orderId);
+      }
+    } catch (seatError) {
+      console.error('[WEBHOOK] Seat release error:', seatError.message);
+    }
+  }
+
   // Handle type-specific failure actions
   await handlePaymentFailureByType(payment);
 
@@ -570,6 +601,19 @@ const handlePaymentLinkExpired = async (paymentLinkEntity) => {
   await payment.save();
 
   console.log(`✓ Payment link expired for order: ${orderId}`);
+
+  // Release seat reservations if event has seat arrangement
+  if (payment.eventId && payment.metadata?.selectedSeats) {
+    try {
+      const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
+      if (event?.hasSeatArrangement) {
+        await releaseSeatReservation({ orderId: payment.orderId });
+        console.log('[WEBHOOK] Seats released for expired payment link:', payment.orderId);
+      }
+    } catch (seatError) {
+      console.error('[WEBHOOK] Seat release error:', seatError.message);
+    }
+  }
 
   // Handle type-specific failure actions
   await handlePaymentFailureByType(payment);
@@ -887,6 +931,37 @@ const createEventEnrollment = async (payment) => {
       let event = null;
       if (payment.eventId) {
         event = await Event.findById(payment.eventId);
+
+        // Confirm seat booking and assign seats for new tickets (if event has seat arrangement)
+        if (event?.hasSeatArrangement) {
+          try {
+            await confirmSeatBooking({
+              orderId: payment.orderId,
+              enrollmentId: existingEnrollment._id,
+            });
+
+            // Assign seats to new tickets
+            const { selectedSeats } = payment.metadata || {};
+            if (selectedSeats && selectedSeats.length > 0) {
+              for (const { phone, seatLabel } of selectedSeats) {
+                const normalizedPhone = normalizePhone(phone);
+                const ticketData = existingEnrollment.tickets.get(normalizedPhone);
+
+                if (ticketData) {
+                  existingEnrollment.tickets.set(normalizedPhone, {
+                    ...ticketData,
+                    assignedSeat: seatLabel,
+                  });
+                }
+              }
+
+              await existingEnrollment.save();
+              console.log('[ENROLLMENT] Seats assigned to new tickets in existing enrollment');
+            }
+          } catch (seatError) {
+            console.error('[ENROLLMENT] Seat confirmation error for existing enrollment:', seatError.message);
+          }
+        }
         if (event) {
           event.ticketsSold = (event.ticketsSold || 0) + newTicketCount;
 
@@ -971,6 +1046,39 @@ const createEventEnrollment = async (payment) => {
     let event = null;
     if (payment.eventId) {
       event = await Event.findById(payment.eventId);
+
+      // Confirm seat booking and assign seats to tickets
+      if (event?.hasSeatArrangement) {
+        try {
+          // Confirm seat booking (RESERVED → BOOKED)
+          await confirmSeatBooking({
+            orderId: payment.orderId,
+            enrollmentId: enrollment._id,
+          });
+
+          // Assign seats to tickets in enrollment
+          const { selectedSeats } = payment.metadata || {};
+          if (selectedSeats && selectedSeats.length > 0) {
+            for (const { phone, seatLabel } of selectedSeats) {
+              const normalizedPhone = normalizePhone(phone);
+              const ticketData = enrollment.tickets.get(normalizedPhone);
+
+              if (ticketData) {
+                enrollment.tickets.set(normalizedPhone, {
+                  ...ticketData,
+                  assignedSeat: seatLabel,
+                });
+              }
+            }
+
+            await enrollment.save();
+            console.log('[ENROLLMENT] Seats assigned to tickets:', selectedSeats);
+          }
+        } catch (seatError) {
+          console.error('[ENROLLMENT] Seat confirmation error:', seatError.message);
+          // Continue - enrollment is created, seats can be manually fixed by admin
+        }
+      }
       if (event) {
         event.ticketsSold = (event.ticketsSold || 0) + totalTickets;
 
@@ -2191,9 +2299,27 @@ const handleEnrollmentRefund = async (payment) => {
 
     console.log('[REFUND] All tickets marked as REFUNDED');
 
-    // Reverse event ticket counts
+    // Release booked seats for refunded enrollment
     if (payment.eventId) {
       const event = await Event.findById(payment.eventId);
+
+      if (event?.hasSeatArrangement) {
+        try {
+          // Release all seats for this enrollment
+          for (const [phone, ticketData] of enrollment.tickets.entries()) {
+            if (ticketData.assignedSeat) {
+              await cancelSeatBooking({
+                enrollmentId: enrollment._id,
+                phone,
+              });
+            }
+          }
+          console.log('[REFUND] Seats released for refunded enrollment:', enrollment._id);
+        } catch (seatError) {
+          console.error('[REFUND] Seat release on refund error:', seatError.message);
+        }
+      }
+
       if (event) {
         event.ticketsSold = Math.max(0, (event.ticketsSold || 0) - enrollment.ticketCount);
 
