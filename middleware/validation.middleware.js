@@ -519,7 +519,7 @@ export const paymentSchemas = {
    * Create payment order schema
    */
   createOrder: Joi.object({
-    type: Joi.string().valid("EVENT", "SESSION", "OTHER", "PRODUCT").required(),
+    type: Joi.string().valid("EVENT", "SESSION", "MEMBERSHIP", "OTHER", "PRODUCT").required(),
     eventId: Joi.when("type", {
       is: "EVENT",
       then: schemas.mongoId.required(),
@@ -533,7 +533,36 @@ export const paymentSchemas = {
     amount: Joi.number().min(0).required(),
     tierName: Joi.string().trim().optional(),
     couponCode: Joi.string().trim().uppercase().optional(),
-    metadata: Joi.object().optional(),
+    metadata: Joi.object({
+      buyer: Joi.object({
+        name: schemas.name.required(),
+        email: schemas.email.optional().allow(null, ""),
+        phone: schemas.phone.required(),
+      }).optional(),
+      others: Joi.array()
+        .items(
+          Joi.object({
+            name: schemas.name.required(),
+            email: schemas.email.optional().allow(null, ""),
+            phone: schemas.phone.required(),
+          })
+        )
+        .optional(),
+      selectedSeats: Joi.array()
+        .items(
+          Joi.object({
+            phone: schemas.phone.required(),
+            seatLabel: Joi.string().trim().max(10).required().messages({
+              "string.max": "Seat label cannot exceed 10 characters",
+              "any.required": "Seat label is required",
+            }),
+          })
+        )
+        .optional(),
+      totalTickets: Joi.number().integer().min(1).optional(),
+      priceTierId: schemas.mongoId.optional(),
+      tierName: Joi.string().trim().optional(),
+    }).optional(),
   }),
 
   /**
@@ -558,7 +587,7 @@ export const paymentSchemas = {
     status: Joi.string()
       .valid("PENDING", "SUCCESS", "FAILED", "REFUNDED")
       .optional(),
-    type: Joi.string().valid("EVENT", "SESSION", "OTHER", "PRODUCT").optional(),
+    type: Joi.string().valid("EVENT", "SESSION", "MEMBERSHIP", "OTHER", "PRODUCT").optional(),
     eventId: schemas.mongoId.optional(),
     sessionId: schemas.mongoId.optional(),
     paymentMethod: Joi.string().valid("CASH", "RAZORPAY").optional(),
@@ -858,6 +887,7 @@ export const sessionSchemas = {
         "string.pattern.base": "Host phone must be 10-15 digits",
       }),
     tags: Joi.array().items(Joi.string().trim().max(50)).max(10).optional(),
+    // DEPRECATED: availableSlots field is no longer enforced (unlimited bookings)
     availableSlots: Joi.number().integer().min(0).optional().messages({
       "number.base": "Available slots must be a number",
       "number.min": "Available slots cannot be negative",
@@ -932,6 +962,7 @@ export const sessionSchemas = {
         "string.pattern.base": "Host phone must be 10-15 digits",
       }),
     tags: Joi.array().items(Joi.string().trim().max(50)).max(10).optional(),
+    // DEPRECATED: availableSlots field is no longer enforced (unlimited bookings)
     availableSlots: Joi.number().integer().min(0).optional().allow(null).messages({
       "number.base": "Available slots must be a number",
       "number.min": "Available slots cannot be negative",
@@ -1313,6 +1344,7 @@ export const connectSchemas = {
         "any.required": "Media URLs are required",
       }),
     mediaThumbnail: Joi.string().uri().optional().allow(null, ""),
+    clubId: schemas.mongoId.optional().allow(null, ""),
   }).custom((value, helpers) => {
     // VIDEO must have exactly 1 URL
     if (value.mediaType === "VIDEO" && value.mediaUrls && value.mediaUrls.length !== 1) {
@@ -1367,6 +1399,340 @@ export const connectSchemas = {
   }),
 };
 
+/**
+ * Club validation schemas
+ */
+export const clubSchemas = {
+  /**
+   * Create club schema (admin)
+   */
+  create: Joi.object({
+    name: Joi.string().trim().min(2).max(100).required().messages({
+      "string.empty": "Club name is required",
+      "string.min": "Club name must be at least 2 characters",
+      "string.max": "Club name cannot exceed 100 characters",
+    }),
+    description: Joi.string().trim().max(1000).required().messages({
+      "string.empty": "Club description is required",
+      "string.max": "Club description cannot exceed 1000 characters",
+    }),
+    thumbnail: Joi.string().uri().optional().allow(null, "").messages({
+      "string.uri": "Please provide a valid thumbnail URL",
+    }),
+  }),
+
+  /**
+   * Update club schema (admin)
+   */
+  update: Joi.object({
+    name: Joi.string().trim().min(2).max(100).optional().messages({
+      "string.min": "Club name must be at least 2 characters",
+      "string.max": "Club name cannot exceed 100 characters",
+    }),
+    description: Joi.string().trim().max(1000).optional().messages({
+      "string.max": "Club description cannot exceed 1000 characters",
+    }),
+    thumbnail: Joi.string().uri().optional().allow(null, "").messages({
+      "string.uri": "Please provide a valid thumbnail URL",
+    }),
+  }),
+
+  /**
+   * Club ID parameter validation
+   */
+  clubId: Joi.object({
+    clubId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Query parameters for listing clubs (admin)
+   */
+  listAdmin: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string()
+      .valid("name", "memberCount", "postCount", "createdAt")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Query parameters for listing clubs (user)
+   */
+  listUser: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(50).default(20),
+    sortBy: Joi.string()
+      .valid("name", "memberCount", "postCount", "createdAt")
+      .default("memberCount"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+  }),
+
+  /**
+   * Feed query parameters
+   */
+  feedQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(50).default(10),
+  }),
+
+  /**
+   * Pagination query parameters
+   */
+  paginationQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+  }),
+};
+
+/**
+ * Membership Plan validation schemas
+ */
+export const membershipPlanSchemas = {
+  /**
+   * Create membership plan schema
+   */
+  create: Joi.object({
+    name: Joi.string().trim().max(200).required().messages({
+      "string.empty": "Membership plan name is required",
+      "string.max": "Plan name cannot exceed 200 characters",
+    }),
+    description: Joi.string().trim().max(2000).required().messages({
+      "string.empty": "Membership plan description is required",
+      "string.max": "Description cannot exceed 2000 characters",
+    }),
+    price: Joi.number().min(0).required().messages({
+      "number.base": "Price must be a number",
+      "number.min": "Price cannot be negative",
+      "any.required": "Price is required",
+    }),
+    compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional().messages({
+      "number.base": "Compare at price must be a number",
+      "number.min": "Compare at price must be greater than or equal to price",
+    }),
+    durationInDays: Joi.number().integer().min(1).required().messages({
+      "number.base": "Duration must be a number",
+      "number.min": "Duration must be at least 1 day",
+      "any.required": "Duration is required",
+    }),
+    perks: Joi.array().items(Joi.string().trim().max(500)).optional().messages({
+      "string.max": "Each perk cannot exceed 500 characters",
+    }),
+    metadata: Joi.object().optional(),
+    displayOrder: Joi.number().integer().min(0).optional().default(0),
+    isFeatured: Joi.boolean().optional().default(false),
+    isActive: Joi.boolean().optional().default(true),
+    maxPurchases: Joi.number().integer().min(0).optional().allow(null),
+  }),
+
+  /**
+   * Update membership plan schema
+   */
+  update: Joi.object({
+    name: Joi.string().trim().max(200).optional(),
+    description: Joi.string().trim().max(2000).optional(),
+    price: Joi.number().min(0).optional(),
+    compareAtPrice: Joi.number().min(0).optional().allow(null),
+    durationInDays: Joi.number().integer().min(1).optional(),
+    perks: Joi.array().items(Joi.string().trim().max(500)).optional(),
+    metadata: Joi.object().optional(),
+    displayOrder: Joi.number().integer().min(0).optional(),
+    isFeatured: Joi.boolean().optional(),
+    isActive: Joi.boolean().optional(),
+    maxPurchases: Joi.number().integer().min(0).optional().allow(null),
+  }),
+
+  /**
+   * Query parameters for listing membership plans
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("name", "price", "durationInDays", "displayOrder", "createdAt")
+      .default("displayOrder"),
+    sortOrder: Joi.string().valid("asc", "desc").default("asc"),
+    isActive: Joi.boolean().optional(),
+    isFeatured: Joi.boolean().optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Plan ID parameter validation
+   */
+  planId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+};
+
+/**
+ * User Membership validation schemas
+ */
+export const userMembershipSchemas = {
+  /**
+   * Create user membership (admin purchase)
+   */
+  createAdmin: Joi.object({
+    phone: schemas.phone.required(),
+    membershipPlanId: schemas.mongoId.required(),
+    amountPaid: Joi.number().min(0).optional(),
+    adminNotes: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Create payment order for membership (in-app/website)
+   */
+  createOrder: Joi.object({
+    phone: schemas.phone.required(),
+    membershipPlanId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Query parameters for listing user memberships
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("startDate", "endDate", "createdAt", "amountPaid")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    status: Joi.string()
+      .valid("ACTIVE", "EXPIRED", "CANCELLED", "REFUNDED")
+      .optional(),
+    paymentStatus: Joi.string()
+      .valid("PENDING", "SUCCESS", "FAILED", "REFUNDED")
+      .optional(),
+    purchaseMethod: Joi.string()
+      .valid("ADMIN", "IN_APP", "WEBSITE")
+      .optional(),
+    membershipPlanId: schemas.mongoId.optional(),
+    phone: schemas.phone.optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Check membership status by phone
+   */
+  checkStatus: Joi.object({
+    phone: schemas.phone.required(),
+  }),
+
+  /**
+   * Extend membership duration
+   */
+  extend: Joi.object({
+    additionalDays: Joi.number().integer().min(1).required().messages({
+      "number.base": "Additional days must be a number",
+      "number.min": "Additional days must be at least 1",
+      "any.required": "Additional days is required",
+    }),
+  }),
+
+  /**
+   * Cancel membership
+   */
+  cancel: Joi.object({
+    reason: Joi.string().trim().max(500).optional(),
+  }),
+
+  /**
+   * Update admin notes
+   */
+  updateNotes: Joi.object({
+    adminNotes: Joi.string().trim().max(1000).required(),
+  }),
+
+  /**
+   * Membership ID parameter validation
+   */
+  membershipId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+};
+
+/**
+ * Seat Arrangement validation schemas
+ */
+export const seatArrangementSchemas = {
+  /**
+   * Create seat arrangement schema
+   */
+  create: Joi.object({
+    imageUrl: Joi.string().uri().required().messages({
+      "string.uri": "Please provide a valid image URL",
+      "any.required": "Seat arrangement image is required",
+    }),
+    seats: Joi.array()
+      .items(
+        Joi.object({
+          label: Joi.string().trim().max(10).required().messages({
+            "string.empty": "Seat label is required",
+            "string.max": "Seat label cannot exceed 10 characters",
+            "any.required": "Seat label is required",
+          }),
+        })
+      )
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one seat is required",
+        "any.required": "Seats array is required",
+      })
+      .custom((value, helpers) => {
+        // Validate unique labels
+        const labels = value.map((s) => s.label.toUpperCase().trim());
+        const uniqueLabels = new Set(labels);
+        if (labels.length !== uniqueLabels.size) {
+          return helpers.error("any.custom", {
+            message: "Seat labels must be unique",
+          });
+        }
+        return value;
+      }),
+  }),
+
+  /**
+   * Update seat arrangement schema
+   */
+  update: Joi.object({
+    imageUrl: Joi.string().uri().optional().messages({
+      "string.uri": "Please provide a valid image URL",
+    }),
+    seats: Joi.array()
+      .items(
+        Joi.object({
+          label: Joi.string().trim().max(10).required().messages({
+            "string.empty": "Seat label is required",
+            "string.max": "Seat label cannot exceed 10 characters",
+          }),
+        })
+      )
+      .min(1)
+      .optional()
+      .custom((value, helpers) => {
+        if (value) {
+          const labels = value.map((s) => s.label.toUpperCase().trim());
+          const uniqueLabels = new Set(labels);
+          if (labels.length !== uniqueLabels.size) {
+            return helpers.error("any.custom", {
+              message: "Seat labels must be unique",
+            });
+          }
+        }
+        return value;
+      }),
+  }),
+
+  /**
+   * Event ID parameter validation
+   */
+  eventIdParam: Joi.object({
+    eventId: schemas.mongoId.required(),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -1385,4 +1751,7 @@ export default {
   storySchemas,
   ticketReshareSchemas,
   connectSchemas,
+  membershipPlanSchemas,
+  userMembershipSchemas,
+  seatArrangementSchemas,
 };

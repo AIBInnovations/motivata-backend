@@ -4,6 +4,7 @@
  */
 
 import mongoose from "mongoose";
+import { nowIST } from "../utils/timezone.util.js";
 
 /**
  * @typedef {Object} Session
@@ -271,21 +272,6 @@ const sessionSchema = new mongoose.Schema(
   }
 );
 
-/**
- * Virtual for remaining slots
- */
-sessionSchema.virtual("remainingSlots").get(function () {
-  if (this.availableSlots == null) return null;
-  return Math.max(0, this.availableSlots - (this.bookedSlots || 0));
-});
-
-/**
- * Virtual for checking if session is fully booked
- */
-sessionSchema.virtual("isFullyBooked").get(function () {
-  if (this.availableSlots == null) return false;
-  return this.bookedSlots >= this.availableSlots;
-});
 
 /**
  * Virtual for discount percentage
@@ -322,16 +308,7 @@ sessionSchema.pre(/^find/, function () {
  * Pre-save middleware to validate session data
  */
 sessionSchema.pre("save", function (next) {
-  // Auto-set availableSlots to 1 for OTO sessions if not specified
-  if (this.sessionType === "OTO" && this.availableSlots == null) {
-    this.availableSlots = 1;
-  }
-
-  // Ensure bookedSlots doesn't exceed availableSlots
-  if (this.availableSlots != null && this.bookedSlots > this.availableSlots) {
-    return next(new Error("Booked slots cannot exceed available slots"));
-  }
-
+  // Slot validation removed - unlimited bookings allowed
   next();
 });
 
@@ -353,7 +330,7 @@ sessionSchema.statics.findDeleted = function (filter = {}) {
  */
 sessionSchema.methods.softDelete = function (adminId) {
   this.isDeleted = true;
-  this.deletedAt = new Date();
+  this.deletedAt = nowIST();
   this.deletedBy = adminId;
   return this.save();
 };
@@ -378,29 +355,6 @@ sessionSchema.statics.permanentDelete = function (id) {
   return this.findByIdAndDelete(id);
 };
 
-/**
- * Instance method to book a slot
- * @returns {Promise<Session>} Updated session document
- * @throws {Error} If session is fully booked
- */
-sessionSchema.methods.bookSlot = function () {
-  if (this.availableSlots != null && this.bookedSlots >= this.availableSlots) {
-    throw new Error("Session is fully booked");
-  }
-  this.bookedSlots = (this.bookedSlots || 0) + 1;
-  return this.save();
-};
-
-/**
- * Instance method to cancel a booking (release a slot)
- * @returns {Promise<Session>} Updated session document
- */
-sessionSchema.methods.cancelBooking = function () {
-  if (this.bookedSlots > 0) {
-    this.bookedSlots -= 1;
-  }
-  return this.save();
-};
 
 /**
  * Static method to get available sessions
@@ -411,10 +365,6 @@ sessionSchema.statics.findAvailable = function (filter = {}) {
   return this.find({
     ...filter,
     isLive: true,
-    $or: [
-      { availableSlots: null },
-      { $expr: { $lt: ["$bookedSlots", "$availableSlots"] } },
-    ],
   });
 };
 

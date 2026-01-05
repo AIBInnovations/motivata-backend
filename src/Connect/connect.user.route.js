@@ -36,6 +36,7 @@ import {
   validateQuery,
   connectSchemas,
 } from "../../middleware/validation.middleware.js";
+import clubUserRoutes from "../Club/club.user.route.js";
 
 const router = express.Router();
 
@@ -356,5 +357,15 @@ router.get(
   validateParams(connectSchemas.userId),
   checkFollowStatus
 );
+
+// ============================================
+// CLUB ROUTES
+// ============================================
+
+/**
+ * Club routes - /api/app/connect/clubs
+ * Includes: list clubs, join/leave, club feed, club members
+ */
+router.use("/clubs", clubUserRoutes);
 
 export default router;

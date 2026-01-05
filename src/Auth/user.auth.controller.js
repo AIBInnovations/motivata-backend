@@ -420,24 +420,26 @@ export const getProfile = async (req, res) => {
       .sort({ createdAt: -1 });
 
     // Enrich enrollments with relationship and myTicket info
-    const enrichedEnrollments = enrollments.map(enrollment => {
-      const isOwner = enrollment.userId._id.toString() === userId;
-      const enrollmentObj = enrollment.toObject();
-      const myTicket = enrollment.tickets.get(user.phone) || null;
+    const enrichedEnrollments = enrollments
+      .filter(enrollment => enrollment.userId !== null) // Filter out enrollments with deleted users
+      .map(enrollment => {
+        const isOwner = enrollment.userId._id.toString() === userId;
+        const enrollmentObj = enrollment.toObject();
+        const myTicket = enrollment.tickets.get(user.phone) || null;
 
-      return {
-        ...enrollmentObj,
-        relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
-        myTicket: myTicket ? {
-          phone: user.phone,
-          status: myTicket.status,
-          isTicketScanned: myTicket.isTicketScanned,
-          ticketScannedAt: myTicket.ticketScannedAt
-        } : null,
-        // Include all tickets only if user is the owner
-        tickets: isOwner ? enrollmentObj.tickets : undefined
-      };
-    });
+        return {
+          ...enrollmentObj,
+          relationship: isOwner ? 'OWNER' : 'TICKET_HOLDER',
+          myTicket: myTicket ? {
+            phone: user.phone,
+            status: myTicket.status,
+            isTicketScanned: myTicket.isTicketScanned,
+            ticketScannedAt: myTicket.ticketScannedAt
+          } : null,
+          // Include all tickets only if user is the owner
+          tickets: isOwner ? enrollmentObj.tickets : undefined
+        };
+      });
 
     return responseUtil.success(res, 'Profile retrieved successfully', {
       user,

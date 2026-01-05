@@ -93,6 +93,17 @@ const postSchema = new mongoose.Schema(
     },
 
     /**
+     * Optional club association
+     * If set, post belongs to a club and will NOT appear in main feed
+     */
+    club: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Club",
+      default: null,
+      index: true,
+    },
+
+    /**
      * Soft delete flag
      */
     isDeleted: {
@@ -123,6 +134,8 @@ const postSchema = new mongoose.Schema(
 postSchema.index({ createdAt: -1 });
 postSchema.index({ author: 1, createdAt: -1 });
 postSchema.index({ isDeleted: 1, createdAt: -1 });
+postSchema.index({ club: 1, createdAt: -1 });
+postSchema.index({ club: 1, isDeleted: 1 });
 
 /**
  * Pre-query middleware to exclude soft deleted posts

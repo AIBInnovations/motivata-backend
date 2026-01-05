@@ -7,6 +7,7 @@ import Session from "../../schema/Session.schema.js";
 import SessionBooking from "../../schema/SessionBooking.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
+import { toIST } from "../../utils/timezone.util.js";
 
 /**
  * Create a new session
@@ -34,6 +35,11 @@ export const createSession = async (req, res) => {
       createdBy: req.user.id,
     };
 
+    // Convert sessionDate to IST if provided
+    if (sessionData.sessionDate) {
+      sessionData.sessionDate = toIST(sessionData.sessionDate);
+    }
+
     // Validate compareAtPrice is greater than or equal to price
     if (
       sessionData.compareAtPrice != null &&
@@ -42,18 +48,6 @@ export const createSession = async (req, res) => {
       return responseUtil.badRequest(
         res,
         "Compare at price must be greater than or equal to current price"
-      );
-    }
-
-    // Validate OTO sessions have at most 1 slot
-    if (
-      sessionData.sessionType === "OTO" &&
-      sessionData.availableSlots &&
-      sessionData.availableSlots > 1
-    ) {
-      return responseUtil.badRequest(
-        res,
-        "One-to-One sessions can only have 1 slot"
       );
     }
 
@@ -300,6 +294,11 @@ export const updateSession = async (req, res) => {
       updatedBy: req.user.id,
     };
 
+    // Convert sessionDate to IST if provided
+    if (updates.sessionDate) {
+      updates.sessionDate = toIST(updates.sessionDate);
+    }
+
     // Remove fields that shouldn't be updated directly
     delete updates.createdBy;
     delete updates.isDeleted;
@@ -344,25 +343,6 @@ export const updateSession = async (req, res) => {
       }
     }
 
-    // Validate OTO sessions have at most 1 slot
-    const sessionTypeToCheck = updates.sessionType;
-    if (sessionTypeToCheck === "OTO" && updates.availableSlots && updates.availableSlots > 1) {
-      return responseUtil.badRequest(
-        res,
-        "One-to-One sessions can only have 1 slot"
-      );
-    }
-
-    // Check if changing session type and validate slots accordingly
-    if (updates.sessionType && !updates.availableSlots) {
-      const existingSession = await Session.findById(id);
-      if (existingSession && updates.sessionType === "OTO" && existingSession.availableSlots > 1) {
-        return responseUtil.badRequest(
-          res,
-          "Cannot change to One-to-One session type when available slots > 1. Please reduce available slots first."
-        );
-      }
-    }
 
     const session = await Session.findByIdAndUpdate(id, updates, {
       new: true,
@@ -423,11 +403,16 @@ export const deleteSession = async (req, res) => {
       return responseUtil.notFound(res, "Session not found");
     }
 
-    // Check if session has active bookings
-    if (session.bookedSlots > 0) {
+    // Check if session has active bookings using SessionBooking count
+    const activeBookingsCount = await SessionBooking.countDocuments({
+      sessionId: id,
+      status: { $in: ['confirmed', 'scheduled', 'pending'] }
+    });
+
+    if (activeBookingsCount > 0) {
       return responseUtil.badRequest(
         res,
-        "Cannot delete session with active bookings. Please cancel all bookings first."
+        `Cannot delete session with ${activeBookingsCount} active booking(s). Please cancel all bookings first.`
       );
     }
 
@@ -703,7 +688,7 @@ export const getSessionBookingStats = async (req, res) => {
     }
 
     const session = await Session.findById(id).select(
-      "title sessionType availableSlots bookedSlots price host isLive"
+      "title sessionType price host isLive"
     );
 
     if (!session) {
@@ -717,16 +702,6 @@ export const getSessionBookingStats = async (req, res) => {
       sessionType: session.sessionType,
       price: session.price,
       isLive: session.isLive,
-      availableSlots: session.availableSlots,
-      bookedSlots: session.bookedSlots || 0,
-      remainingSlots: session.remainingSlots,
-      isFullyBooked: session.isFullyBooked,
-      bookingPercentage:
-        session.availableSlots != null
-          ? Math.round(
-              ((session.bookedSlots || 0) / session.availableSlots) * 100
-            )
-          : null,
     };
 
     return responseUtil.success(
@@ -910,10 +885,6 @@ export const bookSession = async (req, res) => {
       return responseUtil.badRequest(res, "Session is not currently available");
     }
 
-    if (session.isFullyBooked) {
-      return responseUtil.conflict(res, "Session is fully booked", "SESSION_FULLY_BOOKED");
-    }
-
     // Check for existing pending/confirmed booking
     const existingBooking = await SessionBooking.findOne({
       userId,
@@ -944,9 +915,6 @@ export const bookSession = async (req, res) => {
     });
 
     await booking.save();
-
-    // Increment booked slots
-    await session.bookSlot();
 
     console.log("[Session] Booking created:", booking.bookingReference);
 
@@ -1102,12 +1070,6 @@ export const cancelBooking = async (req, res) => {
     // Update booking
     await booking.cancel("user", reason);
 
-    // Release slot
-    const session = await Session.findById(booking.sessionId);
-    if (session) {
-      await session.cancelBooking();
-    }
-
     console.log("[Session] Booking cancelled:", bookingId);
 
     return responseUtil.success(res, "Booking cancelled successfully", {
@@ -1145,8 +1107,8 @@ export const listBookingsAdmin = async (req, res) => {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.startDate || req.query.endDate) {
       filter.bookedAt = {};
-      if (req.query.startDate) filter.bookedAt.$gte = new Date(req.query.startDate);
-      if (req.query.endDate) filter.bookedAt.$lte = new Date(req.query.endDate);
+      if (req.query.startDate) filter.bookedAt.$gte = toIST(new Date(req.query.startDate));
+      if (req.query.endDate) filter.bookedAt.$lte = toIST(new Date(req.query.endDate));
     }
 
     const [bookings, total] = await Promise.all([
