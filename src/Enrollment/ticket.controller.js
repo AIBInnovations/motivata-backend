@@ -294,6 +294,7 @@ export const verifyTicket = async (req, res) => {
         ticket: {
           phone: matchedPhone,
           status: ticket.status,
+          assignedSeat: ticket.assignedSeat || null,
         },
         enrollment: {
           id: enrollment._id,
@@ -329,6 +330,7 @@ export const verifyTicket = async (req, res) => {
         ticket: {
           phone: matchedPhone,
           status: ticket.status,
+          assignedSeat: ticket.assignedSeat || null,
         },
         enrollment: {
           id: enrollment._id,
@@ -536,6 +538,7 @@ export const scanQRCode = async (req, res) => {
         status: ticket.status,
         isTicketScanned: ticket.isTicketScanned,
         ticketScannedAt: ticket.ticketScannedAt,
+        assignedSeat: ticket.assignedSeat || null,
       },
       enrollment: {
         id: enrollment._id,

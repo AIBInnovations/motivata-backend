@@ -9,6 +9,7 @@ import Payment from '../../schema/Payment.schema.js';
 import Event from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
 import responseUtil from '../../utils/response.util.js';
+import { cancelSeatBooking } from '../SeatArrangement/seatArrangement.controller.js';
 
 /**
  * Create enrollment after successful payment
@@ -272,7 +273,8 @@ export const getUserEnrollments = async (req, res) => {
         myTicket: myTicket ? {
           phone: matchedPhone,
           status: myTicket.status,
-          isTicketScanned: myTicket.isTicketScanned
+          isTicketScanned: myTicket.isTicketScanned,
+          assignedSeat: myTicket.assignedSeat || null
         } : null,
         // Hide other tickets if not owner
         tickets: isOwner ? enrollment.tickets : undefined
@@ -403,7 +405,8 @@ export const getEnrollmentById = async (req, res) => {
           myTicket: myTicket ? {
             phone: matchedPhone,
             status: myTicket.status,
-            isTicketScanned: myTicket.isTicketScanned
+            isTicketScanned: myTicket.isTicketScanned,
+            assignedSeat: myTicket.assignedSeat || null
           } : null,
           // Hide other tickets if not owner
           tickets: isOwner ? enrollmentObj.tickets : undefined
@@ -666,6 +669,34 @@ export const cancelEnrollment = async (req, res) => {
 
     await enrollment.save();
 
+    // Release booked seats for cancelled tickets
+    if (cancelledCount > 0 && enrollment.eventId.hasSeatArrangement) {
+      try {
+        if (cancelAll) {
+          // Release all seats for this enrollment
+          for (const [phoneNum, ticket] of enrollment.tickets) {
+            if (ticket.status === 'CANCELLED' && ticket.assignedSeat) {
+              await cancelSeatBooking({
+                enrollmentId: enrollment._id,
+                phone: phoneNum,
+              });
+            }
+          }
+        } else if (phone) {
+          // Release specific seat
+          const { ticket, matchedPhone } = findTicketInMap(enrollment.tickets, phone);
+          if (ticket?.assignedSeat) {
+            await cancelSeatBooking({
+              enrollmentId: enrollment._id,
+              phone: matchedPhone,
+            });
+          }
+        }
+      } catch (seatError) {
+        console.error('[CANCEL] Seat release error:', seatError.message);
+      }
+    }
+
     // Update event: decrement tickets sold and increment available seats (if exists)
     if (cancelledCount > 0) {
       const event = await Event.findById(enrollment.eventId._id);
@@ -747,7 +778,8 @@ export const checkEnrollmentStatus = async (req, res) => {
       myTicket: myTicket ? {
         phone: matchedPhone,
         status: myTicket.status,
-        isTicketScanned: myTicket.isTicketScanned
+        isTicketScanned: myTicket.isTicketScanned,
+        assignedSeat: myTicket.assignedSeat || null
       } : null,
       enrollment: enrollment || null,
       activeTicketCount,

@@ -122,6 +122,11 @@ const eventEnrollmentSchema = new mongoose.Schema(
           ref: "Admin",
           default: null,
         },
+        assignedSeat: {
+          type: String,
+          trim: true,
+          default: null,
+        },
       },
       required: true,
       default: new Map(),

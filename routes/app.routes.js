@@ -15,6 +15,7 @@ import userEnrollmentRoutes from "../src/Enrollment/user.enrollment.route.js";
 import userTicketRoutes from "../src/Enrollment/user.ticket.route.js";
 import userVoucherRoutes from "../src/Enrollment/voucher.user.route.js";
 import userSessionRoutes from "../src/Session/session.user.route.js";
+import userCalendlyRoutes from "../src/Calendly/calendly.public.route.js";
 import userSOSRoutes from "../src/Quiz/sos.user.route.js";
 import userChallengeRoutes from "../src/Challenge/challenge.user.route.js";
 import userPollRoutes from "../src/Poll/poll.user.route.js";
@@ -24,6 +25,8 @@ import responseUtil from "../utils/response.util.js";
 import services from "../src/Other/app/showDelete.js";
 import publicAssetRoutes from "../src/Asset/asset.public.route.js";
 import userStoryRoutes from "../src/Story/story.user.route.js";
+import userMembershipRoutes from "../src/Membership/user.membership.route.js";
+import seatArrangementUserRoutes from "../src/SeatArrangement/seatArrangement.user.route.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +46,9 @@ router.use("/auth", userAuthRoutes);
 // Event routes - /api/app/events
 router.use("/events", userEventRoutes);
 
+// Seat arrangement routes - /api/app/events/:eventId/seat-arrangement
+router.use("/events", seatArrangementUserRoutes);
+
 // Coupon routes - /api/app/coupons
 router.use("/coupons", userCouponRoutes);
 
@@ -60,6 +66,9 @@ router.use("/vouchers", userVoucherRoutes);
 
 // Session routes - /api/app/sessions
 router.use("/sessions", userSessionRoutes);
+
+// Calendly routes - /api/app/calendly (public slot fetching)
+router.use("/calendly", userCalendlyRoutes);
 
 // SOS routes - /api/app/sos
 router.use("/sos", userSOSRoutes);
@@ -81,6 +90,9 @@ router.use("/stories", userStoryRoutes);
 
 // Notification routes - /api/app/notifications (FCM token management)
 router.use("/notifications", userNotificationRoutes);
+
+// Membership routes - /api/app/membership-plans and /api/app/memberships
+router.use("/", userMembershipRoutes);
 
 // Add more user routes here as needed
 // Example:

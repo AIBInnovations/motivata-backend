@@ -42,11 +42,6 @@ export const createSessionOrder = async (req, res) => {
       return responseUtil.badRequest(res, "Session is not currently available for booking");
     }
 
-    // Check if session is fully booked
-    if (session.availableSlots != null && session.bookedSlots >= session.availableSlots) {
-      return responseUtil.badRequest(res, "Session is fully booked");
-    }
-
     // Get user details
     const user = await User.findById(userId);
     if (!user) {
@@ -88,9 +83,6 @@ export const createSessionOrder = async (req, res) => {
       });
 
       await booking.save();
-
-      // Increment booked slots
-      await session.bookSlot();
 
       console.log("[SESSION-PAYMENT] Free session booking created:", booking.bookingReference);
 
