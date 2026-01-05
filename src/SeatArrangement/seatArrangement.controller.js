@@ -20,6 +20,61 @@ const normalizePhone = (phone) => {
 };
 
 /**
+ * Clean up expired seat reservations for a specific event
+ * Called automatically when seats are queried
+ * @param {ObjectId} eventId - Event to cleanup
+ * @returns {Promise<boolean>} - True if any seats were released
+ */
+const cleanupExpiredReservations = async (eventId) => {
+  try {
+    const now = new Date();
+
+    const arrangement = await SeatArrangement.findOne({ eventId });
+    if (!arrangement) return false;
+
+    let releasedCount = 0;
+
+    // Find and release expired reservations
+    for (const seat of arrangement.seats) {
+      if (
+        seat.status === "RESERVED" &&
+        seat.reservationExpiry &&
+        seat.reservationExpiry <= now
+      ) {
+        seat.status = "AVAILABLE";
+        seat.reservedBy = null;
+        seat.reservationExpiry = null;
+        seat.orderId = null;
+        releasedCount++;
+      }
+    }
+
+    if (releasedCount > 0) {
+      // Recalculate counts
+      arrangement.availableSeatsCount = arrangement.seats.filter(
+        (s) => s.status === "AVAILABLE"
+      ).length;
+      arrangement.reservedSeatsCount = arrangement.seats.filter(
+        (s) => s.status === "RESERVED"
+      ).length;
+
+      await arrangement.save();
+      console.log(
+        `[SEAT-ARRANGEMENT] Auto-released ${releasedCount} expired seats for event ${eventId}`
+      );
+    }
+
+    return releasedCount > 0;
+  } catch (error) {
+    console.error(
+      "[SEAT-ARRANGEMENT] Cleanup error:",
+      error.message
+    );
+    return false;
+  }
+};
+
+/**
  * Create seat arrangement for an event (Admin)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -124,6 +179,9 @@ export const getSeatArrangement = async (req, res) => {
     const { eventId } = req.params;
     const isAdmin = req.user?.userType === "admin";
 
+    // Clean up expired reservations first
+    await cleanupExpiredReservations(eventId);
+
     const arrangement = await SeatArrangement.findOne({ eventId })
       .populate("eventId", "name startDate endDate mode city")
       .populate("createdBy", "name email")
@@ -177,6 +235,9 @@ export const getAvailableSeats = async (req, res) => {
   try {
     const { eventId } = req.params;
 
+    // Clean up expired reservations first
+    await cleanupExpiredReservations(eventId);
+
     const arrangement = await SeatArrangement.findOne({ eventId }).select(
       "seats totalSeats availableSeatsCount"
     );
@@ -185,15 +246,9 @@ export const getAvailableSeats = async (req, res) => {
       return responseUtil.notFound(res, "Seat arrangement not found");
     }
 
-    const now = nowIST();
-
-    // Filter available seats (including expired reservations)
+    // Filter available seats (expired reservations already cleaned up)
     const availableSeats = arrangement.seats
-      .filter(
-        (seat) =>
-          seat.status === "AVAILABLE" ||
-          (seat.status === "RESERVED" && seat.reservationExpiry < now)
-      )
+      .filter((seat) => seat.status === "AVAILABLE")
       .map((seat) => seat.label);
 
     return responseUtil.success(res, "Available seats retrieved", {
@@ -411,6 +466,9 @@ export const deleteSeatArrangement = async (req, res) => {
  * @param {Object} params - { eventId, selectedSeats, userId, orderId }
  */
 export const reserveSeats = async ({ eventId, selectedSeats, userId, orderId }) => {
+  // Clean up expired reservations first to make them available
+  await cleanupExpiredReservations(eventId);
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -429,7 +487,7 @@ export const reserveSeats = async ({ eventId, selectedSeats, userId, orderId }) 
     const requestedLabels = selectedSeats.map((s) => s.seatLabel.toUpperCase().trim());
     const unavailableSeats = [];
 
-    // Check all requested seats are available
+    // Check all requested seats are available (expired reservations already cleaned)
     for (const seatLabel of requestedLabels) {
       const seat = arrangement.seats.find((s) => s.label === seatLabel);
 
@@ -438,11 +496,8 @@ export const reserveSeats = async ({ eventId, selectedSeats, userId, orderId }) 
         continue;
       }
 
-      // Seat must be AVAILABLE or RESERVED with expired expiry
-      if (
-        seat.status !== "AVAILABLE" &&
-        !(seat.status === "RESERVED" && seat.reservationExpiry < now)
-      ) {
+      // Seat must be AVAILABLE
+      if (seat.status !== "AVAILABLE") {
         unavailableSeats.push(`${seatLabel} (${seat.status})`);
       }
     }
