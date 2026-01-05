@@ -195,7 +195,16 @@ const sessionSchema = new mongoose.Schema(
     },
 
     /**
-     * Calendly booking link
+     * Calendly event type URI (links to specific Calendly event type)
+     */
+    calendlyEventTypeUri: {
+      type: String,
+      trim: true,
+    },
+
+    /**
+     * Calendly booking link (public scheduling URL)
+     * This will be auto-populated from calendlyEventTypeUri if provided
      */
     calendlyLink: {
       type: String,

@@ -15,6 +15,7 @@ import userEnrollmentRoutes from "../src/Enrollment/user.enrollment.route.js";
 import userTicketRoutes from "../src/Enrollment/user.ticket.route.js";
 import userVoucherRoutes from "../src/Enrollment/voucher.user.route.js";
 import userSessionRoutes from "../src/Session/session.user.route.js";
+import userCalendlyRoutes from "../src/Calendly/calendly.public.route.js";
 import userSOSRoutes from "../src/Quiz/sos.user.route.js";
 import userChallengeRoutes from "../src/Challenge/challenge.user.route.js";
 import userPollRoutes from "../src/Poll/poll.user.route.js";
@@ -65,6 +66,9 @@ router.use("/vouchers", userVoucherRoutes);
 
 // Session routes - /api/app/sessions
 router.use("/sessions", userSessionRoutes);
+
+// Calendly routes - /api/app/calendly (public slot fetching)
+router.use("/calendly", userCalendlyRoutes);
 
 // SOS routes - /api/app/sos
 router.use("/sos", userSOSRoutes);
