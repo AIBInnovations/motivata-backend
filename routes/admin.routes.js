@@ -8,6 +8,7 @@ import adminTicketRoutes from "../src/Enrollment/admin.ticket.route.js";
 import ticketReshareRoutes from "../src/Enrollment/ticket.reshare.admin.route.js";
 import adminVoucherRoutes from "../src/Enrollment/voucher.admin.route.js";
 import adminSessionRoutes from "../src/Session/session.admin.route.js";
+import adminCalendlyRoutes from "../src/Calendly/calendly.admin.route.js";
 import adminSOSRoutes from "../src/Quiz/sos.admin.route.js";
 import adminChallengeRoutes from "../src/Challenge/challenge.admin.route.js";
 import adminPollRoutes from "../src/Poll/poll.admin.route.js";
@@ -58,6 +59,9 @@ router.use("/vouchers", adminVoucherRoutes);
 
 // Session routes - /api/web/sessions
 router.use("/sessions", adminSessionRoutes);
+
+// Calendly routes - /api/web/calendly
+router.use("/calendly", adminCalendlyRoutes);
 
 // SOS routes - /api/web/sos
 router.use("/sos", adminSOSRoutes);
