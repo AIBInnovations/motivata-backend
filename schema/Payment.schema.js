@@ -4,6 +4,7 @@
  */
 
 import mongoose from 'mongoose';
+import { nowIST } from '../utils/timezone.util.js';
 
 const paymentSchema = new mongoose.Schema({
   /**
@@ -51,7 +52,7 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Payment type is required'],
     enum: {
-      values: ['EVENT', 'SESSION', 'OTHER', 'PRODUCT'],
+      values: ['EVENT', 'SESSION', 'MEMBERSHIP', 'OTHER', 'PRODUCT'],
       message: '{VALUE} is not a valid payment type'
     }
   },
@@ -129,7 +130,7 @@ const paymentSchema = new mongoose.Schema({
    */
   purchaseDateTime: {
     type: Date,
-    default: Date.now
+    default: nowIST
   },
 
   /**

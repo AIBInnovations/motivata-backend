@@ -7,6 +7,8 @@ import Post from "../../schema/Post.schema.js";
 import Like from "../../schema/Like.schema.js";
 import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
+import Club from "../../schema/Club.schema.js";
+import ClubMember from "../../schema/ClubMember.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
@@ -35,6 +37,11 @@ const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set
       name: post.author.name,
       isFollowing: currentUserId && !isOwnPost ? followingSet.has(authorId) : false,
     },
+    club: post.club ? {
+      id: post.club._id,
+      name: post.club.name,
+      thumbnail: post.club.thumbnail,
+    } : null,
     isLiked: currentUserId ? likedPostIds.has(post._id.toString()) : false,
     isOwnPost,
     createdAt: post.createdAt,
@@ -48,7 +55,7 @@ const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set
  */
 export const createPost = async (req, res) => {
   try {
-    const { caption, mediaType, mediaUrls, mediaThumbnail } = req.body;
+    const { caption, mediaType, mediaUrls, mediaThumbnail, clubId } = req.body;
     const authorId = req.user.id;
 
     // Validate: media is required
@@ -71,12 +78,27 @@ export const createPost = async (req, res) => {
       return responseUtil.badRequest(res, "Image posts cannot have more than 10 images");
     }
 
+    // Validate club if clubId is provided
+    if (clubId) {
+      const club = await Club.findById(clubId);
+      if (!club) {
+        return responseUtil.notFound(res, "Club not found");
+      }
+
+      // Check if user is a member of the club
+      const isMember = await ClubMember.isMember(authorId, clubId);
+      if (!isMember) {
+        return responseUtil.forbidden(res, "You must join this club before posting");
+      }
+    }
+
     const postData = {
       author: authorId,
       caption: caption?.trim() || "",
       mediaType,
       mediaUrls,
       mediaThumbnail: mediaThumbnail || null,
+      club: clubId || null,
     };
 
     const post = new Post(postData);
@@ -85,8 +107,16 @@ export const createPost = async (req, res) => {
     // Update user's post count
     await User.findByIdAndUpdate(authorId, { $inc: { postCount: 1 } });
 
-    // Populate author info for response
-    await post.populate("author", "name email");
+    // If post belongs to a club, increment club's post count
+    if (clubId) {
+      await Club.findByIdAndUpdate(clubId, { $inc: { postCount: 1 } });
+    }
+
+    // Populate author and club info for response
+    await post.populate([
+      { path: "author", select: "name email" },
+      { path: "club", select: "name thumbnail" },
+    ]);
 
     return responseUtil.created(res, "Post created successfully", {
       post: formatPostResponse(post, { currentUserId: authorId, likedPostIds: new Set() }),
@@ -125,8 +155,11 @@ export const getFeed = async (req, res) => {
     // Include own posts in the feed
     const authorIds = [currentUserId, ...followingIds];
 
-    // Build query: posts from followed users + own posts, excluding deleted
-    const query = { author: { $in: authorIds } };
+    // Build query: posts from followed users + own posts, excluding deleted and club posts
+    const query = {
+      author: { $in: authorIds },
+      club: null  // Exclude club posts from main feed
+    };
 
     const [posts, totalCount] = await Promise.all([
       Post.find(query)
@@ -182,8 +215,11 @@ export const getExploreFeed = async (req, res) => {
     const currentUserId = req.user?.id;
     const skip = (page - 1) * limit;
 
+    // Build query: exclude club posts from explore feed
+    const query = { club: null };
+
     const [posts, totalCount] = await Promise.all([
-      Post.find()
+      Post.find(query)
         .populate({
           path: "author",
           select: "name email isDeleted",
@@ -192,7 +228,7 @@ export const getExploreFeed = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      Post.countDocuments(),
+      Post.countDocuments(query),
     ]);
 
     // Filter out posts with deleted authors
@@ -438,6 +474,13 @@ export const deletePost = async (req, res) => {
     await User.findByIdAndUpdate(currentUserId, [
       { $set: { postCount: { $max: [0, { $subtract: ["$postCount", 1] }] } } },
     ]);
+
+    // If post belongs to a club, decrement club's post count
+    if (post.club) {
+      await Club.findByIdAndUpdate(post.club, [
+        { $set: { postCount: { $max: [0, { $subtract: ["$postCount", 1] }] } } },
+      ]);
+    }
 
     return responseUtil.success(res, "Post deleted successfully");
   } catch (error) {

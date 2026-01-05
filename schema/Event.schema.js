@@ -4,6 +4,7 @@
  */
 
 import mongoose from "mongoose";
+import { nowIST } from "../utils/timezone.util.js";
 
 const eventSchema = new mongoose.Schema(
   {
@@ -139,7 +140,7 @@ const eventSchema = new mongoose.Schema(
         validator: function (value) {
           // Only validate future date for new documents
           if (this.isNew) {
-            return value > new Date();
+            return value > nowIST();
           }
           return true;
         },
@@ -274,6 +275,23 @@ const eventSchema = new mongoose.Schema(
     ],
 
     /**
+     * Whether this event has seat arrangements enabled
+     */
+    hasSeatArrangement: {
+      type: Boolean,
+      default: false,
+    },
+
+    /**
+     * Reference to seat arrangement (if enabled)
+     */
+    seatArrangementId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SeatArrangement",
+      default: null,
+    },
+
+    /**
      * Created by (admin user)
      */
     createdBy: {
@@ -349,7 +367,7 @@ eventSchema.pre(/^find/, function () {
  * Pre-save middleware to auto-update isLive status and validate pricing
  */
 eventSchema.pre("save", function (next) {
-  if (this.endDate <= new Date()) {
+  if (this.endDate <= nowIST()) {
     this.isLive = false;
   }
 
@@ -413,7 +431,7 @@ eventSchema.statics.permanentDelete = function (id) {
  * Method to check and update event status
  */
 eventSchema.methods.updateEventStatus = function () {
-  const now = new Date();
+  const now = nowIST();
   if (this.endDate <= now && this.isLive) {
     this.isLive = false;
     return this.save();
@@ -425,7 +443,7 @@ eventSchema.methods.updateEventStatus = function () {
  * Static method to update all expired events
  */
 eventSchema.statics.updateExpiredEvents = async function () {
-  const now = new Date();
+  const now = nowIST();
   return this.updateMany(
     { endDate: { $lte: now }, isLive: true },
     { $set: { isLive: false } }

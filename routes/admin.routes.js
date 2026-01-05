@@ -18,6 +18,9 @@ import adminSettingsRoutes from "../src/Other/admin/settings.route.js";
 import analyticsRoutes from "../src/Analytics/analytics.route.js";
 import adminAssetRoutes from "../src/Asset/asset.admin.route.js";
 import adminStoryRoutes from "../src/Story/story.admin.route.js";
+import adminMembershipRoutes from "../src/Membership/admin.membership.route.js";
+import adminClubRoutes from "../src/Club/club.admin.route.js";
+import seatArrangementAdminRoutes from "../src/SeatArrangement/seatArrangement.admin.route.js";
 
 const router = express.Router();
 
@@ -31,6 +34,9 @@ router.use("/auth", adminAuthRoutes);
 
 // Event routes - /api/web/events
 router.use("/events", adminEventRoutes);
+
+// Seat arrangement routes - /api/web/events/:eventId/seat-arrangement
+router.use("/events", seatArrangementAdminRoutes);
 
 // Coupon routes - /api/web/coupons
 router.use("/coupons", adminCouponRoutes);
@@ -82,6 +88,12 @@ router.use("/assets", adminAssetRoutes);
 
 // Story routes - /api/web/stories
 router.use("/stories", adminStoryRoutes);
+
+// Membership routes - /api/web/membership-plans and /api/web/user-memberships
+router.use("/", adminMembershipRoutes);
+
+// Club routes - /api/web/clubs
+router.use("/clubs", adminClubRoutes);
 
 // Add more admin routes here as needed
 // Example:

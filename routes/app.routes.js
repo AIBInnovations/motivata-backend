@@ -24,6 +24,8 @@ import responseUtil from "../utils/response.util.js";
 import services from "../src/Other/app/showDelete.js";
 import publicAssetRoutes from "../src/Asset/asset.public.route.js";
 import userStoryRoutes from "../src/Story/story.user.route.js";
+import userMembershipRoutes from "../src/Membership/user.membership.route.js";
+import seatArrangementUserRoutes from "../src/SeatArrangement/seatArrangement.user.route.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +44,9 @@ router.use("/auth", userAuthRoutes);
 
 // Event routes - /api/app/events
 router.use("/events", userEventRoutes);
+
+// Seat arrangement routes - /api/app/events/:eventId/seat-arrangement
+router.use("/events", seatArrangementUserRoutes);
 
 // Coupon routes - /api/app/coupons
 router.use("/coupons", userCouponRoutes);
@@ -81,6 +86,9 @@ router.use("/stories", userStoryRoutes);
 
 // Notification routes - /api/app/notifications (FCM token management)
 router.use("/notifications", userNotificationRoutes);
+
+// Membership routes - /api/app/membership-plans and /api/app/memberships
+router.use("/", userMembershipRoutes);
 
 // Add more user routes here as needed
 // Example:
