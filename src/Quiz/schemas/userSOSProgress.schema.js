@@ -16,7 +16,8 @@ const quizResponseSchema = new mongoose.Schema(
     },
     answer: {
       type: mongoose.Schema.Types.Mixed,
-      required: true,
+      required: false, // Allow skipping questions
+      default: null,
     },
     pointsEarned: {
       type: Number,

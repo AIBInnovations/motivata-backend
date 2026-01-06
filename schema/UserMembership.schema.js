@@ -6,7 +6,6 @@
  */
 
 import mongoose from 'mongoose';
-import { nowIST } from '../utils/timezone.util.js';
 
 const userMembershipSchema = new mongoose.Schema(
   {
@@ -73,7 +72,7 @@ const userMembershipSchema = new mongoose.Schema(
     startDate: {
       type: Date,
       required: [true, 'Start date is required'],
-      default: nowIST
+      default: Date.now
     },
 
     endDate: {
@@ -190,7 +189,7 @@ userMembershipSchema.virtual('isCurrentlyActive').get(function () {
   if (this.isDeleted || this.status !== 'ACTIVE' || this.paymentStatus !== 'SUCCESS') {
     return false;
   }
-  const now = nowIST();
+  const now = new Date();
   return this.startDate <= now && this.endDate > now;
 });
 
@@ -199,7 +198,7 @@ userMembershipSchema.virtual('isExpired').get(function () {
   if (this.isDeleted || this.status === 'CANCELLED' || this.status === 'REFUNDED') {
     return false;
   }
-  const now = nowIST();
+  const now = new Date();
   return this.endDate <= now;
 });
 
@@ -208,7 +207,7 @@ userMembershipSchema.virtual('daysRemaining').get(function () {
   if (!this.isCurrentlyActive) {
     return 0;
   }
-  const now = nowIST();
+  const now = new Date();
   const diffTime = this.endDate - now;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   return Math.max(0, diffDays);
@@ -225,7 +224,7 @@ userMembershipSchema.methods.getCurrentStatus = function () {
   if (this.paymentStatus !== 'SUCCESS') {
     return 'PENDING_PAYMENT';
   }
-  const now = nowIST();
+  const now = new Date();
   if (this.endDate <= now) {
     return 'EXPIRED';
   }
@@ -249,7 +248,7 @@ userMembershipSchema.methods.confirmPayment = async function (paymentId, userId 
 // Method to cancel membership
 userMembershipSchema.methods.cancel = async function (cancelledBy, reason) {
   this.status = 'CANCELLED';
-  this.cancelledAt = nowIST();
+  this.cancelledAt = new Date();
   this.cancelledBy = cancelledBy;
   this.cancellationReason = reason;
   await this.save();
@@ -259,7 +258,7 @@ userMembershipSchema.methods.cancel = async function (cancelledBy, reason) {
 userMembershipSchema.methods.markAsRefunded = async function () {
   this.status = 'REFUNDED';
   this.paymentStatus = 'REFUNDED';
-  this.cancelledAt = nowIST();
+  this.cancelledAt = new Date();
   this.cancellationReason = 'Payment refunded';
   await this.save();
 };
@@ -275,7 +274,7 @@ userMembershipSchema.methods.extend = async function (additionalDays) {
 // Soft delete method
 userMembershipSchema.methods.softDelete = async function (deletedBy) {
   this.isDeleted = true;
-  this.deletedAt = nowIST();
+  this.deletedAt = new Date();
   this.deletedBy = deletedBy;
   await this.save();
 };
@@ -291,7 +290,7 @@ userMembershipSchema.methods.restore = async function () {
 // Static method to find active membership for a phone number
 userMembershipSchema.statics.findActiveMembership = async function (phone) {
   const normalizedPhone = phone.slice(-10);
-  const now = nowIST();
+  const now = new Date();
 
   const membership = await this.findOne({
     phone: normalizedPhone,
@@ -325,7 +324,7 @@ userMembershipSchema.statics.findByPhone = function (phone, includeDeleted = fal
 
 // Static method to find expiring memberships (for notifications)
 userMembershipSchema.statics.findExpiringSoon = function (daysThreshold = 7) {
-  const now = nowIST();
+  const now = new Date();
   const thresholdDate = new Date(now);
   thresholdDate.setDate(thresholdDate.getDate() + daysThreshold);
 
@@ -339,7 +338,7 @@ userMembershipSchema.statics.findExpiringSoon = function (daysThreshold = 7) {
 
 // Static method to auto-expire memberships (can be called periodically or on-demand)
 userMembershipSchema.statics.autoExpireMemberships = async function () {
-  const now = nowIST();
+  const now = new Date();
   const result = await this.updateMany(
     {
       isDeleted: false,

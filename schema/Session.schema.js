@@ -4,7 +4,6 @@
  */
 
 import mongoose from "mongoose";
-import { nowIST } from "../utils/timezone.util.js";
 
 /**
  * @typedef {Object} Session
@@ -339,7 +338,7 @@ sessionSchema.statics.findDeleted = function (filter = {}) {
  */
 sessionSchema.methods.softDelete = function (adminId) {
   this.isDeleted = true;
-  this.deletedAt = nowIST();
+  this.deletedAt = new Date();
   this.deletedBy = adminId;
   return this.save();
 };
