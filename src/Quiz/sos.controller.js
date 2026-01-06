@@ -740,6 +740,70 @@ export const getTodayQuiz = async (req, res) => {
 };
 
 /**
+ * Get quiz questions for any day in a program (for users who started the program)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const getDayQuiz = async (req, res) => {
+  try {
+    const { programId, dayNumber } = req.params;
+    const userId = req.user.id;
+
+    const day = parseInt(dayNumber, 10);
+
+    // Verify user has started this program
+    const progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+
+    if (!progress) {
+      return responseUtil.notFound(res, "You have not started this program");
+    }
+
+    // Verify the program exists
+    const program = await SOSProgram.findById(programId);
+    if (!program) {
+      return responseUtil.notFound(res, "Program not found");
+    }
+
+    // Validate day number is within program duration
+    if (day < 1 || day > program.durationDays) {
+      return responseUtil.badRequest(res, `Day number must be between 1 and ${program.durationDays}`);
+    }
+
+    // Get quiz for the requested day
+    const quiz = await SOSQuiz.findByDay(programId, day);
+
+    if (!quiz) {
+      return responseUtil.notFound(res, `No quiz available for day ${day}`);
+    }
+
+    // Get user's responses for this day if they exist
+    const dayProgress = progress.dailyProgress.find((d) => d.dayNumber === day);
+
+    const sanitizedQuiz = quiz.toObject();
+    sanitizedQuiz.questions = sanitizedQuiz.questions.map((q) => {
+      const sanitized = { ...q };
+      return sanitized;
+    });
+
+    return responseUtil.success(res, "Quiz fetched successfully", {
+      quiz: sanitizedQuiz,
+      dayNumber: day,
+      totalDays: program.durationDays,
+      isCompleted: dayProgress?.status === "completed",
+      userResponses: dayProgress?.status === "completed" ? dayProgress.responses : null,
+    });
+  } catch (error) {
+    console.error("Get day quiz error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to fetch quiz", error.message);
+  }
+};
+
+/**
  * Submit quiz responses for a day
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -1021,6 +1085,7 @@ export default {
   getUserProgress,
   getProgramProgress,
   getTodayQuiz,
+  getDayQuiz,
   submitDayQuiz,
   getLeaderboard,
   // Admin progress controllers

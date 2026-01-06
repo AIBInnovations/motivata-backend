@@ -7,7 +7,6 @@ import Session from "../../schema/Session.schema.js";
 import SessionBooking from "../../schema/SessionBooking.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
-import { toIST } from "../../utils/timezone.util.js";
 
 /**
  * Create a new session
@@ -34,11 +33,6 @@ export const createSession = async (req, res) => {
       ...req.body,
       createdBy: req.user.id,
     };
-
-    // Convert sessionDate to IST if provided
-    if (sessionData.sessionDate) {
-      sessionData.sessionDate = toIST(sessionData.sessionDate);
-    }
 
     // Validate compareAtPrice is greater than or equal to price
     if (
@@ -293,11 +287,6 @@ export const updateSession = async (req, res) => {
       ...req.body,
       updatedBy: req.user.id,
     };
-
-    // Convert sessionDate to IST if provided
-    if (updates.sessionDate) {
-      updates.sessionDate = toIST(updates.sessionDate);
-    }
 
     // Remove fields that shouldn't be updated directly
     delete updates.createdBy;
@@ -1107,8 +1096,8 @@ export const listBookingsAdmin = async (req, res) => {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.startDate || req.query.endDate) {
       filter.bookedAt = {};
-      if (req.query.startDate) filter.bookedAt.$gte = toIST(new Date(req.query.startDate));
-      if (req.query.endDate) filter.bookedAt.$lte = toIST(new Date(req.query.endDate));
+      if (req.query.startDate) filter.bookedAt.$gte = new Date(req.query.startDate);
+      if (req.query.endDate) filter.bookedAt.$lte = new Date(req.query.endDate);
     }
 
     const [bookings, total] = await Promise.all([

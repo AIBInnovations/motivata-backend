@@ -8,7 +8,6 @@ import SeatArrangement from "../../schema/SeatArrangement.schema.js";
 import Event from "../../schema/Event.schema.js";
 import EventEnrollment from "../../schema/EventEnrollment.schema.js";
 import responseUtil from "../../utils/response.util.js";
-import { nowIST } from "../../utils/timezone.util.js";
 
 /**
  * Helper to normalize phone to 10 digits
@@ -481,7 +480,7 @@ export const reserveSeats = async ({ eventId, selectedSeats, userId, orderId }) 
       throw new Error("Seat arrangement not found");
     }
 
-    const now = nowIST();
+    const now = new Date();
     const reservationExpiry = new Date(now.getTime() + 15 * 60 * 1000); // 15 minutes
 
     const requestedLabels = selectedSeats.map((s) => s.seatLabel.toUpperCase().trim());

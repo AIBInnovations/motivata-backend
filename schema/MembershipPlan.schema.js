@@ -5,7 +5,6 @@
  */
 
 import mongoose from 'mongoose';
-import { nowIST } from '../utils/timezone.util.js';
 
 const membershipPlanSchema = new mongoose.Schema(
   {
@@ -173,7 +172,7 @@ membershipPlanSchema.methods.decrementPurchaseCount = async function () {
 // Soft delete method
 membershipPlanSchema.methods.softDelete = async function (deletedBy) {
   this.isDeleted = true;
-  this.deletedAt = nowIST();
+  this.deletedAt = new Date();
   this.deletedBy = deletedBy;
   await this.save();
 };

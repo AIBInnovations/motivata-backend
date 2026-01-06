@@ -9,7 +9,6 @@ import UserMembership from '../../schema/UserMembership.schema.js';
 import Payment from '../../schema/Payment.schema.js';
 import User from '../../schema/User.schema.js';
 import responseUtil from '../../utils/response.util.js';
-import { nowIST } from '../../utils/timezone.util.js';
 import { razorpayInstance } from '../../utils/razorpay.util.js';
 
 // Helper function to normalize phone number
@@ -363,7 +362,7 @@ export const createUserMembershipAdmin = async (req, res) => {
 
     const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
 
-    const startDate = nowIST();
+    const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + plan.durationInDays);
 
@@ -469,7 +468,7 @@ export const createMembershipPaymentOrder = async (req, res) => {
 
     const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
 
-    const startDate = nowIST();
+    const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + plan.durationInDays);
 
@@ -637,12 +636,43 @@ export const getAllUserMemberships = async (req, res) => {
  */
 export const getMyMemberships = async (req, res) => {
   try {
+    console.log('[USER-MEMBERSHIP] Request received');
+    console.log('[USER-MEMBERSHIP] req.body:', JSON.stringify(req.body));
+    console.log('[USER-MEMBERSHIP] req.query:', JSON.stringify(req.query));
+    console.log('[USER-MEMBERSHIP] req.user:', JSON.stringify({
+      _id: req.user?._id,
+      phone: req.user?.phone,
+      name: req.user?.name,
+      email: req.user?.email
+    }));
+
     const userId = req.user?._id;
-    const userPhone = req.user?.phone;
+    let userPhone = req.user?.phone;
 
     if (!userPhone) {
-      console.log('[USER-MEMBERSHIP] User phone not found');
-      return responseUtil.badRequest(res, 'User phone not found');
+      console.log('[USER-MEMBERSHIP] Phone not in req.user, fetching from database');
+      console.log('[USER-MEMBERSHIP] User ID:', userId);
+      console.log('[USER-MEMBERSHIP] User ID type:', typeof userId);
+
+      const user = await User.findOne({ _id: userId, isDeleted: false });
+
+      console.log('[USER-MEMBERSHIP] User found:', user ? 'yes' : 'no');
+      if (user) {
+        console.log('[USER-MEMBERSHIP] User phone from DB:', user.phone);
+        console.log('[USER-MEMBERSHIP] Full user object:', JSON.stringify({
+          _id: user._id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          isDeleted: user.isDeleted
+        }));
+      }
+
+      if (!user || !user.phone) {
+        console.log('[USER-MEMBERSHIP] User or phone not found in database');
+        return responseUtil.badRequest(res, 'User phone not found');
+      }
+      userPhone = user.phone;
     }
 
     const normalizedPhone = normalizePhone(userPhone);
@@ -668,6 +698,7 @@ export const getMyMemberships = async (req, res) => {
     });
   } catch (error) {
     console.error('[USER-MEMBERSHIP] Error fetching user memberships:', error.message);
+    console.error('[USER-MEMBERSHIP] Error stack:', error.stack);
     return responseUtil.internalError(res, 'Failed to fetch your memberships', error.message);
   }
 };
@@ -708,6 +739,81 @@ export const checkMembershipStatus = async (req, res) => {
   } catch (error) {
     console.error('[USER-MEMBERSHIP] Error checking status:', error.message);
     return responseUtil.internalError(res, 'Failed to check membership status', error.message);
+  }
+};
+
+/**
+ * Check active membership by phone or user ID
+ * User access - checks using either phone number or user ID
+ * @route POST /api/app/memberships/check-active
+ */
+export const checkActiveMembership = async (req, res) => {
+  try {
+    const { phone, userId } = req.body;
+
+    console.log('[CHECK-ACTIVE-MEMBERSHIP] Request received');
+    console.log('[CHECK-ACTIVE-MEMBERSHIP] Phone:', phone);
+    console.log('[CHECK-ACTIVE-MEMBERSHIP] User ID:', userId);
+
+    if (!phone && !userId) {
+      console.log('[CHECK-ACTIVE-MEMBERSHIP] Neither phone nor userId provided');
+      return responseUtil.badRequest(res, 'Phone number or user ID is required');
+    }
+
+    const now = new Date();
+    const query = {
+      isDeleted: false,
+      status: 'ACTIVE',
+      paymentStatus: 'SUCCESS',
+      startDate: { $lte: now },
+      endDate: { $gt: now }
+    };
+
+    if (phone && userId) {
+      const normalizedPhone = normalizePhone(phone);
+      query.$or = [
+        { phone: normalizedPhone },
+        { userId: userId }
+      ];
+      console.log('[CHECK-ACTIVE-MEMBERSHIP] Checking with both phone and userId');
+    } else if (phone) {
+      const normalizedPhone = normalizePhone(phone);
+      query.phone = normalizedPhone;
+      console.log('[CHECK-ACTIVE-MEMBERSHIP] Checking with phone:', normalizedPhone);
+    } else {
+      query.userId = userId;
+      console.log('[CHECK-ACTIVE-MEMBERSHIP] Checking with userId');
+    }
+
+    const activeMembership = await UserMembership.findOne(query)
+      .sort({ endDate: -1 })
+      .populate('membershipPlanId');
+
+    if (!activeMembership) {
+      console.log('[CHECK-ACTIVE-MEMBERSHIP] No active membership found');
+      return responseUtil.success(res, 'No active membership', {
+        hasActiveMembership: false,
+        membership: null
+      });
+    }
+
+    console.log('[CHECK-ACTIVE-MEMBERSHIP] Active membership found:', activeMembership._id);
+
+    const enrichedMembership = {
+      ...activeMembership.toObject(),
+      currentStatus: activeMembership.getCurrentStatus(),
+      isCurrentlyActive: activeMembership.isCurrentlyActive,
+      daysRemaining: activeMembership.daysRemaining
+    };
+
+    return responseUtil.success(res, 'Active membership found', {
+      hasActiveMembership: true,
+      membership: enrichedMembership
+    });
+  } catch (error) {
+    console.error('[CHECK-ACTIVE-MEMBERSHIP] Error:', error.message);
+    console.error('[CHECK-ACTIVE-MEMBERSHIP] Error stack:', error.stack);
+    return responseUtil.internalError(res, 'Failed to check active membership', error.message);
   }
 };
 
@@ -941,6 +1047,7 @@ export default {
   getAllUserMemberships,
   getMyMemberships,
   checkMembershipStatus,
+  checkActiveMembership,
   getUserMembershipById,
   extendUserMembership,
   cancelUserMembership,

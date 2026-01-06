@@ -1620,6 +1620,16 @@ export const userMembershipSchemas = {
   }),
 
   /**
+   * Check active membership by phone or user ID
+   */
+  checkActive: Joi.object({
+    phone: schemas.phone.optional(),
+    userId: schemas.mongoId.optional(),
+  }).or('phone', 'userId').messages({
+    'object.missing': 'Either phone number or user ID is required',
+  }),
+
+  /**
    * Extend membership duration
    */
   extend: Joi.object({
