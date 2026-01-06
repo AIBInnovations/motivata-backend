@@ -4,7 +4,6 @@
  */
 
 import mongoose from "mongoose";
-import { nowIST } from "../utils/timezone.util.js";
 
 const eventSchema = new mongoose.Schema(
   {
@@ -140,7 +139,7 @@ const eventSchema = new mongoose.Schema(
         validator: function (value) {
           // Only validate future date for new documents
           if (this.isNew) {
-            return value > nowIST();
+            return value > new Date();
           }
           return true;
         },
@@ -367,7 +366,7 @@ eventSchema.pre(/^find/, function () {
  * Pre-save middleware to auto-update isLive status and validate pricing
  */
 eventSchema.pre("save", function (next) {
-  if (this.endDate <= nowIST()) {
+  if (this.endDate <= new Date()) {
     this.isLive = false;
   }
 
@@ -431,7 +430,7 @@ eventSchema.statics.permanentDelete = function (id) {
  * Method to check and update event status
  */
 eventSchema.methods.updateEventStatus = function () {
-  const now = nowIST();
+  const now = new Date();
   if (this.endDate <= now && this.isLive) {
     this.isLive = false;
     return this.save();
@@ -443,7 +442,7 @@ eventSchema.methods.updateEventStatus = function () {
  * Static method to update all expired events
  */
 eventSchema.statics.updateExpiredEvents = async function () {
-  const now = nowIST();
+  const now = new Date();
   return this.updateMany(
     { endDate: { $lte: now }, isLive: true },
     { $set: { isLive: false } }

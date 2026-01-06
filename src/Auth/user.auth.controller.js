@@ -58,6 +58,7 @@ export const register = async (req, res) => {
     const tokens = generateTokens({
       id: user._id.toString(),
       email: user.email,
+      phone: user.phone,
       userType: 'user'
     });
 
@@ -115,6 +116,7 @@ export const login = async (req, res) => {
     const tokens = generateTokens({
       id: user._id.toString(),
       email: user.email,
+      phone: user.phone,
       userType: 'user'
     });
 
@@ -210,6 +212,7 @@ export const loginWithPhone = async (req, res) => {
     const tokens = generateTokens({
       id: user._id.toString(),
       email: user.email,
+      phone: user.phone,
       userType: 'user'
     });
     console.log('[LOGIN-PHONE] Tokens generated successfully', {

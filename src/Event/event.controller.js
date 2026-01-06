@@ -5,7 +5,6 @@
 
 import Event from '../../schema/Event.schema.js';
 import responseUtil from '../../utils/response.util.js';
-import { toIST } from '../../utils/timezone.util.js';
 
 /**
  * Create a new event
@@ -19,14 +18,6 @@ export const createEvent = async (req, res) => {
       ...req.body,
       createdBy: req.user.id
     };
-
-    // Convert dates to IST if provided
-    if (eventData.startDate) {
-      eventData.startDate = toIST(eventData.startDate);
-    }
-    if (eventData.endDate) {
-      eventData.endDate = toIST(eventData.endDate);
-    }
 
     const event = new Event(eventData);
     await event.save();
@@ -91,11 +82,11 @@ export const getAllEvents = async (req, res) => {
       if (maxPrice) query.price.$lte = Number(maxPrice);
     }
 
-    // Date range filter - convert to IST
+    // Date range filter
     if (startDateFrom || startDateTo) {
       query.startDate = {};
-      if (startDateFrom) query.startDate.$gte = toIST(new Date(startDateFrom));
-      if (startDateTo) query.startDate.$lte = toIST(new Date(startDateTo));
+      if (startDateFrom) query.startDate.$gte = new Date(startDateFrom);
+      if (startDateTo) query.startDate.$lte = new Date(startDateTo);
     }
 
     // Search filter
@@ -184,24 +175,31 @@ export const getEventById = async (req, res) => {
 export const updateEvent = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // DEBUG: Log incoming dates
+    if (req.body.startDate || req.body.endDate) {
+      console.log('[EVENT UPDATE DEBUG] Incoming dates from req.body:');
+      console.log('  startDate:', req.body.startDate, '(type:', typeof req.body.startDate, ')');
+      console.log('  endDate:', req.body.endDate, '(type:', typeof req.body.endDate, ')');
+    }
+
     const updates = {
       ...req.body,
       updatedBy: req.user.id
     };
-
-    // Convert dates to IST if provided
-    if (updates.startDate) {
-      updates.startDate = toIST(updates.startDate);
-    }
-    if (updates.endDate) {
-      updates.endDate = toIST(updates.endDate);
-    }
 
     // Remove fields that shouldn't be updated directly
     delete updates.createdBy;
     delete updates.isDeleted;
     delete updates.deletedAt;
     delete updates.deletedBy;
+
+    // DEBUG: Log dates before sending to Mongoose
+    if (updates.startDate || updates.endDate) {
+      console.log('[EVENT UPDATE DEBUG] Dates before Mongoose update:');
+      console.log('  startDate:', updates.startDate, '(type:', typeof updates.startDate, ')');
+      console.log('  endDate:', updates.endDate, '(type:', typeof updates.endDate, ')');
+    }
 
     const event = await Event.findByIdAndUpdate(
       id,
@@ -212,6 +210,13 @@ export const updateEvent = async (req, res) => {
       }
     ).populate('createdBy', 'name email')
      .populate('updatedBy', 'name email');
+
+    // DEBUG: Log dates from database response
+    if (event && (event.startDate || event.endDate)) {
+      console.log('[EVENT UPDATE DEBUG] Dates from database response:');
+      console.log('  startDate:', event.startDate, '(ISO:', event.startDate?.toISOString(), ')');
+      console.log('  endDate:', event.endDate, '(ISO:', event.endDate?.toISOString(), ')');
+    }
 
     if (!event) {
       return responseUtil.notFound(res, 'Event not found');
@@ -403,7 +408,7 @@ export const getUpcomingEvents = async (req, res) => {
     const { limit = 10 } = req.query;
 
     const events = await Event.find({
-      startDate: { $gt: toIST(new Date()) },
+      startDate: { $gt: new Date() },
       isLive: true
     })
       .sort({ startDate: 1 })

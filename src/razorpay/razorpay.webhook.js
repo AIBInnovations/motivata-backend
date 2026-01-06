@@ -18,7 +18,6 @@ import UserMembership from '../../schema/UserMembership.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
-import { nowIST } from '../../utils/timezone.util.js';
 import {
   confirmSeatBooking,
   releaseSeatReservation,
@@ -294,7 +293,7 @@ const handlePaymentCaptured = async (paymentEntity) => {
   // Update payment record
   payment.paymentId = paymentId;
   payment.status = 'SUCCESS';
-  payment.purchaseDateTime = nowIST();
+  payment.purchaseDateTime = new Date();
   payment.metadata = {
     ...payment.metadata,
     razorpayPaymentEntity: paymentEntity
@@ -403,7 +402,7 @@ const handleOrderPaid = async (orderEntity) => {
   }
 
   payment.status = 'SUCCESS';
-  payment.purchaseDateTime = nowIST();
+  payment.purchaseDateTime = new Date();
   payment.metadata = {
     ...payment.metadata,
     razorpayOrderEntity: orderEntity
@@ -514,7 +513,7 @@ const handlePaymentLinkPaid = async (paymentLinkEntity) => {
   }
 
   payment.status = 'SUCCESS';
-  payment.purchaseDateTime = nowIST();
+  payment.purchaseDateTime = new Date();
   await payment.save();
 
   console.log('[PAYMENT-LINK-PAID] Payment updated to SUCCESS');
@@ -2016,7 +2015,7 @@ const handleSessionRefund = async (payment) => {
     // Update booking status
     booking.paymentStatus = 'refunded';
     booking.status = 'cancelled';
-    booking.cancelledAt = nowIST();
+    booking.cancelledAt = new Date();
     booking.cancellationReason = 'Payment refunded';
     booking.cancelledBy = 'admin';
     await booking.save();
@@ -2289,7 +2288,7 @@ const handleEnrollmentRefund = async (payment) => {
       ticketsMap.set(phone, {
         ...ticketData,
         status: 'REFUNDED',
-        cancelledAt: nowIST(),
+        cancelledAt: new Date(),
         cancellationReason: 'Payment refunded'
       });
     }
