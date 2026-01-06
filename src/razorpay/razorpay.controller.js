@@ -12,6 +12,40 @@ import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
+ * Normalize phone number by extracting last 10 digits
+ * Matches the normalization logic in webhook for consistency
+ * @param {string} phone - Phone number to normalize
+ * @returns {string} Normalized phone number (last 10 digits)
+ */
+const normalizePhone = (phone) => {
+  if (phone && phone.length > 10) {
+    return phone.slice(-10);
+  }
+  return phone;
+};
+
+/**
+ * Validate email format using regex
+ * @param {string} email - Email to validate
+ * @returns {boolean} True if valid email format
+ */
+const isValidEmail = (email) => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+/**
+ * Validate phone format (10 digits, numeric only)
+ * @param {string} phone - Phone number to validate
+ * @returns {boolean} True if valid phone format
+ */
+const isValidPhone = (phone) => {
+  const normalizedPhone = normalizePhone(phone);
+  const phoneRegex = /^\d{10}$/;
+  return phoneRegex.test(normalizedPhone);
+};
+
+/**
  * @typedef {Object} CreateOrderRequest
  * @property {string} [currency='INR'] - Payment currency (default: INR)
  * @property {string} type - Payment type: 'EVENT', 'SESSION', 'OTHER', 'PRODUCT' (required)
@@ -167,6 +201,109 @@ export const createOrder = async (req, res) => {
     if (!metadata.buyer || !metadata.buyer.phone) {
       return responseUtil.badRequest(res, "Buyer information with phone number is required");
     }
+
+    // Validate buyer name is non-empty
+    if (!metadata.buyer.name || !metadata.buyer.name.trim()) {
+      return responseUtil.badRequest(res, "Buyer name is required");
+    }
+
+    // Validate buyer phone format
+    if (!isValidPhone(metadata.buyer.phone)) {
+      return responseUtil.badRequest(res, "Invalid buyer phone number format. Must be 10 digits.");
+    }
+
+    // Validate buyer email format (if provided)
+    if (metadata.buyer.email && !isValidEmail(metadata.buyer.email)) {
+      return responseUtil.badRequest(res, "Invalid buyer email format");
+    }
+
+    // === OTHERS VALIDATION ===
+    // Extract and validate others array before enrollment check
+    const others = metadata.others || [];
+
+    if (others.length > 0) {
+      for (let i = 0; i < others.length; i++) {
+        const other = others[i];
+
+        // Validate name
+        if (!other.name || !other.name.trim()) {
+          return responseUtil.badRequest(res, `Ticket holder ${i + 1}: Name is required`);
+        }
+
+        // Validate phone
+        if (!other.phone) {
+          return responseUtil.badRequest(res, `Ticket holder ${i + 1}: Phone number is required`);
+        }
+
+        if (!isValidPhone(other.phone)) {
+          return responseUtil.badRequest(res, `Ticket holder ${i + 1}: Invalid phone number format. Must be 10 digits.`);
+        }
+
+        // Validate email format (if provided)
+        if (other.email && !isValidEmail(other.email)) {
+          return responseUtil.badRequest(res, `Ticket holder ${i + 1}: Invalid email format`);
+        }
+      }
+    }
+    // === END OTHERS VALIDATION ===
+
+    // === DUPLICATE PHONE CHECK WITHIN ORDER ===
+    // Collect all phone numbers and check for duplicates within this order
+    const normalizedBuyerPhone = normalizePhone(metadata.buyer.phone);
+    const phoneSet = new Set();
+    phoneSet.add(normalizedBuyerPhone);
+
+    for (const other of others) {
+      const normalizedPhone = normalizePhone(other.phone);
+
+      if (phoneSet.has(normalizedPhone)) {
+        return responseUtil.badRequest(res, `Duplicate phone number in order: ${other.phone}. Each ticket must have a unique phone number.`);
+      }
+
+      phoneSet.add(normalizedPhone);
+    }
+    // === END DUPLICATE PHONE CHECK ===
+
+    // === DUPLICATE ENROLLMENT & TICKET CHECK ===
+    // Collect ALL phone numbers from the order for enrollment check
+    const allOrderPhones = Array.from(phoneSet); // Use the phoneSet we already created
+
+    console.log(`[ENROLLMENT-CHECK] Checking ${allOrderPhones.length} phone number(s) for existing tickets:`, allOrderPhones);
+
+    // Find ALL enrollments for this event that contain any of these phone numbers
+    const existingEnrollments = await EventEnrollment.find({
+      eventId: eventId
+    });
+
+    console.log(`[ENROLLMENT-CHECK] Found ${existingEnrollments.length} total enrollment(s) for event ${eventId}`);
+
+    // Check if any phone already has a ticket in ANY enrollment
+    const duplicatePhones = [];
+
+    for (const enrollment of existingEnrollments) {
+      const tickets = enrollment.tickets;
+
+      for (const phone of allOrderPhones) {
+        if (tickets.has(phone)) {
+          console.error(`[ENROLLMENT-CHECK] Phone ${phone} already has ticket in enrollment ${enrollment._id}`);
+          duplicatePhones.push(phone);
+        }
+      }
+    }
+
+    // Remove duplicates from duplicatePhones array (in case same phone found in multiple enrollments)
+    const uniqueDuplicatePhones = [...new Set(duplicatePhones)];
+
+    if (uniqueDuplicatePhones.length > 0) {
+      console.error(`[ENROLLMENT-CHECK] Duplicate phone numbers found:`, uniqueDuplicatePhones);
+      return responseUtil.badRequest(
+        res,
+        `Phone number(s) already have tickets for this event: ${uniqueDuplicatePhones.join(', ')}`
+      );
+    }
+
+    console.log(`[ENROLLMENT-CHECK] No duplicate phones found - purchase allowed`);
+    // === END DUPLICATE ENROLLMENT & TICKET CHECK ===
     // === END BUYER VALIDATION ===
 
     // Determine price based on pricing tier or default pricing
@@ -206,7 +343,7 @@ export const createOrder = async (req, res) => {
     }
 
     // Calculate total tickets (buyer + others)
-    const others = metadata.others || [];
+    // Note: 'others' array already validated above
     const totalTickets = 1 + others.length; // 1 for buyer + number of others
 
     // Use the tier price as the total amount (don't multiply by tickets)

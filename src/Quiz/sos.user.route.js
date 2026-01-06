@@ -11,6 +11,7 @@ import {
   getUserProgress,
   getProgramProgress,
   getTodayQuiz,
+  getDayQuiz,
   submitDayQuiz,
   getLeaderboard,
 } from "./sos.controller.js";
@@ -127,6 +128,15 @@ router.get("/programs/:programId/progress", validateParams(programIdParam), getP
  * @param   {string} programId - Program ID
  */
 router.get("/programs/:programId/today-quiz", validateParams(programIdParam), getTodayQuiz);
+
+/**
+ * @route   GET /api/app/sos/programs/:programId/days/:dayNumber/quiz
+ * @desc    Get quiz questions for any day in a program
+ * @access  User (authenticated)
+ * @param   {string} programId - Program ID
+ * @param   {number} dayNumber - Day number
+ */
+router.get("/programs/:programId/days/:dayNumber/quiz", validateParams(daySubmitParamsSchema), getDayQuiz);
 
 /**
  * @route   POST /api/app/sos/programs/:programId/days/:dayNumber/submit

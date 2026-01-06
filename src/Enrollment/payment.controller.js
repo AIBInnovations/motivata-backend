@@ -8,7 +8,6 @@ import Coupon from '../../schema/Coupon.schema.js';
 import Event from '../../schema/Event.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import PaymentServiceFactory from '../../services/payment/PaymentServiceFactory.js';
-import { nowIST } from '../../utils/timezone.util.js';
 import { reserveSeats, releaseSeatReservation } from '../SeatArrangement/seatArrangement.controller.js';
 
 /**
@@ -48,7 +47,7 @@ export const createPaymentOrder = async (req, res) => {
       }
 
       // Check if event has already started or ended
-      const now = nowIST();
+      const now = new Date();
       if (now > event.endDate) {
         return responseUtil.badRequest(res, 'Event has ended');
       }
@@ -78,7 +77,7 @@ export const createPaymentOrder = async (req, res) => {
       }
 
       // Validate coupon
-      const now = nowIST();
+      const now = new Date();
       if (!coupon.isActive) {
         return responseUtil.badRequest(res, 'Coupon is not active');
       }
@@ -249,7 +248,7 @@ export const verifyPayment = async (req, res) => {
     payment.paymentId = paymentId;
     payment.signature = signature;
     payment.status = 'SUCCESS';
-    payment.purchaseDateTime = nowIST();
+    payment.purchaseDateTime = new Date();
     await payment.save();
 
     // Increment coupon usage if coupon was used

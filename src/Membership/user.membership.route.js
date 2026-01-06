@@ -17,7 +17,8 @@ import {
   getMembershipPlanById,
   createMembershipPaymentOrder,
   getMyMemberships,
-  checkMembershipStatus
+  checkMembershipStatus,
+  checkActiveMembership
 } from './membership.controller.js';
 
 const router = express.Router();
@@ -79,6 +80,17 @@ router.post(
   '/memberships/check-status',
   validateBody(userMembershipSchemas.checkStatus),
   checkMembershipStatus
+);
+
+/**
+ * @route   POST /api/app/memberships/check-active
+ * @desc    Check active membership by phone or user ID
+ * @access  User (authenticated)
+ */
+router.post(
+  '/memberships/check-active',
+  validateBody(userMembershipSchemas.checkActive),
+  checkActiveMembership
 );
 
 export default router;

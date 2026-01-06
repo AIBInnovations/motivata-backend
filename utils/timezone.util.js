@@ -9,63 +9,80 @@
  */
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes in milliseconds
 
+const hasTimezoneInfo = (value) => {
+  return typeof value === 'string' && /([zZ]|[+-]\d{2}:?\d{2})$/.test(value.trim());
+};
+
+const getISTDateParts = (dateObj) => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+
+  const parts = formatter.formatToParts(dateObj);
+  const lookup = {};
+
+  for (const part of parts) {
+    if (part.type !== 'literal') {
+      lookup[part.type] = part.value;
+    }
+  }
+
+  return {
+    year: Number(lookup.year),
+    month: Number(lookup.month),
+    day: Number(lookup.day)
+  };
+};
+
 /**
- * Convert any date to IST
- * Takes a date (UTC or any timezone) and returns IST date
+ * Normalize input to a Date object.
+ * Note: Date objects already represent an absolute time in UTC. Adding offsets
+ * here causes double-shifting when clients also apply timezone conversions.
+ * Use formatIST for display formatting instead.
  *
- * @param {Date|string|number} date - Date to convert (can be Date object, ISO string, or timestamp)
- * @returns {Date} Date object adjusted to IST
+ * @param {Date|string|number} date - Date to normalize
+ * @returns {Date|null} Normalized Date object
  *
  * @example
- * // Convert UTC to IST
  * const utcDate = new Date('2026-01-04T10:00:00.000Z');
- * const istDate = toIST(utcDate);
- * // Result: 2026-01-04T15:30:00.000Z (displays as 3:30 PM in IST)
+ * const normalized = toIST(utcDate);
  */
 export const toIST = (date) => {
   if (!date) {
     return null;
   }
 
-  // Convert input to Date object
   const dateObj = date instanceof Date ? date : new Date(date);
 
-  // Check if date is valid
   if (isNaN(dateObj.getTime())) {
     console.warn('[TIMEZONE] Invalid date provided to toIST:', date);
     return null;
   }
 
-  // Get UTC timestamp and add IST offset
-  const utcTime = dateObj.getTime();
-  const istTime = utcTime + IST_OFFSET_MS;
-
-  return new Date(istTime);
+  return dateObj;
 };
 
 /**
- * Get current date/time in IST
+ * Get current date/time (UTC-based Date object)
  *
- * @returns {Date} Current date/time in IST
+ * @returns {Date} Current date/time
  *
  * @example
  * const now = nowIST();
- * console.log(now); // Current IST time
  */
 export const nowIST = () => {
-  return toIST(new Date());
+  return new Date();
 };
 
 /**
- * Convert IST date to UTC
- * Takes an IST date and returns UTC date
+ * Convert IST wall-clock input to UTC when timezone info is missing.
+ * If the input already has timezone information or is a Date, return it as-is.
  *
  * @param {Date|string|number} istDate - IST date to convert
- * @returns {Date} Date object in UTC
- *
- * @example
- * const istDate = new Date('2026-01-04T15:30:00.000Z');
- * const utcDate = fromIST(istDate);
+ * @returns {Date|null} Date object in UTC
  */
 export const fromIST = (istDate) => {
   if (!istDate) {
@@ -77,6 +94,10 @@ export const fromIST = (istDate) => {
   if (isNaN(dateObj.getTime())) {
     console.warn('[TIMEZONE] Invalid date provided to fromIST:', istDate);
     return null;
+  }
+
+  if (istDate instanceof Date || hasTimezoneInfo(istDate)) {
+    return dateObj;
   }
 
   const istTime = dateObj.getTime();
@@ -120,28 +141,38 @@ export const formatIST = (date, options = {}) => {
  * Get IST date at start of day (00:00:00)
  *
  * @param {Date|string|number} date - Date to get start of day for
- * @returns {Date} Date object at 00:00:00 IST
+ * @returns {Date|null} Date object at 00:00:00 IST
  */
 export const startOfDayIST = (date = new Date()) => {
   const dateObj = date instanceof Date ? date : new Date(date);
-  const istDate = toIST(dateObj);
 
-  istDate.setUTCHours(0, 0, 0, 0);
-  return istDate;
+  if (isNaN(dateObj.getTime())) {
+    return null;
+  }
+
+  const { year, month, day } = getISTDateParts(dateObj);
+  const utcTime = Date.UTC(year, month - 1, day, 0, 0, 0, 0) - IST_OFFSET_MS;
+
+  return new Date(utcTime);
 };
 
 /**
  * Get IST date at end of day (23:59:59)
  *
  * @param {Date|string|number} date - Date to get end of day for
- * @returns {Date} Date object at 23:59:59 IST
+ * @returns {Date|null} Date object at 23:59:59 IST
  */
 export const endOfDayIST = (date = new Date()) => {
   const dateObj = date instanceof Date ? date : new Date(date);
-  const istDate = toIST(dateObj);
 
-  istDate.setUTCHours(23, 59, 59, 999);
-  return istDate;
+  if (isNaN(dateObj.getTime())) {
+    return null;
+  }
+
+  const { year, month, day } = getISTDateParts(dateObj);
+  const utcTime = Date.UTC(year, month - 1, day, 23, 59, 59, 999) - IST_OFFSET_MS;
+
+  return new Date(utcTime);
 };
 
 /**

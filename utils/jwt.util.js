@@ -27,7 +27,8 @@ const config = {
  * @param {Object} payload - Token payload
  * @param {string} payload.id - User/Admin ID
  * @param {string} payload.email - User/Admin email
- * @param {string} payload.role - User role (USER, SUPER_ADMIN, MANAGEMENT_STAFF)
+ * @param {string} [payload.phone] - User phone (for regular users)
+ * @param {string} [payload.role] - User role (USER, SUPER_ADMIN, MANAGEMENT_STAFF) (for admins)
  * @param {string} payload.userType - Type of user (admin/user)
  * @returns {Object} Object containing accessToken and refreshToken
  */

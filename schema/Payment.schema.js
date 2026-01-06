@@ -4,7 +4,6 @@
  */
 
 import mongoose from 'mongoose';
-import { nowIST } from '../utils/timezone.util.js';
 
 const paymentSchema = new mongoose.Schema({
   /**
@@ -130,7 +129,7 @@ const paymentSchema = new mongoose.Schema({
    */
   purchaseDateTime: {
     type: Date,
-    default: nowIST
+    default: Date.now
   },
 
   /**
