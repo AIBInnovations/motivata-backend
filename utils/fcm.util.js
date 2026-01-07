@@ -323,6 +323,96 @@ export const getEnrolledUserTokens = async (eventId) => {
 };
 
 /**
+ * Get FCM tokens for all app users
+ *
+ * @returns {Promise<string[]>} Array of FCM tokens
+ */
+export const getAllUserTokens = async () => {
+  try {
+    console.log(`[FCM] Fetching all user FCM tokens...`);
+
+    const users = await User.find({
+      isDeleted: false,
+      "fcmTokens.0": { $exists: true },
+    }).select("fcmTokens");
+
+    const tokens = [];
+    users.forEach((user) => {
+      user.fcmTokens.forEach((tokenData) => {
+        if (tokenData.token) {
+          tokens.push(tokenData.token);
+        }
+      });
+    });
+
+    console.log(`[FCM] Collected ${tokens.length} FCM tokens from ${users.length} users`);
+
+    return tokens;
+  } catch (error) {
+    console.error(`[FCM] Error fetching all user tokens:`, error.message);
+    return [];
+  }
+};
+
+/**
+ * Send new event notification to all app users
+ *
+ * @param {Object} params - Notification parameters
+ * @param {string} params.eventId - Event ID
+ * @param {string} params.eventName - Event name
+ * @param {string} [params.eventCategory] - Event category
+ * @param {Date} [params.startDate] - Event start date
+ *
+ * @returns {Promise<Object>} Send result
+ */
+export const sendNewEventNotification = async ({
+  eventId,
+  eventName,
+  eventCategory,
+  startDate,
+}) => {
+  try {
+    const tokens = await getAllUserTokens();
+
+    if (tokens.length === 0) {
+      console.log(`[FCM] No user tokens found, skipping new event notification`);
+      return { success: true, message: "No users with FCM tokens" };
+    }
+
+    const title = "New Event Available!";
+    let body = `Check out "${eventName}"`;
+    if (eventCategory) {
+      body += ` in ${eventCategory}`;
+    }
+    if (startDate) {
+      const dateStr = new Date(startDate).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+      body += ` - ${dateStr}`;
+    }
+
+    const result = await sendToMultipleDevices({
+      tokens,
+      title,
+      body,
+      data: {
+        type: "NEW_EVENT",
+        eventId: eventId.toString(),
+        screen: "EventDetails",
+      },
+      eventId,
+    });
+
+    return result;
+  } catch (error) {
+    console.error(`[FCM] Error sending new event notification:`, error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
  * Send poll notification to all enrolled users of an event
  *
  * @param {Object} params - Notification parameters
@@ -378,5 +468,7 @@ export default {
   sendToDevice,
   sendToMultipleDevices,
   getEnrolledUserTokens,
+  getAllUserTokens,
+  sendNewEventNotification,
   sendPollNotification,
 };
