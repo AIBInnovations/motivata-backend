@@ -5,6 +5,7 @@
 
 import Event from '../../schema/Event.schema.js';
 import responseUtil from '../../utils/response.util.js';
+import { sendNewEventNotification } from '../../utils/fcm.util.js';
 
 /**
  * Create a new event
@@ -21,6 +22,16 @@ export const createEvent = async (req, res) => {
 
     const event = new Event(eventData);
     await event.save();
+
+    // Send push notification to all app users (non-blocking)
+    sendNewEventNotification({
+      eventId: event._id,
+      eventName: event.name,
+      eventCategory: event.category,
+      startDate: event.startDate,
+    }).catch((err) => {
+      console.error('[Event] Failed to send new event notification:', err.message);
+    });
 
     return responseUtil.created(res, 'Event created successfully', { event });
   } catch (error) {
