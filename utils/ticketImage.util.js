@@ -148,7 +148,6 @@ const generateTicketSVG = ({
   const safeTicketCount = escapeXml(ticketCount);
   const safeTicketPrice = escapeXml(ticketPrice);
   const safeVenueName = escapeXml(venueName);
-  const safeBookingId = escapeXml(bookingId);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="760" height="1040" viewBox="0 0 760 1040" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -176,24 +175,24 @@ const generateTicketSVG = ({
 
   <!-- QR Code Section -->
   <!-- White background for QR -->
-  <rect x="212" y="320" width="336" height="336" rx="24" fill="#ffffff"/>
+  <rect x="160" y="300" width="440" height="440" rx="28" fill="#ffffff"/>
   <!-- QR Code Image -->
-  <image x="236" y="344" width="288" height="288" href="${qrCodeDataUrl}"/>
+  <image x="180" y="320" width="400" height="400" href="${qrCodeDataUrl}"/>
 
   <!-- Ticket Count -->
-  <text x="380" y="710" font-family="Arial, sans-serif" font-size="26" font-weight="500" fill="#ffffff" text-anchor="middle" letter-spacing="4">TICKET FOR ${safeTicketCount}</text>
+  <text x="380" y="790" font-family="Arial, sans-serif" font-size="26" font-weight="500" fill="#ffffff" text-anchor="middle" letter-spacing="4">TICKET FOR ${safeTicketCount}</text>
 
   <!-- Ticket Price -->
-  <text x="380" y="756" font-family="Arial, sans-serif" font-size="30" font-weight="600" fill="#ffffff" text-anchor="middle">${safeTicketPrice}</text>
+  <text x="380" y="836" font-family="Arial, sans-serif" font-size="30" font-weight="600" fill="#ffffff" text-anchor="middle">${safeTicketPrice}</text>
 
   <!-- Dashed Divider -->
-  <line x1="56" y1="820" x2="704" y2="820" stroke="#333333" stroke-width="4" stroke-dasharray="16,12"/>
+  <line x1="56" y1="890" x2="704" y2="890" stroke="#333333" stroke-width="4" stroke-dasharray="16,12"/>
 
   <!-- Venue Name -->
-  <text x="380" y="896" font-family="Arial, sans-serif" font-size="26" font-weight="600" fill="#ffffff" text-anchor="middle" letter-spacing="2">${safeVenueName}</text>
+  <text x="380" y="950" font-family="Arial, sans-serif" font-size="26" font-weight="600" fill="#ffffff" text-anchor="middle" letter-spacing="2">${safeVenueName}</text>
 
-  <!-- Booking ID -->
-  <text x="380" y="950" font-family="Arial, sans-serif" font-size="24" fill="#666666" text-anchor="middle">Booking ID: <tspan fill="#888888">${safeBookingId}</tspan></text>
+  <!-- Welcome Message -->
+  <text x="380" y="1000" font-family="Arial, sans-serif" font-size="22" fill="#666666" text-anchor="middle">Welcome to the event!</text>
 </svg>`;
 };
 
