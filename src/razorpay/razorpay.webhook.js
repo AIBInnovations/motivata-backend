@@ -15,6 +15,9 @@ import Session from '../../schema/Session.schema.js';
 import SessionBooking from '../../schema/SessionBooking.schema.js';
 import MembershipPlan from '../../schema/MembershipPlan.schema.js';
 import UserMembership from '../../schema/UserMembership.schema.js';
+import Service from '../../schema/Service.schema.js';
+import ServiceOrder from '../../schema/ServiceOrder.schema.js';
+import UserServiceSubscription from '../../schema/UserServiceSubscription.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
@@ -2191,6 +2194,242 @@ const handleMembershipRefund = async (payment) => {
 };
 
 /**
+ * Confirm service payment and create subscriptions
+ * Updates ServiceOrder status and creates UserServiceSubscription records
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const confirmServicePayment = async (payment) => {
+  try {
+    console.log('[SERVICE-WEBHOOK] ========== CONFIRM SERVICE PAYMENT START ==========');
+    console.log('[SERVICE-WEBHOOK] Payment orderId:', payment.orderId);
+    console.log('[SERVICE-WEBHOOK] Payment metadata:', JSON.stringify(payment.metadata, null, 2));
+
+    const { serviceOrderId } = payment.metadata || {};
+
+    // Try to find by orderId in notes (reference_id)
+    let serviceOrder = null;
+    if (serviceOrderId) {
+      serviceOrder = await ServiceOrder.findById(serviceOrderId);
+    }
+
+    if (!serviceOrder) {
+      // Try to find by orderId
+      serviceOrder = await ServiceOrder.findOne({ orderId: payment.orderId });
+    }
+
+    if (!serviceOrder) {
+      console.error('[SERVICE-WEBHOOK] FAILED: ServiceOrder not found for payment:', payment.orderId);
+      return;
+    }
+
+    console.log('[SERVICE-WEBHOOK] Found ServiceOrder:', {
+      _id: serviceOrder._id,
+      orderId: serviceOrder.orderId,
+      phone: serviceOrder.phone,
+      status: serviceOrder.status,
+      services: serviceOrder.services.length
+    });
+
+    if (serviceOrder.status === 'SUCCESS') {
+      console.log('[SERVICE-WEBHOOK] ServiceOrder already marked as successful, skipping');
+      return;
+    }
+
+    // Update service order to SUCCESS
+    await serviceOrder.markAsSuccess(payment.paymentId);
+    console.log('[SERVICE-WEBHOOK] ServiceOrder marked as SUCCESS');
+
+    // Check if user exists
+    const normalizedPhone = serviceOrder.phone.slice(-10);
+    let user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+
+    // Create user if doesn't exist
+    if (!user) {
+      console.log('[SERVICE-WEBHOOK] User not found, creating new user for phone:', normalizedPhone);
+      const bcryptModule = await import('bcryptjs');
+      const salt = await bcryptModule.default.genSalt(10);
+      const hashedPassword = await bcryptModule.default.hash(normalizedPhone, salt);
+
+      user = new User({
+        name: serviceOrder.customerName || 'Customer',
+        phone: normalizedPhone,
+        password: hashedPassword
+      });
+
+      await user.save();
+      console.log('[SERVICE-WEBHOOK] New user created:', user._id);
+
+      // Update service order with userId
+      serviceOrder.userId = user._id;
+      serviceOrder.userExists = true;
+      await serviceOrder.save();
+    }
+
+    // Create subscriptions for each service
+    console.log('[SERVICE-WEBHOOK] Creating subscriptions for', serviceOrder.services.length, 'service(s)');
+
+    for (const serviceItem of serviceOrder.services) {
+      try {
+        // Calculate end date if duration is specified
+        let endDate = null;
+        if (serviceItem.durationInDays) {
+          endDate = new Date();
+          endDate.setDate(endDate.getDate() + serviceItem.durationInDays);
+        }
+
+        // Create subscription
+        const subscription = new UserServiceSubscription({
+          phone: normalizedPhone,
+          userId: user._id,
+          serviceId: serviceItem.serviceId,
+          serviceOrderId: serviceOrder._id,
+          status: 'ACTIVE',
+          startDate: new Date(),
+          endDate,
+          amountPaid: serviceItem.price,
+          durationInDays: serviceItem.durationInDays,
+          activatedAt: new Date()
+        });
+
+        await subscription.save();
+
+        console.log('[SERVICE-WEBHOOK] Subscription created:', {
+          subscriptionId: subscription._id,
+          serviceId: serviceItem.serviceId,
+          serviceName: serviceItem.serviceName
+        });
+
+        // Increment service subscription count
+        const service = await Service.findById(serviceItem.serviceId);
+        if (service) {
+          await service.incrementSubscriptionCount();
+          console.log('[SERVICE-WEBHOOK] Service subscription count incremented:', service.name);
+        }
+
+      } catch (subError) {
+        console.error('[SERVICE-WEBHOOK] Error creating subscription for service:', serviceItem.serviceName, subError.message);
+        // Continue with other services even if one fails
+      }
+    }
+
+    console.log('[SERVICE-WEBHOOK] ========== CONFIRM SERVICE PAYMENT END ==========');
+
+  } catch (error) {
+    console.error('[SERVICE-WEBHOOK] EXCEPTION in confirmServicePayment:', error.message);
+    console.error('[SERVICE-WEBHOOK] Stack:', error.stack);
+    // Don't throw - webhook should still succeed
+  }
+};
+
+/**
+ * Handle service payment failure
+ * Marks ServiceOrder as failed
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handleServiceFailure = async (payment) => {
+  try {
+    console.log('[SERVICE-WEBHOOK] Handling service payment failure for payment:', payment.orderId);
+
+    const { serviceOrderId } = payment.metadata || {};
+
+    let serviceOrder = null;
+    if (serviceOrderId) {
+      serviceOrder = await ServiceOrder.findById(serviceOrderId);
+    }
+
+    if (!serviceOrder) {
+      serviceOrder = await ServiceOrder.findOne({ orderId: payment.orderId });
+    }
+
+    if (!serviceOrder) {
+      console.log('[SERVICE-WEBHOOK] ServiceOrder not found - skipping failure handling');
+      return;
+    }
+
+    if (serviceOrder.status !== 'PENDING') {
+      console.log('[SERVICE-WEBHOOK] ServiceOrder not pending, skipping:', serviceOrder.status);
+      return;
+    }
+
+    await serviceOrder.markAsFailed(payment.failureReason || 'Payment failed');
+
+    console.log('[SERVICE-WEBHOOK] ServiceOrder marked as FAILED:', serviceOrder.orderId);
+
+  } catch (error) {
+    console.error('[SERVICE-WEBHOOK] Error handling service failure:', error.message);
+    // Don't throw - webhook should still succeed
+  }
+};
+
+/**
+ * Handle service refund
+ * Marks subscriptions as refunded and decrements service counts
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handleServiceRefund = async (payment) => {
+  try {
+    console.log('[SERVICE-REFUND] Starting service refund for payment:', payment.orderId);
+
+    const { serviceOrderId } = payment.metadata || {};
+
+    let serviceOrder = null;
+    if (serviceOrderId) {
+      serviceOrder = await ServiceOrder.findById(serviceOrderId);
+    }
+
+    if (!serviceOrder) {
+      serviceOrder = await ServiceOrder.findOne({ orderId: payment.orderId });
+    }
+
+    if (!serviceOrder) {
+      console.log('[SERVICE-REFUND] ServiceOrder not found - skipping refund handling');
+      return;
+    }
+
+    // Find all subscriptions for this order
+    const subscriptions = await UserServiceSubscription.find({
+      serviceOrderId: serviceOrder._id
+    });
+
+    console.log('[SERVICE-REFUND] Found', subscriptions.length, 'subscription(s) to refund');
+
+    for (const subscription of subscriptions) {
+      try {
+        await subscription.markAsRefunded();
+
+        // Decrement service active subscription count
+        const service = await Service.findById(subscription.serviceId);
+        if (service) {
+          await service.decrementActiveSubscriptionCount();
+        }
+
+        console.log('[SERVICE-REFUND] Subscription refunded:', subscription._id);
+      } catch (refundError) {
+        console.error('[SERVICE-REFUND] Error refunding subscription:', refundError.message);
+      }
+    }
+
+    console.log('[SERVICE-REFUND] Service refund completed');
+
+  } catch (error) {
+    console.error('[SERVICE-REFUND] Error handling service refund:', error.message);
+    // Don't throw - webhook should still succeed
+  }
+};
+
+/**
  * Update related entities after successful payment
  * Routes to appropriate handler based on payment type
  *
@@ -2223,6 +2462,14 @@ const updateRelatedEntities = async (payment) => {
     console.log('[UPDATE-ENTITIES] Detected MEMBERSHIP type payment, calling confirmMembershipPayment...');
     await confirmMembershipPayment(payment);
     console.log('[UPDATE-ENTITIES] Membership payment processed');
+    console.log('[UPDATE-ENTITIES] ========== END ==========');
+    return;
+  }
+
+  if (payment.type === 'SERVICE') {
+    console.log('[UPDATE-ENTITIES] Detected SERVICE type payment, calling confirmServicePayment...');
+    await confirmServicePayment(payment);
+    console.log('[UPDATE-ENTITIES] Service payment processed');
     console.log('[UPDATE-ENTITIES] ========== END ==========');
     return;
   }
@@ -2370,6 +2617,12 @@ const reverseRelatedEntities = async (payment) => {
     return;
   }
 
+  if (payment.type === 'SERVICE') {
+    await handleServiceRefund(payment);
+    console.log('✓ Service refund processed successfully.');
+    return;
+  }
+
   // Default: EVENT type - existing flow
   // Handle enrollment refund
   await handleEnrollmentRefund(payment);
@@ -2403,6 +2656,8 @@ const handlePaymentFailureByType = async (payment) => {
     await cancelSessionBooking(payment);
   } else if (payment.type === 'MEMBERSHIP') {
     await handleMembershipFailure(payment);
+  } else if (payment.type === 'SERVICE') {
+    await handleServiceFailure(payment);
   }
   // For EVENT type, voucher release is already handled in releaseVoucherClaim
 };

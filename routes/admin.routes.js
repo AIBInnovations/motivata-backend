@@ -22,6 +22,7 @@ import adminStoryRoutes from "../src/Story/story.admin.route.js";
 import adminMembershipRoutes from "../src/Membership/admin.membership.route.js";
 import adminClubRoutes from "../src/Club/club.admin.route.js";
 import seatArrangementAdminRoutes from "../src/SeatArrangement/seatArrangement.admin.route.js";
+import adminServiceRoutes from "../src/Service/service.admin.route.js";
 
 const router = express.Router();
 
@@ -98,6 +99,9 @@ router.use("/", adminMembershipRoutes);
 
 // Club routes - /api/web/clubs
 router.use("/clubs", adminClubRoutes);
+
+// Service routes - /api/web/services, /api/web/service-orders, /api/web/service-requests, /api/web/user-subscriptions
+router.use("/", adminServiceRoutes);
 
 // Add more admin routes here as needed
 // Example:

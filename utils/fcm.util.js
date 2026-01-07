@@ -413,6 +413,58 @@ export const sendNewEventNotification = async ({
 };
 
 /**
+ * Send new session notification to all app users
+ *
+ * @param {Object} params - Notification parameters
+ * @param {string} params.sessionId - Session ID
+ * @param {string} params.sessionTitle - Session title
+ * @param {string} [params.host] - Session host name
+ * @param {number} [params.duration] - Session duration in minutes
+ *
+ * @returns {Promise<Object>} Send result
+ */
+export const sendNewSessionNotification = async ({
+  sessionId,
+  sessionTitle,
+  host,
+  duration,
+}) => {
+  try {
+    const tokens = await getAllUserTokens();
+
+    if (tokens.length === 0) {
+      console.log(`[FCM] No user tokens found, skipping new session notification`);
+      return { success: true, message: "No users with FCM tokens" };
+    }
+
+    const title = "New Session Available!";
+    let body = `Check out "${sessionTitle}"`;
+    if (host) {
+      body += ` with ${host}`;
+    }
+    if (duration) {
+      body += ` - ${duration} mins`;
+    }
+
+    const result = await sendToMultipleDevices({
+      tokens,
+      title,
+      body,
+      data: {
+        type: "NEW_SESSION",
+        sessionId: sessionId.toString(),
+        screen: "SessionDetails",
+      },
+    });
+
+    return result;
+  } catch (error) {
+    console.error(`[FCM] Error sending new session notification:`, error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
  * Send poll notification to all enrolled users of an event
  *
  * @param {Object} params - Notification parameters
@@ -470,5 +522,6 @@ export default {
   getEnrolledUserTokens,
   getAllUserTokens,
   sendNewEventNotification,
+  sendNewSessionNotification,
   sendPollNotification,
 };

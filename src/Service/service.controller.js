@@ -1,0 +1,1201 @@
+/**
+ * @fileoverview Service controller
+ * Handles CRUD operations for services, service orders, subscriptions, and requests
+ * @module controllers/service
+ */
+
+import Service from "../../schema/Service.schema.js";
+import ServiceOrder from "../../schema/ServiceOrder.schema.js";
+import UserServiceSubscription from "../../schema/UserServiceSubscription.schema.js";
+import ServiceRequest from "../../schema/ServiceRequest.schema.js";
+import User from "../../schema/User.schema.js";
+import responseUtil from "../../utils/response.util.js";
+import { razorpayInstance } from "../../utils/razorpay.util.js";
+import { sendServicePaymentLinkWhatsApp } from "../../utils/whatsapp.util.js";
+
+// Helper function to normalize phone number
+const normalizePhone = (phone) => {
+  if (!phone) return phone;
+  return phone.slice(-10);
+};
+
+/**
+ * SERVICE CONTROLLERS
+ */
+
+/**
+ * Create new service
+ * Admin only
+ * @route POST /api/web/services
+ */
+export const createService = async (req, res) => {
+  try {
+    console.log("[SERVICE] Creating new service");
+    console.log("[SERVICE] Request body:", req.body);
+
+    const {
+      name,
+      description,
+      shortDescription,
+      price,
+      compareAtPrice,
+      durationInDays,
+      category,
+      imageUrl,
+      perks,
+      maxSubscriptions,
+      displayOrder,
+      isFeatured,
+      isActive,
+      metadata,
+    } = req.body;
+
+    const service = new Service({
+      name,
+      description,
+      shortDescription,
+      price,
+      compareAtPrice,
+      durationInDays,
+      category,
+      imageUrl,
+      perks,
+      maxSubscriptions,
+      displayOrder,
+      isFeatured,
+      isActive,
+      metadata,
+    });
+
+    await service.save();
+
+    console.log("[SERVICE] Service created successfully:", service._id);
+
+    return responseUtil.created(res, "Service created successfully", {
+      service,
+    });
+  } catch (error) {
+    console.error("[SERVICE] Error creating service:", error.message);
+
+    if (error.name === "ValidationError") {
+      const errors = Object.values(error.errors).map((err) => ({
+        field: err.path,
+        message: err.message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to create service",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get all services
+ * @route GET /api/web/services
+ */
+export const getAllServices = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = "displayOrder",
+      sortOrder = "asc",
+      isActive,
+      isFeatured,
+      category,
+      search,
+    } = req.query;
+
+    console.log(
+      "[SERVICE] Fetching services - page:",
+      page,
+      "limit:",
+      limit
+    );
+
+    const query = {};
+
+    if (isActive !== undefined) {
+      query.isActive = isActive === "true";
+    }
+
+    if (isFeatured !== undefined) {
+      query.isFeatured = isFeatured === "true";
+    }
+
+    if (category) {
+      query.category = category;
+    }
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
+
+    const [services, totalCount] = await Promise.all([
+      Service.find(query).sort(sort).skip(skip).limit(parseInt(limit)),
+      Service.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    console.log("[SERVICE] Found", services.length, "services out of", totalCount);
+
+    return responseUtil.success(res, "Services fetched successfully", {
+      services,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        limit: parseInt(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("[SERVICE] Error fetching services:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch services",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get single service by ID
+ * @route GET /api/web/services/:id
+ */
+export const getServiceById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log("[SERVICE] Fetching service:", id);
+
+    const service = await Service.findById(id);
+
+    if (!service) {
+      console.log("[SERVICE] Service not found:", id);
+      return responseUtil.notFound(res, "Service not found");
+    }
+
+    console.log("[SERVICE] Service found:", service.name);
+
+    return responseUtil.success(res, "Service fetched successfully", {
+      service,
+    });
+  } catch (error) {
+    console.error("[SERVICE] Error fetching service:", error.message);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid service ID format");
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch service",
+      error.message
+    );
+  }
+};
+
+/**
+ * Update service
+ * @route PUT /api/web/services/:id
+ */
+export const updateService = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log("[SERVICE] Updating service:", id);
+    console.log("[SERVICE] Update data:", req.body);
+
+    const service = await Service.findById(id);
+
+    if (!service) {
+      return responseUtil.notFound(res, "Service not found");
+    }
+
+    const updateFields = [
+      "name",
+      "description",
+      "shortDescription",
+      "price",
+      "compareAtPrice",
+      "durationInDays",
+      "category",
+      "imageUrl",
+      "perks",
+      "maxSubscriptions",
+      "displayOrder",
+      "isFeatured",
+      "isActive",
+      "metadata",
+    ];
+
+    updateFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        service[field] = req.body[field];
+      }
+    });
+
+    await service.save();
+
+    console.log("[SERVICE] Service updated successfully:", service._id);
+
+    return responseUtil.success(res, "Service updated successfully", {
+      service,
+    });
+  } catch (error) {
+    console.error("[SERVICE] Error updating service:", error.message);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid service ID format");
+    }
+
+    if (error.name === "ValidationError") {
+      const errors = Object.values(error.errors).map((err) => ({
+        field: err.path,
+        message: err.message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to update service",
+      error.message
+    );
+  }
+};
+
+/**
+ * Delete service (soft delete by setting isActive to false)
+ * @route DELETE /api/web/services/:id
+ */
+export const deleteService = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log("[SERVICE] Deleting service:", id);
+
+    const service = await Service.findById(id);
+
+    if (!service) {
+      return responseUtil.notFound(res, "Service not found");
+    }
+
+    service.isActive = false;
+    await service.save();
+
+    console.log("[SERVICE] Service deleted successfully:", service._id);
+
+    return responseUtil.success(res, "Service deleted successfully", {
+      service,
+    });
+  } catch (error) {
+    console.error("[SERVICE] Error deleting service:", error.message);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid service ID format");
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to delete service",
+      error.message
+    );
+  }
+};
+
+/**
+ * SERVICE ORDER CONTROLLERS
+ */
+
+/**
+ * Generate payment link for service order (Admin-initiated flow)
+ * @route POST /api/web/service-orders/generate-payment-link
+ */
+export const generatePaymentLink = async (req, res) => {
+  try {
+    console.log("[SERVICE-ORDER] Generating payment link");
+    console.log("[SERVICE-ORDER] Request body:", req.body);
+
+    const { phone, customerName, serviceIds, adminNotes, sendWhatsApp = true } = req.body;
+    const adminId = req.user?._id;
+
+    const normalizedPhone = normalizePhone(phone);
+
+    // Fetch services
+    const services = await Service.find({
+      _id: { $in: serviceIds },
+      isActive: true,
+    });
+
+    if (services.length !== serviceIds.length) {
+      return responseUtil.badRequest(
+        res,
+        "One or more services not found or inactive"
+      );
+    }
+
+    // Check if all services have available slots
+    for (const service of services) {
+      if (!service.hasAvailableSlots()) {
+        return responseUtil.badRequest(
+          res,
+          `Service "${service.name}" has reached maximum subscriptions`
+        );
+      }
+    }
+
+    // Check if user exists
+    const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+    const userExists = !!user;
+
+    // Calculate total amount
+    const totalAmount = services.reduce((sum, s) => sum + s.price, 0);
+
+    // Generate unique order ID
+    const orderId = ServiceOrder.generateOrderId();
+
+    // Create payment link expiry (24 hours from now)
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // Create Razorpay payment link
+    const paymentLinkOptions = {
+      amount: totalAmount * 100, // Amount in paise
+      currency: "INR",
+      accept_partial: false,
+      description: `Service subscription: ${services.map((s) => s.name).join(", ")}`,
+      customer: {
+        contact: `+91${normalizedPhone}`,
+        name: customerName || user?.name || "Customer",
+      },
+      notify: {
+        sms: false,
+        email: false,
+      },
+      reminder_enable: false,
+      notes: {
+        orderId: orderId,
+        type: "SERVICE",
+        phone: normalizedPhone,
+      },
+      callback_url: `${process.env.BASE_URL || "https://motivata.in"}/payment-success`,
+      callback_method: "get",
+      expire_by: Math.floor(expiresAt.getTime() / 1000),
+      reference_id: orderId,
+    };
+
+    console.log("[SERVICE-ORDER] Creating Razorpay payment link:", paymentLinkOptions);
+
+    const paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
+
+    console.log("[SERVICE-ORDER] Payment link created:", paymentLink.id);
+
+    // Create service order record
+    const serviceOrder = new ServiceOrder({
+      phone: normalizedPhone,
+      customerName: customerName || user?.name,
+      services: services.map((s) => ({
+        serviceId: s._id,
+        serviceName: s.name,
+        price: s.price,
+        durationInDays: s.durationInDays,
+      })),
+      totalAmount,
+      source: "ADMIN",
+      adminId,
+      orderId,
+      paymentLinkId: paymentLink.id,
+      paymentLinkUrl: paymentLink.short_url,
+      paymentLinkShortUrl: paymentLink.short_url,
+      expiresAt,
+      userExists,
+      userId: user?._id || null,
+      adminNotes,
+    });
+
+    await serviceOrder.save();
+
+    console.log("[SERVICE-ORDER] Service order created:", serviceOrder._id);
+
+    // Send WhatsApp message if requested
+    if (sendWhatsApp) {
+      try {
+        const serviceNames = services.map((s) => s.name).join(", ");
+        await sendServicePaymentLinkWhatsApp({
+          phone: normalizedPhone,
+          serviceName: serviceNames,
+          paymentLink: paymentLink.short_url,
+          amount: totalAmount,
+          serviceOrderId: serviceOrder._id.toString(),
+        });
+
+        serviceOrder.whatsappSent = true;
+        serviceOrder.whatsappSentAt = new Date();
+        await serviceOrder.save();
+
+        console.log("[SERVICE-ORDER] WhatsApp message sent successfully");
+      } catch (whatsappError) {
+        console.error("[SERVICE-ORDER] WhatsApp error:", whatsappError.message);
+        // Don't fail the request if WhatsApp fails
+      }
+    }
+
+    return responseUtil.created(res, "Payment link generated successfully", {
+      serviceOrder,
+      paymentLink: paymentLink.short_url,
+      userExists,
+    });
+  } catch (error) {
+    console.error("[SERVICE-ORDER] Error generating payment link:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to generate payment link",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get all service orders
+ * @route GET /api/web/service-orders
+ */
+export const getAllServiceOrders = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      status,
+      source,
+      phone,
+      search,
+    } = req.query;
+
+    console.log("[SERVICE-ORDER] Fetching orders - page:", page, "limit:", limit);
+
+    const query = {};
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (source) {
+      query.source = source;
+    }
+
+    if (phone) {
+      query.phone = normalizePhone(phone);
+    }
+
+    if (search) {
+      query.$or = [
+        { phone: { $regex: search, $options: "i" } },
+        { orderId: { $regex: search, $options: "i" } },
+        { customerName: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
+
+    const [orders, totalCount] = await Promise.all([
+      ServiceOrder.find(query)
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .populate("adminId", "name username")
+        .populate("userId", "name phone email"),
+      ServiceOrder.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return responseUtil.success(res, "Service orders fetched successfully", {
+      orders,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        limit: parseInt(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("[SERVICE-ORDER] Error fetching orders:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch service orders",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get single service order by ID
+ * @route GET /api/web/service-orders/:id
+ */
+export const getServiceOrderById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await ServiceOrder.findById(id)
+      .populate("adminId", "name username")
+      .populate("userId", "name phone email")
+      .populate("services.serviceId");
+
+    if (!order) {
+      return responseUtil.notFound(res, "Service order not found");
+    }
+
+    return responseUtil.success(res, "Service order fetched successfully", {
+      order,
+    });
+  } catch (error) {
+    console.error("[SERVICE-ORDER] Error fetching order:", error.message);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid order ID format");
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch service order",
+      error.message
+    );
+  }
+};
+
+/**
+ * Resend payment link via WhatsApp
+ * @route POST /api/web/service-orders/:id/resend
+ */
+export const resendPaymentLink = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await ServiceOrder.findById(id);
+
+    if (!order) {
+      return responseUtil.notFound(res, "Service order not found");
+    }
+
+    if (order.status !== "PENDING") {
+      return responseUtil.badRequest(
+        res,
+        `Cannot resend link for ${order.status} order`
+      );
+    }
+
+    if (!order.paymentLinkUrl) {
+      return responseUtil.badRequest(res, "No payment link available");
+    }
+
+    // Check if link has expired
+    if (new Date() > order.expiresAt) {
+      return responseUtil.badRequest(res, "Payment link has expired");
+    }
+
+    const serviceNames = order.services.map((s) => s.serviceName).join(", ");
+    await sendServicePaymentLinkWhatsApp({
+      phone: order.phone,
+      serviceName: serviceNames,
+      paymentLink: order.paymentLinkShortUrl || order.paymentLinkUrl,
+      amount: order.totalAmount,
+      serviceOrderId: order._id.toString(),
+    });
+
+    order.whatsappSent = true;
+    order.whatsappSentAt = new Date();
+    await order.save();
+
+    return responseUtil.success(res, "Payment link resent successfully", {
+      order,
+    });
+  } catch (error) {
+    console.error("[SERVICE-ORDER] Error resending link:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to resend payment link",
+      error.message
+    );
+  }
+};
+
+/**
+ * SERVICE REQUEST CONTROLLERS (User-initiated flow)
+ */
+
+/**
+ * Get all service requests
+ * @route GET /api/web/service-requests
+ */
+export const getAllServiceRequests = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      status,
+      userExists,
+      search,
+    } = req.query;
+
+    console.log("[SERVICE-REQUEST] Fetching requests - page:", page, "limit:", limit);
+
+    const query = {};
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (userExists !== undefined) {
+      query.userExists = userExists === "true";
+    }
+
+    if (search) {
+      query.$or = [
+        { phone: { $regex: search, $options: "i" } },
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
+
+    const [requests, totalCount] = await Promise.all([
+      ServiceRequest.find(query)
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .populate("userId", "name phone email")
+        .populate("reviewedBy", "name username")
+        .populate("services.serviceId"),
+      ServiceRequest.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // Get pending count
+    const pendingCount = await ServiceRequest.getPendingCount();
+
+    return responseUtil.success(res, "Service requests fetched successfully", {
+      requests,
+      pendingCount,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        limit: parseInt(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("[SERVICE-REQUEST] Error fetching requests:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch service requests",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get single service request by ID
+ * @route GET /api/web/service-requests/:id
+ */
+export const getServiceRequestById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const request = await ServiceRequest.findById(id)
+      .populate("userId", "name phone email")
+      .populate("reviewedBy", "name username")
+      .populate("services.serviceId");
+
+    if (!request) {
+      return responseUtil.notFound(res, "Service request not found");
+    }
+
+    return responseUtil.success(res, "Service request fetched successfully", {
+      request,
+    });
+  } catch (error) {
+    console.error("[SERVICE-REQUEST] Error fetching request:", error.message);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid request ID format");
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch service request",
+      error.message
+    );
+  }
+};
+
+/**
+ * Approve service request (generates payment link and sends via WhatsApp)
+ * @route POST /api/web/service-requests/:id/approve
+ */
+export const approveServiceRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminNotes, sendWhatsApp = true } = req.body;
+    const adminId = req.user?._id;
+
+    console.log("[SERVICE-REQUEST] Approving request:", id);
+
+    const request = await ServiceRequest.findById(id).populate("services.serviceId");
+
+    if (!request) {
+      return responseUtil.notFound(res, "Service request not found");
+    }
+
+    if (request.status !== "PENDING") {
+      return responseUtil.badRequest(
+        res,
+        `Cannot approve ${request.status} request`
+      );
+    }
+
+    // Check if all services have available slots
+    for (const serviceItem of request.services) {
+      const service = await Service.findById(serviceItem.serviceId);
+      if (!service || !service.isActive) {
+        return responseUtil.badRequest(
+          res,
+          `Service "${serviceItem.serviceName}" is no longer available`
+        );
+      }
+      if (!service.hasAvailableSlots()) {
+        return responseUtil.badRequest(
+          res,
+          `Service "${serviceItem.serviceName}" has reached maximum subscriptions`
+        );
+      }
+    }
+
+    // Generate payment link
+    const orderId = ServiceOrder.generateOrderId();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const paymentLinkOptions = {
+      amount: request.totalAmount * 100,
+      currency: "INR",
+      accept_partial: false,
+      description: `Service subscription: ${request.getServiceNamesString()}`,
+      customer: {
+        contact: `+91${request.phone}`,
+        name: request.name || "Customer",
+      },
+      notify: {
+        sms: false,
+        email: false,
+      },
+      reminder_enable: false,
+      notes: {
+        orderId: orderId,
+        type: "SERVICE",
+        phone: request.phone,
+        serviceRequestId: request._id.toString(),
+      },
+      callback_url: `${process.env.BASE_URL || "https://motivata.in"}/payment-success`,
+      callback_method: "get",
+      expire_by: Math.floor(expiresAt.getTime() / 1000),
+      reference_id: orderId,
+    };
+
+    const paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
+
+    // Create service order
+    const serviceOrder = new ServiceOrder({
+      phone: request.phone,
+      customerName: request.name,
+      services: request.services.map((s) => ({
+        serviceId: s.serviceId,
+        serviceName: s.serviceName,
+        price: s.price,
+        durationInDays: s.serviceId?.durationInDays || null,
+      })),
+      totalAmount: request.totalAmount,
+      source: "USER_REQUEST",
+      serviceRequestId: request._id,
+      adminId,
+      orderId,
+      paymentLinkId: paymentLink.id,
+      paymentLinkUrl: paymentLink.short_url,
+      paymentLinkShortUrl: paymentLink.short_url,
+      expiresAt,
+      userExists: request.userExists,
+      userId: request.userId,
+      adminNotes,
+    });
+
+    await serviceOrder.save();
+
+    // Update request status
+    await request.approve(adminId, serviceOrder._id);
+    if (adminNotes) {
+      request.adminNotes = adminNotes;
+      await request.save();
+    }
+
+    // Send WhatsApp
+    if (sendWhatsApp) {
+      try {
+        await sendServicePaymentLinkWhatsApp({
+          phone: request.phone,
+          serviceName: request.getServiceNamesString(),
+          paymentLink: paymentLink.short_url,
+          amount: request.totalAmount,
+          serviceOrderId: serviceOrder._id.toString(),
+        });
+
+        serviceOrder.whatsappSent = true;
+        serviceOrder.whatsappSentAt = new Date();
+        await serviceOrder.save();
+      } catch (whatsappError) {
+        console.error("[SERVICE-REQUEST] WhatsApp error:", whatsappError.message);
+      }
+    }
+
+    return responseUtil.success(res, "Service request approved successfully", {
+      request,
+      serviceOrder,
+      paymentLink: paymentLink.short_url,
+    });
+  } catch (error) {
+    console.error("[SERVICE-REQUEST] Error approving request:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to approve service request",
+      error.message
+    );
+  }
+};
+
+/**
+ * Reject service request
+ * @route POST /api/web/service-requests/:id/reject
+ */
+export const rejectServiceRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason, adminNotes } = req.body;
+    const adminId = req.user?._id;
+
+    console.log("[SERVICE-REQUEST] Rejecting request:", id);
+
+    const request = await ServiceRequest.findById(id);
+
+    if (!request) {
+      return responseUtil.notFound(res, "Service request not found");
+    }
+
+    if (request.status !== "PENDING") {
+      return responseUtil.badRequest(
+        res,
+        `Cannot reject ${request.status} request`
+      );
+    }
+
+    await request.reject(adminId, reason);
+    if (adminNotes) {
+      request.adminNotes = adminNotes;
+      await request.save();
+    }
+
+    return responseUtil.success(res, "Service request rejected", { request });
+  } catch (error) {
+    console.error("[SERVICE-REQUEST] Error rejecting request:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to reject service request",
+      error.message
+    );
+  }
+};
+
+/**
+ * USER SERVICE SUBSCRIPTION CONTROLLERS
+ */
+
+/**
+ * Get all user service subscriptions
+ * @route GET /api/web/user-subscriptions
+ */
+export const getAllSubscriptions = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      status,
+      serviceId,
+      phone,
+      search,
+    } = req.query;
+
+    console.log("[SUBSCRIPTION] Fetching subscriptions - page:", page, "limit:", limit);
+
+    const query = {};
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (serviceId) {
+      query.serviceId = serviceId;
+    }
+
+    if (phone) {
+      query.phone = normalizePhone(phone);
+    }
+
+    if (search) {
+      query.$or = [
+        { phone: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
+
+    const [subscriptions, totalCount] = await Promise.all([
+      UserServiceSubscription.find(query)
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .populate("serviceId")
+        .populate("userId", "name phone email")
+        .populate("serviceOrderId")
+        .populate("cancelledBy", "name username"),
+      UserServiceSubscription.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return responseUtil.success(res, "Subscriptions fetched successfully", {
+      subscriptions,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        limit: parseInt(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("[SUBSCRIPTION] Error fetching subscriptions:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch subscriptions",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get single subscription by ID
+ * @route GET /api/web/user-subscriptions/:id
+ */
+export const getSubscriptionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const subscription = await UserServiceSubscription.findById(id)
+      .populate("serviceId")
+      .populate("userId", "name phone email")
+      .populate("serviceOrderId")
+      .populate("cancelledBy", "name username");
+
+    if (!subscription) {
+      return responseUtil.notFound(res, "Subscription not found");
+    }
+
+    return responseUtil.success(res, "Subscription fetched successfully", {
+      subscription,
+    });
+  } catch (error) {
+    console.error("[SUBSCRIPTION] Error fetching subscription:", error.message);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid subscription ID format");
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch subscription",
+      error.message
+    );
+  }
+};
+
+/**
+ * Check subscription status for a phone
+ * @route POST /api/web/user-subscriptions/check-status
+ */
+export const checkSubscriptionStatus = async (req, res) => {
+  try {
+    const { phone, serviceId } = req.body;
+
+    const normalizedPhone = normalizePhone(phone);
+
+    let subscriptions;
+    if (serviceId) {
+      const hasActive = await UserServiceSubscription.hasActiveSubscription(
+        normalizedPhone,
+        serviceId
+      );
+      subscriptions = hasActive
+        ? await UserServiceSubscription.find({
+            phone: normalizedPhone,
+            serviceId,
+            status: "ACTIVE",
+          }).populate("serviceId")
+        : [];
+    } else {
+      subscriptions = await UserServiceSubscription.findActiveByPhone(normalizedPhone);
+    }
+
+    // Check if user exists
+    const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+
+    return responseUtil.success(res, "Subscription status fetched", {
+      phone: normalizedPhone,
+      userExists: !!user,
+      userId: user?._id || null,
+      userName: user?.name || null,
+      hasActiveSubscription: subscriptions.length > 0,
+      subscriptions,
+    });
+  } catch (error) {
+    console.error("[SUBSCRIPTION] Error checking status:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to check subscription status",
+      error.message
+    );
+  }
+};
+
+/**
+ * Cancel subscription
+ * @route POST /api/web/user-subscriptions/:id/cancel
+ */
+export const cancelSubscription = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminId = req.user?._id;
+
+    const subscription = await UserServiceSubscription.findById(id);
+
+    if (!subscription) {
+      return responseUtil.notFound(res, "Subscription not found");
+    }
+
+    if (subscription.status !== "ACTIVE") {
+      return responseUtil.badRequest(
+        res,
+        `Cannot cancel ${subscription.status} subscription`
+      );
+    }
+
+    await subscription.cancel(reason, adminId);
+
+    // Decrement service active subscription count
+    const service = await Service.findById(subscription.serviceId);
+    if (service) {
+      await service.decrementActiveSubscriptionCount();
+    }
+
+    return responseUtil.success(res, "Subscription cancelled successfully", {
+      subscription,
+    });
+  } catch (error) {
+    console.error("[SUBSCRIPTION] Error cancelling subscription:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to cancel subscription",
+      error.message
+    );
+  }
+};
+
+/**
+ * Update subscription admin notes
+ * @route PATCH /api/web/user-subscriptions/:id/notes
+ */
+export const updateSubscriptionNotes = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { adminNotes } = req.body;
+
+    const subscription = await UserServiceSubscription.findById(id);
+
+    if (!subscription) {
+      return responseUtil.notFound(res, "Subscription not found");
+    }
+
+    subscription.adminNotes = adminNotes;
+    await subscription.save();
+
+    return responseUtil.success(res, "Notes updated successfully", {
+      subscription,
+    });
+  } catch (error) {
+    console.error("[SUBSCRIPTION] Error updating notes:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to update notes",
+      error.message
+    );
+  }
+};
+
+export default {
+  // Service CRUD
+  createService,
+  getAllServices,
+  getServiceById,
+  updateService,
+  deleteService,
+  // Service orders
+  generatePaymentLink,
+  getAllServiceOrders,
+  getServiceOrderById,
+  resendPaymentLink,
+  // Service requests
+  getAllServiceRequests,
+  getServiceRequestById,
+  approveServiceRequest,
+  rejectServiceRequest,
+  // Subscriptions
+  getAllSubscriptions,
+  getSubscriptionById,
+  checkSubscriptionStatus,
+  cancelSubscription,
+  updateSubscriptionNotes,
+};

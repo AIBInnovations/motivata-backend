@@ -637,10 +637,162 @@ export const sendBulkVoucherWhatsApp = async (messages) => {
   }
 };
 
+/**
+ * Send WhatsApp message with service payment link
+ * Uses template: srvc_temp_1
+ *
+ * @param {Object} params - Message parameters
+ * @param {string} params.phone - Recipient phone number
+ * @param {string} params.serviceName - Service name(s) for template variable
+ * @param {string} params.paymentLink - Payment link URL
+ * @param {number} params.amount - Total amount
+ * @param {string} [params.serviceOrderId] - Related service order ID for logging
+ *
+ * @returns {Promise<Object>} API response
+ * @throws {Error} If message sending fails
+ */
+export const sendServicePaymentLinkWhatsApp = async ({
+  phone,
+  serviceName,
+  paymentLink,
+  amount,
+  serviceOrderId,
+}) => {
+  let communicationLog = null;
+
+  try {
+    console.log(`[WHATSAPP] ========== SENDING SERVICE PAYMENT LINK ==========`);
+
+    // Create communication log entry (PENDING status)
+    const formattedPhoneForLog = formatPhoneNumber(phone);
+    communicationLog = new CommunicationLog({
+      type: 'WHATSAPP',
+      category: 'SERVICE_PAYMENT_LINK',
+      recipient: formattedPhoneForLog,
+      status: 'PENDING',
+      templateName: 'srvc_temp_1',
+      metadata: {
+        serviceName,
+        paymentLink,
+        amount,
+        serviceOrderId: serviceOrderId || null,
+      }
+    });
+    await communicationLog.save();
+
+    console.log(`[WHATSAPP] Communication log created: ${communicationLog._id}`);
+
+    // Validate config
+    validateWhatsAppConfig();
+    console.log(`[WHATSAPP] Config validated`);
+
+    const formattedPhone = formatPhoneNumber(phone);
+
+    console.log(`[WHATSAPP] Service payment link details:`);
+    console.log(`[WHATSAPP]   - Original phone: ${phone}`);
+    console.log(`[WHATSAPP]   - Formatted phone: ${formattedPhone}`);
+    console.log(`[WHATSAPP]   - Service Name: ${serviceName}`);
+    console.log(`[WHATSAPP]   - Payment Link: ${paymentLink}`);
+    console.log(`[WHATSAPP]   - Amount: ${amount}`);
+
+    const apiUrl = `${WHATSAPP_API_BASE_URL}/${process.env.WHATSAPP_VENDOR_UID}/contact/send-template-message`;
+
+    const requestBody = {
+      phone_number: formattedPhone,
+      template_name: "srvc_temp_1",
+      template_language: "en_US",
+      templateArgs: {
+        field_1: serviceName,
+        field_2: paymentLink,
+        field_3: String(amount),
+      },
+      contact: {
+        first_name: "Customer",
+        last_name: ".",
+        country: "India",
+      },
+    };
+
+    console.log(`[WHATSAPP] API URL: ${apiUrl}`);
+    console.log(`[WHATSAPP] Request body:`, JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "X-API-Key": process.env.WHATSAPP_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    console.log(`[WHATSAPP] Response status: ${response.status} ${response.statusText}`);
+
+    const responseText = await response.text();
+    console.log(`[WHATSAPP] Raw response: ${responseText}`);
+
+    let responseData;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error(`[WHATSAPP] Failed to parse response as JSON`);
+      throw new Error(`Invalid JSON response: ${responseText}`);
+    }
+
+    console.log(`[WHATSAPP] Parsed response:`, JSON.stringify(responseData, null, 2));
+
+    if (!response.ok) {
+      console.error(`[WHATSAPP] ✗ API Error - Status: ${response.status}`);
+      console.error(`[WHATSAPP] ✗ Error details:`, responseData);
+      throw new Error(
+        responseData.message || responseData.error || `HTTP ${response.status}: WhatsApp API error`
+      );
+    }
+
+    console.log(`[WHATSAPP] ✓ Service payment link sent successfully!`);
+    console.log(`[WHATSAPP]   - Message ID: ${responseData.message_id}`);
+    console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
+    console.log(`[WHATSAPP] ========== SERVICE PAYMENT LINK SEND COMPLETE ==========`);
+
+    // Update communication log to SUCCESS
+    if (communicationLog) {
+      communicationLog.status = 'SUCCESS';
+      communicationLog.messageId = responseData.message_id;
+      await communicationLog.save();
+      console.log(`[WHATSAPP] Communication log updated to SUCCESS: ${communicationLog._id}`);
+    }
+
+    return {
+      success: true,
+      messageId: responseData.message_id,
+      recipient: formattedPhone,
+    };
+  } catch (error) {
+    console.error(`[WHATSAPP] ✗ FAILED to send service payment link to ${phone}`);
+
+    // Update communication log to FAILED
+    if (communicationLog) {
+      try {
+        communicationLog.status = 'FAILED';
+        communicationLog.errorMessage = error.message;
+        await communicationLog.save();
+        console.log(`[WHATSAPP] Communication log updated to FAILED: ${communicationLog._id}`);
+      } catch (logError) {
+        console.error(`[WHATSAPP] Failed to update communication log:`, logError.message);
+      }
+    }
+    console.error(`[WHATSAPP] Error type: ${error.name}`);
+    console.error(`[WHATSAPP] Error message: ${error.message}`);
+    console.error(`[WHATSAPP] Error stack:`, error.stack);
+    console.error(`[WHATSAPP] ========== SERVICE PAYMENT LINK SEND FAILED ==========`);
+    throw new Error(`Failed to send service payment link to ${phone}: ${error.message}`);
+  }
+};
+
 export default {
   sendTicketWhatsApp,
   sendBulkTicketWhatsApp,
   sendRedemptionLinkWhatsApp,
   sendVoucherWhatsApp,
   sendBulkVoucherWhatsApp,
+  sendServicePaymentLinkWhatsApp,
 };
