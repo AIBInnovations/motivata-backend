@@ -1883,6 +1883,7 @@ export const serviceOrderSchemas = {
         "any.required": "Service IDs are required",
       }),
     adminNotes: Joi.string().trim().max(1000).optional(),
+    sendWhatsApp: Joi.boolean().default(true),
   }),
 
   /**
@@ -1967,13 +1968,14 @@ export const serviceRequestSchemas = {
    */
   approve: Joi.object({
     adminNotes: Joi.string().trim().max(1000).optional(),
+    sendWhatsApp: Joi.boolean().default(true),
   }),
 
   /**
    * Reject request
    */
   reject: Joi.object({
-    rejectionReason: Joi.string().trim().max(500).required().messages({
+    reason: Joi.string().trim().max(500).required().messages({
       "any.required": "Rejection reason is required",
       "string.empty": "Rejection reason is required",
     }),
