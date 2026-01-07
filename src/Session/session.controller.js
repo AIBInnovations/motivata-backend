@@ -7,6 +7,7 @@ import Session from "../../schema/Session.schema.js";
 import SessionBooking from "../../schema/SessionBooking.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
+import { sendNewSessionNotification } from "../../utils/fcm.util.js";
 
 /**
  * Create a new session
@@ -47,6 +48,16 @@ export const createSession = async (req, res) => {
 
     const session = new Session(sessionData);
     await session.save();
+
+    // Send push notification to all app users (non-blocking)
+    sendNewSessionNotification({
+      sessionId: session._id,
+      sessionTitle: session.title,
+      host: session.host,
+      duration: session.duration,
+    }).catch((err) => {
+      console.error("[Session] Failed to send new session notification:", err.message);
+    });
 
     return responseUtil.created(res, "Session created successfully", {
       session,

@@ -1743,6 +1743,296 @@ export const seatArrangementSchemas = {
   }),
 };
 
+/**
+ * Service validation schemas
+ */
+export const serviceSchemas = {
+  /**
+   * Create service schema
+   */
+  create: Joi.object({
+    name: Joi.string().trim().max(200).required().messages({
+      "string.empty": "Service name is required",
+      "string.max": "Service name cannot exceed 200 characters",
+    }),
+    description: Joi.string().max(2000).required().messages({
+      "string.empty": "Service description is required",
+      "string.max": "Description cannot exceed 2000 characters",
+    }),
+    shortDescription: Joi.string().trim().max(500).optional().messages({
+      "string.max": "Short description cannot exceed 500 characters",
+    }),
+    price: Joi.number().min(0).required().messages({
+      "number.base": "Price must be a number",
+      "number.min": "Price cannot be negative",
+      "any.required": "Price is required",
+    }),
+    compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional().allow(null).messages({
+      "number.base": "Compare at price must be a number",
+      "number.min": "Compare at price must be greater than or equal to price",
+    }),
+    durationInDays: Joi.number().integer().min(1).optional().allow(null).messages({
+      "number.base": "Duration must be a number",
+      "number.min": "Duration must be at least 1 day",
+    }),
+    category: Joi.string()
+      .valid(
+        "CONSULTATION",
+        "COACHING",
+        "THERAPY",
+        "WELLNESS",
+        "FITNESS",
+        "EDUCATION",
+        "OTHER"
+      )
+      .optional()
+      .default("OTHER"),
+    imageUrl: Joi.string().uri().optional().allow(null, "").messages({
+      "string.uri": "Please provide a valid image URL",
+    }),
+    perks: Joi.array().items(Joi.string().trim().max(500)).optional().messages({
+      "string.max": "Each perk cannot exceed 500 characters",
+    }),
+    maxSubscriptions: Joi.number().integer().min(0).optional().allow(null),
+    displayOrder: Joi.number().integer().min(0).optional().default(0),
+    isFeatured: Joi.boolean().optional().default(false),
+    isActive: Joi.boolean().optional().default(true),
+    metadata: Joi.object().optional(),
+  }),
+
+  /**
+   * Update service schema
+   */
+  update: Joi.object({
+    name: Joi.string().trim().max(200).optional(),
+    description: Joi.string().max(2000).optional(),
+    shortDescription: Joi.string().trim().max(500).optional().allow(null, ""),
+    price: Joi.number().min(0).optional(),
+    compareAtPrice: Joi.number().min(0).optional().allow(null),
+    durationInDays: Joi.number().integer().min(1).optional().allow(null),
+    category: Joi.string()
+      .valid(
+        "CONSULTATION",
+        "COACHING",
+        "THERAPY",
+        "WELLNESS",
+        "FITNESS",
+        "EDUCATION",
+        "OTHER"
+      )
+      .optional(),
+    imageUrl: Joi.string().uri().optional().allow(null, ""),
+    perks: Joi.array().items(Joi.string().trim().max(500)).optional(),
+    maxSubscriptions: Joi.number().integer().min(0).optional().allow(null),
+    displayOrder: Joi.number().integer().min(0).optional(),
+    isFeatured: Joi.boolean().optional(),
+    isActive: Joi.boolean().optional(),
+    metadata: Joi.object().optional(),
+  }),
+
+  /**
+   * Query parameters for listing services
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("name", "price", "displayOrder", "createdAt", "activeSubscriptionCount")
+      .default("displayOrder"),
+    sortOrder: Joi.string().valid("asc", "desc").default("asc"),
+    category: Joi.string()
+      .valid(
+        "CONSULTATION",
+        "COACHING",
+        "THERAPY",
+        "WELLNESS",
+        "FITNESS",
+        "EDUCATION",
+        "OTHER"
+      )
+      .optional(),
+    isActive: Joi.boolean().optional(),
+    isFeatured: Joi.boolean().optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Service ID parameter validation
+   */
+  serviceId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+};
+
+/**
+ * Service Order validation schemas
+ */
+export const serviceOrderSchemas = {
+  /**
+   * Generate payment link (admin-initiated)
+   */
+  generatePaymentLink: Joi.object({
+    phone: schemas.phone.required(),
+    customerName: schemas.name.optional(),
+    serviceIds: Joi.array()
+      .items(schemas.mongoId)
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one service is required",
+        "any.required": "Service IDs are required",
+      }),
+    adminNotes: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Query parameters for listing service orders
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("createdAt", "totalAmount", "status")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    status: Joi.string()
+      .valid("PENDING", "SUCCESS", "FAILED", "EXPIRED", "CANCELLED")
+      .optional(),
+    source: Joi.string().valid("ADMIN", "USER_REQUEST").optional(),
+    phone: schemas.phone.optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Order ID parameter validation
+   */
+  orderId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Resend payment link
+   */
+  resendLink: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+};
+
+/**
+ * Service Request validation schemas (user-initiated)
+ */
+export const serviceRequestSchemas = {
+  /**
+   * Submit service request (user)
+   */
+  submit: Joi.object({
+    phone: schemas.phone.required(),
+    name: schemas.name.optional(),
+    email: schemas.email.optional().allow(null, ""),
+    serviceIds: Joi.array()
+      .items(schemas.mongoId)
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one service is required",
+        "any.required": "Service IDs are required",
+      }),
+    userNote: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Query parameters for listing service requests (admin)
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("createdAt", "totalAmount", "status")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    status: Joi.string().valid("PENDING", "APPROVED", "REJECTED").optional(),
+    userExists: Joi.boolean().optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Request ID parameter validation
+   */
+  requestId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Approve request
+   */
+  approve: Joi.object({
+    adminNotes: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Reject request
+   */
+  reject: Joi.object({
+    rejectionReason: Joi.string().trim().max(500).required().messages({
+      "any.required": "Rejection reason is required",
+      "string.empty": "Rejection reason is required",
+    }),
+    adminNotes: Joi.string().trim().max(1000).optional(),
+  }),
+};
+
+/**
+ * User Service Subscription validation schemas
+ */
+export const userServiceSubscriptionSchemas = {
+  /**
+   * Query parameters for listing subscriptions
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(10),
+    sortBy: Joi.string()
+      .valid("createdAt", "startDate", "endDate", "status")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    status: Joi.string()
+      .valid("ACTIVE", "EXPIRED", "CANCELLED", "REFUNDED")
+      .optional(),
+    serviceId: schemas.mongoId.optional(),
+    phone: schemas.phone.optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Subscription ID parameter validation
+   */
+  subscriptionId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Check subscription status by phone
+   */
+  checkStatus: Joi.object({
+    phone: schemas.phone.required(),
+    serviceId: schemas.mongoId.optional(),
+  }),
+
+  /**
+   * Cancel subscription
+   */
+  cancel: Joi.object({
+    reason: Joi.string().trim().max(500).optional(),
+  }),
+
+  /**
+   * Update admin notes
+   */
+  updateNotes: Joi.object({
+    adminNotes: Joi.string().trim().max(1000).required(),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -1764,4 +2054,8 @@ export default {
   membershipPlanSchemas,
   userMembershipSchemas,
   seatArrangementSchemas,
+  serviceSchemas,
+  serviceOrderSchemas,
+  serviceRequestSchemas,
+  userServiceSubscriptionSchemas,
 };
