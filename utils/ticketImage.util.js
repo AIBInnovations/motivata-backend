@@ -97,7 +97,7 @@ const generateQRCodeDataUrl = async (data) => {
   return await QRCode.toDataURL(data, {
     errorCorrectionLevel: 'H',
     type: 'image/png',
-    width: 200,
+    width: 400,
     margin: 1,
     color: {
       dark: '#000000',
@@ -151,7 +151,7 @@ const generateTicketSVG = ({
   const safeBookingId = escapeXml(bookingId);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="380" height="520" viewBox="0 0 380 520" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg width="760" height="1040" viewBox="0 0 760 1040" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs>
     <linearGradient id="thumbnailGradient" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#ff6b6b"/>
@@ -160,40 +160,40 @@ const generateTicketSVG = ({
   </defs>
 
   <!-- Background -->
-  <rect width="380" height="520" fill="#0d0d0d"/>
+  <rect width="760" height="1040" fill="#0d0d0d"/>
 
   <!-- Logo -->
-  <image x="90" y="24" width="200" height="40" href="${logoDataUrl}" preserveAspectRatio="xMidYMid meet"/>
+  <image x="180" y="48" width="400" height="80" href="${logoDataUrl}" preserveAspectRatio="xMidYMid meet"/>
 
   <!-- Event Thumbnail (gradient circle with initial) -->
-  <rect x="28" y="84" width="50" height="50" rx="10" fill="url(#thumbnailGradient)"/>
-  <text x="53" y="117" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle">${safeEventInitial}</text>
+  <rect x="56" y="168" width="100" height="100" rx="20" fill="url(#thumbnailGradient)"/>
+  <text x="106" y="234" font-family="Arial, sans-serif" font-size="44" font-weight="bold" fill="white" text-anchor="middle">${safeEventInitial}</text>
 
   <!-- Event Details -->
-  <text x="92" y="100" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#ffffff">${safeEventName}</text>
-  <text x="92" y="116" font-family="Arial, sans-serif" font-size="10" fill="#888888" letter-spacing="1">${safeEventMode} | ${safeEventLocation}</text>
-  <text x="92" y="132" font-family="Arial, sans-serif" font-size="12" fill="#cccccc">${safeEventDateTime}</text>
+  <text x="184" y="200" font-family="Arial, sans-serif" font-size="30" font-weight="600" fill="#ffffff">${safeEventName}</text>
+  <text x="184" y="232" font-family="Arial, sans-serif" font-size="20" fill="#888888" letter-spacing="2">${safeEventMode} | ${safeEventLocation}</text>
+  <text x="184" y="264" font-family="Arial, sans-serif" font-size="24" fill="#cccccc">${safeEventDateTime}</text>
 
   <!-- QR Code Section -->
   <!-- White background for QR -->
-  <rect x="106" y="160" width="168" height="168" rx="12" fill="#ffffff"/>
+  <rect x="212" y="320" width="336" height="336" rx="24" fill="#ffffff"/>
   <!-- QR Code Image -->
-  <image x="118" y="172" width="144" height="144" href="${qrCodeDataUrl}"/>
+  <image x="236" y="344" width="288" height="288" href="${qrCodeDataUrl}"/>
 
   <!-- Ticket Count -->
-  <text x="190" y="355" font-family="Arial, sans-serif" font-size="13" font-weight="500" fill="#ffffff" text-anchor="middle" letter-spacing="2">TICKET FOR ${safeTicketCount}</text>
+  <text x="380" y="710" font-family="Arial, sans-serif" font-size="26" font-weight="500" fill="#ffffff" text-anchor="middle" letter-spacing="4">TICKET FOR ${safeTicketCount}</text>
 
   <!-- Ticket Price -->
-  <text x="190" y="378" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#ffffff" text-anchor="middle">${safeTicketPrice}</text>
+  <text x="380" y="756" font-family="Arial, sans-serif" font-size="30" font-weight="600" fill="#ffffff" text-anchor="middle">${safeTicketPrice}</text>
 
   <!-- Dashed Divider -->
-  <line x1="28" y1="410" x2="352" y2="410" stroke="#333333" stroke-width="2" stroke-dasharray="8,6"/>
+  <line x1="56" y1="820" x2="704" y2="820" stroke="#333333" stroke-width="4" stroke-dasharray="16,12"/>
 
   <!-- Venue Name -->
-  <text x="190" y="448" font-family="Arial, sans-serif" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle" letter-spacing="1">${safeVenueName}</text>
+  <text x="380" y="896" font-family="Arial, sans-serif" font-size="26" font-weight="600" fill="#ffffff" text-anchor="middle" letter-spacing="2">${safeVenueName}</text>
 
   <!-- Booking ID -->
-  <text x="190" y="475" font-family="Arial, sans-serif" font-size="12" fill="#666666" text-anchor="middle">Booking ID: <tspan fill="#888888">${safeBookingId}</tspan></text>
+  <text x="380" y="950" font-family="Arial, sans-serif" font-size="24" fill="#666666" text-anchor="middle">Booking ID: <tspan fill="#888888">${safeBookingId}</tspan></text>
 </svg>`;
 };
 
@@ -275,9 +275,9 @@ export const generateTicketImage = async ({
 
     console.log(`[TICKET-IMAGE] SVG generated (${svgString.length} chars)`);
 
-    // Convert SVG to PNG using Sharp
-    const imageBuffer = await sharp(Buffer.from(svgString))
-      .png()
+    // Convert SVG to PNG using Sharp with high density for crisp rendering
+    const imageBuffer = await sharp(Buffer.from(svgString), { density: 150 })
+      .png({ compressionLevel: 6, quality: 100 })
       .toBuffer();
 
     if (!imageBuffer || imageBuffer.length === 0) {
