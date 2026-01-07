@@ -936,15 +936,41 @@ const createEventEnrollment = async (payment) => {
 
         // Confirm seat booking and assign seats for new tickets (if event has seat arrangement)
         if (event?.hasSeatArrangement) {
+          console.log('[ENROLLMENT:SEAT] Existing enrollment - processing seats', {
+            eventId: event._id,
+            orderId: payment.orderId,
+            enrollmentId: existingEnrollment._id,
+            isExistingEnrollment: true
+          });
+
           try {
+            console.log('[ENROLLMENT:SEAT] Existing enrollment - calling confirmSeatBooking', {
+              orderId: payment.orderId,
+              enrollmentId: existingEnrollment._id
+            });
+
+            const confirmStart = Date.now();
             await confirmSeatBooking({
               orderId: payment.orderId,
               enrollmentId: existingEnrollment._id,
             });
+            const confirmDuration = Date.now() - confirmStart;
+
+            console.log('[ENROLLMENT:SEAT] Existing enrollment - confirmSeatBooking completed', {
+              orderId: payment.orderId,
+              durationMs: confirmDuration
+            });
 
             // Assign seats to new tickets
             const { selectedSeats } = payment.metadata || {};
+            console.log('[ENROLLMENT:SEAT] Existing enrollment - assigning seats', {
+              enrollmentId: existingEnrollment._id,
+              selectedSeatsFromMetadata: selectedSeats
+            });
+
             if (selectedSeats && selectedSeats.length > 0) {
+              const assignmentResults = [];
+
               for (const { phone, seatLabel } of selectedSeats) {
                 const normalizedPhone = normalizePhone(phone);
                 const ticketData = existingEnrollment.tickets.get(normalizedPhone);
@@ -954,14 +980,35 @@ const createEventEnrollment = async (payment) => {
                     ...ticketData,
                     assignedSeat: seatLabel,
                   });
+                  assignmentResults.push({
+                    phone: normalizedPhone,
+                    seatLabel,
+                    status: 'assigned'
+                  });
+                } else {
+                  assignmentResults.push({
+                    phone: normalizedPhone,
+                    seatLabel,
+                    status: 'ticket_not_found'
+                  });
                 }
               }
 
               await existingEnrollment.save();
-              console.log('[ENROLLMENT] Seats assigned to new tickets in existing enrollment');
+
+              console.log('[ENROLLMENT:SEAT] Existing enrollment - seat assignment completed', {
+                enrollmentId: existingEnrollment._id,
+                totalSeats: selectedSeats.length,
+                assignmentResults
+              });
             }
           } catch (seatError) {
-            console.error('[ENROLLMENT] Seat confirmation error for existing enrollment:', seatError.message);
+            console.error('[ENROLLMENT:SEAT] Existing enrollment - FAILED', {
+              orderId: payment.orderId,
+              enrollmentId: existingEnrollment._id,
+              error: seatError.message,
+              stack: seatError.stack
+            });
           }
         }
         if (event) {
@@ -1051,16 +1098,43 @@ const createEventEnrollment = async (payment) => {
 
       // Confirm seat booking and assign seats to tickets
       if (event?.hasSeatArrangement) {
+        console.log('[ENROLLMENT:SEAT] Event has seat arrangement, processing seats', {
+          eventId: event._id,
+          orderId: payment.orderId,
+          enrollmentId: enrollment._id,
+          hasSeatArrangement: event.hasSeatArrangement
+        });
+
         try {
-          // Confirm seat booking (RESERVED → BOOKED)
+          // Confirm seat booking (RESERVED -> BOOKED)
+          console.log('[ENROLLMENT:SEAT] Calling confirmSeatBooking', {
+            orderId: payment.orderId,
+            enrollmentId: enrollment._id
+          });
+
+          const confirmStart = Date.now();
           await confirmSeatBooking({
             orderId: payment.orderId,
             enrollmentId: enrollment._id,
           });
+          const confirmDuration = Date.now() - confirmStart;
+
+          console.log('[ENROLLMENT:SEAT] confirmSeatBooking completed', {
+            orderId: payment.orderId,
+            durationMs: confirmDuration
+          });
 
           // Assign seats to tickets in enrollment
           const { selectedSeats } = payment.metadata || {};
+          console.log('[ENROLLMENT:SEAT] Assigning seats to tickets', {
+            enrollmentId: enrollment._id,
+            selectedSeatsFromMetadata: selectedSeats,
+            ticketCount: enrollment.tickets?.size || 0
+          });
+
           if (selectedSeats && selectedSeats.length > 0) {
+            const assignmentResults = [];
+
             for (const { phone, seatLabel } of selectedSeats) {
               const normalizedPhone = normalizePhone(phone);
               const ticketData = enrollment.tickets.get(normalizedPhone);
@@ -1070,16 +1144,47 @@ const createEventEnrollment = async (payment) => {
                   ...ticketData,
                   assignedSeat: seatLabel,
                 });
+                assignmentResults.push({
+                  phone: normalizedPhone,
+                  seatLabel,
+                  status: 'assigned'
+                });
+              } else {
+                assignmentResults.push({
+                  phone: normalizedPhone,
+                  seatLabel,
+                  status: 'ticket_not_found'
+                });
               }
             }
 
             await enrollment.save();
-            console.log('[ENROLLMENT] Seats assigned to tickets:', selectedSeats);
+
+            console.log('[ENROLLMENT:SEAT] Seat assignment completed', {
+              enrollmentId: enrollment._id,
+              totalSeats: selectedSeats.length,
+              assignmentResults
+            });
+          } else {
+            console.log('[ENROLLMENT:SEAT] No selectedSeats in metadata - skipping assignment', {
+              enrollmentId: enrollment._id,
+              metadataKeys: Object.keys(payment.metadata || {})
+            });
           }
         } catch (seatError) {
-          console.error('[ENROLLMENT] Seat confirmation error:', seatError.message);
+          console.error('[ENROLLMENT:SEAT] FAILED - Seat confirmation/assignment error', {
+            orderId: payment.orderId,
+            enrollmentId: enrollment._id,
+            error: seatError.message,
+            stack: seatError.stack
+          });
           // Continue - enrollment is created, seats can be manually fixed by admin
         }
+      } else {
+        console.log('[ENROLLMENT:SEAT] Event does not have seat arrangement - skipping', {
+          eventId: event?._id,
+          hasSeatArrangement: event?.hasSeatArrangement
+        });
       }
       if (event) {
         event.ticketsSold = (event.ticketsSold || 0) + totalTickets;

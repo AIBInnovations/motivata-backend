@@ -22,16 +22,20 @@ const normalizePhone = (phone) => {
  * Clean up expired seat reservations for a specific event
  * Called automatically when seats are queried
  * @param {ObjectId} eventId - Event to cleanup
- * @returns {Promise<boolean>} - True if any seats were released
+ * @returns {Promise<number>} - Number of seats released
  */
 const cleanupExpiredReservations = async (eventId) => {
   try {
     const now = new Date();
 
     const arrangement = await SeatArrangement.findOne({ eventId });
-    if (!arrangement) return false;
+    if (!arrangement) {
+      console.log('[SEAT:CLEANUP] No arrangement found for event', { eventId });
+      return 0;
+    }
 
     let releasedCount = 0;
+    const releasedSeats = [];
 
     // Find and release expired reservations
     for (const seat of arrangement.seats) {
@@ -40,6 +44,13 @@ const cleanupExpiredReservations = async (eventId) => {
         seat.reservationExpiry &&
         seat.reservationExpiry <= now
       ) {
+        releasedSeats.push({
+          label: seat.label,
+          orderId: seat.orderId,
+          expiredAt: seat.reservationExpiry,
+          expiredBy: Math.round((now - seat.reservationExpiry) / 1000) + 's ago'
+        });
+
         seat.status = "AVAILABLE";
         seat.reservedBy = null;
         seat.reservationExpiry = null;
@@ -58,18 +69,22 @@ const cleanupExpiredReservations = async (eventId) => {
       ).length;
 
       await arrangement.save();
-      console.log(
-        `[SEAT-ARRANGEMENT] Auto-released ${releasedCount} expired seats for event ${eventId}`
-      );
+      console.log('[SEAT:CLEANUP] Released expired reservations', {
+        eventId,
+        releasedCount,
+        releasedSeats,
+        newAvailableCount: arrangement.availableSeatsCount,
+        newReservedCount: arrangement.reservedSeatsCount
+      });
     }
 
-    return releasedCount > 0;
+    return releasedCount;
   } catch (error) {
-    console.error(
-      "[SEAT-ARRANGEMENT] Cleanup error:",
-      error.message
-    );
-    return false;
+    console.error('[SEAT:CLEANUP] Error during cleanup', {
+      eventId,
+      error: error.message
+    });
+    return 0;
   }
 };
 
@@ -465,35 +480,73 @@ export const deleteSeatArrangement = async (req, res) => {
  * @param {Object} params - { eventId, selectedSeats, userId, orderId }
  */
 export const reserveSeats = async ({ eventId, selectedSeats, userId, orderId }) => {
+  const operationId = `RSV-${Date.now().toString(36)}`;
+  console.log('[SEAT:RESERVE] ========== START ==========', {
+    operationId,
+    eventId,
+    orderId,
+    userId,
+    seatCount: selectedSeats?.length,
+    requestedSeats: selectedSeats?.map(s => ({ label: s.seatLabel, phone: s.phone }))
+  });
+
   // Clean up expired reservations first to make them available
-  await cleanupExpiredReservations(eventId);
+  console.log('[SEAT:RESERVE] Running cleanup before reservation', { operationId, eventId });
+  const cleanedUpCount = await cleanupExpiredReservations(eventId);
+  console.log('[SEAT:RESERVE] Cleanup completed', { operationId, seatsReleased: cleanedUpCount });
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
+    console.log('[SEAT:RESERVE] Fetching seat arrangement', { operationId, eventId });
     const arrangement = await SeatArrangement.findOne({ eventId }).session(
       session
     );
     if (!arrangement) {
+      console.error('[SEAT:RESERVE] FAILED - Arrangement not found', { operationId, eventId });
       await session.abortTransaction();
       throw new Error("Seat arrangement not found");
     }
+
+    console.log('[SEAT:RESERVE] Arrangement found', {
+      operationId,
+      arrangementId: arrangement._id,
+      totalSeats: arrangement.totalSeats,
+      availableSeats: arrangement.availableSeatsCount,
+      reservedSeats: arrangement.reservedSeatsCount,
+      bookedSeats: arrangement.bookedSeatsCount
+    });
 
     const now = new Date();
     const reservationExpiry = new Date(now.getTime() + 15 * 60 * 1000); // 15 minutes
 
     const requestedLabels = selectedSeats.map((s) => s.seatLabel.toUpperCase().trim());
     const unavailableSeats = [];
+    const seatStatusCheck = [];
+
+    console.log('[SEAT:RESERVE] Checking availability for seats', {
+      operationId,
+      requestedLabels,
+      expiryTime: reservationExpiry.toISOString()
+    });
 
     // Check all requested seats are available (expired reservations already cleaned)
     for (const seatLabel of requestedLabels) {
       const seat = arrangement.seats.find((s) => s.label === seatLabel);
 
       if (!seat) {
+        seatStatusCheck.push({ label: seatLabel, status: 'NOT_FOUND' });
         unavailableSeats.push(`${seatLabel} (not found)`);
         continue;
       }
+
+      seatStatusCheck.push({
+        label: seatLabel,
+        status: seat.status,
+        reservedBy: seat.reservedBy,
+        orderId: seat.orderId
+      });
 
       // Seat must be AVAILABLE
       if (seat.status !== "AVAILABLE") {
@@ -501,37 +554,78 @@ export const reserveSeats = async ({ eventId, selectedSeats, userId, orderId }) 
       }
     }
 
+    console.log('[SEAT:RESERVE] Availability check results', {
+      operationId,
+      seatStatusCheck,
+      unavailableCount: unavailableSeats.length
+    });
+
     if (unavailableSeats.length > 0) {
+      console.error('[SEAT:RESERVE] FAILED - Seats unavailable', {
+        operationId,
+        unavailableSeats,
+        requestedLabels
+      });
       await session.abortTransaction();
       throw new Error(
         `Selected seats are no longer available: ${unavailableSeats.join(", ")}`
       );
     }
 
+    console.log('[SEAT:RESERVE] All seats available, reserving now', { operationId });
+
     // Reserve all requested seats
+    const reservedSeatsDetail = [];
     for (const { seatLabel, phone } of selectedSeats) {
       const seat = arrangement.seats.find(
         (s) => s.label === seatLabel.toUpperCase().trim()
       );
       if (seat) {
+        const previousStatus = seat.status;
         seat.status = "RESERVED";
         seat.reservedBy = userId;
         seat.reservationExpiry = reservationExpiry;
         seat.orderId = orderId;
         seat.bookedByPhone = normalizePhone(phone); // Store for later
+
+        reservedSeatsDetail.push({
+          label: seat.label,
+          previousStatus,
+          newStatus: seat.status,
+          phone: normalizePhone(phone),
+          orderId
+        });
       }
     }
+
+    console.log('[SEAT:RESERVE] Seats marked as RESERVED', {
+      operationId,
+      reservedSeats: reservedSeatsDetail
+    });
 
     await arrangement.save({ session });
     await session.commitTransaction();
 
-    console.log(
-      `[SEAT-ARRANGEMENT] Reserved ${requestedLabels.length} seats for order ${orderId}`
-    );
+    console.log('[SEAT:RESERVE] SUCCESS - Transaction committed', {
+      operationId,
+      orderId,
+      eventId,
+      reservedCount: requestedLabels.length,
+      reservedLabels: requestedLabels,
+      expiresAt: reservationExpiry.toISOString()
+    });
+    console.log('[SEAT:RESERVE] ========== END ==========', { operationId });
+
     return arrangement;
   } catch (error) {
     await session.abortTransaction();
-    console.error("[SEAT-ARRANGEMENT] Reserve seats error:", error.message);
+    console.error('[SEAT:RESERVE] EXCEPTION - Transaction aborted', {
+      operationId,
+      orderId,
+      eventId,
+      error: error.message
+    });
+    console.log('[SEAT:RESERVE] ========== END (ERROR) ==========', { operationId });
     throw error;
   } finally {
     session.endSession();
@@ -544,30 +638,75 @@ export const reserveSeats = async ({ eventId, selectedSeats, userId, orderId }) 
  * @param {Object} params - { orderId, enrollmentId }
  */
 export const confirmSeatBooking = async ({ orderId, enrollmentId }) => {
+  const operationId = `CFM-${Date.now().toString(36)}`;
+  console.log('[SEAT:CONFIRM] ========== START ==========', {
+    operationId,
+    orderId,
+    enrollmentId
+  });
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
+    console.log('[SEAT:CONFIRM] Searching for arrangement with reserved seats', {
+      operationId,
+      searchCriteria: { 'seats.orderId': orderId }
+    });
+
     const arrangement = await SeatArrangement.findOne({
       "seats.orderId": orderId,
     }).session(session);
 
     if (!arrangement) {
+      console.error('[SEAT:CONFIRM] FAILED - No arrangement found with orderId', {
+        operationId,
+        orderId
+      });
       await session.abortTransaction();
       throw new Error(`No seat reservations found for order ${orderId}`);
     }
 
+    console.log('[SEAT:CONFIRM] Arrangement found', {
+      operationId,
+      arrangementId: arrangement._id,
+      eventId: arrangement.eventId,
+      totalSeats: arrangement.totalSeats
+    });
+
+    console.log('[SEAT:CONFIRM] Fetching enrollment', { operationId, enrollmentId });
     const enrollment = await EventEnrollment.findById(enrollmentId).session(
       session
     );
     if (!enrollment) {
+      console.error('[SEAT:CONFIRM] FAILED - Enrollment not found', {
+        operationId,
+        enrollmentId
+      });
       await session.abortTransaction();
       throw new Error("Enrollment not found");
     }
 
+    console.log('[SEAT:CONFIRM] Enrollment found', {
+      operationId,
+      enrollmentId,
+      userId: enrollment.userId,
+      eventId: enrollment.eventId
+    });
+
     // Convert all RESERVED seats with this orderId to BOOKED
+    const confirmedSeats = [];
+    const skippedSeats = [];
+
     for (const seat of arrangement.seats) {
       if (seat.status === "RESERVED" && seat.orderId === orderId) {
+        confirmedSeats.push({
+          label: seat.label,
+          previousStatus: seat.status,
+          phone: seat.bookedByPhone,
+          previousOrderId: seat.orderId
+        });
+
         seat.status = "BOOKED";
         seat.bookedBy = enrollment.userId;
         seat.enrollmentId = enrollmentId;
@@ -576,19 +715,54 @@ export const confirmSeatBooking = async ({ orderId, enrollmentId }) => {
         seat.reservedBy = null;
         seat.reservationExpiry = null;
         seat.orderId = null;
+      } else if (seat.orderId === orderId) {
+        // Seat has the orderId but status is not RESERVED (unexpected)
+        skippedSeats.push({
+          label: seat.label,
+          status: seat.status,
+          reason: 'Status not RESERVED'
+        });
       }
+    }
+
+    console.log('[SEAT:CONFIRM] Seats status update', {
+      operationId,
+      confirmedCount: confirmedSeats.length,
+      confirmedSeats,
+      skippedCount: skippedSeats.length,
+      skippedSeats: skippedSeats.length > 0 ? skippedSeats : undefined
+    });
+
+    if (confirmedSeats.length === 0) {
+      console.warn('[SEAT:CONFIRM] WARNING - No seats were confirmed', {
+        operationId,
+        orderId,
+        possibleReason: 'Seats may have expired or already been processed'
+      });
     }
 
     await arrangement.save({ session });
     await session.commitTransaction();
 
-    console.log(
-      `[SEAT-ARRANGEMENT] Confirmed booking for order ${orderId}, enrollment ${enrollmentId}`
-    );
+    console.log('[SEAT:CONFIRM] SUCCESS - Transaction committed', {
+      operationId,
+      orderId,
+      enrollmentId,
+      confirmedCount: confirmedSeats.length,
+      confirmedLabels: confirmedSeats.map(s => s.label)
+    });
+    console.log('[SEAT:CONFIRM] ========== END ==========', { operationId });
+
     return arrangement;
   } catch (error) {
     await session.abortTransaction();
-    console.error("[SEAT-ARRANGEMENT] Confirm booking error:", error.message);
+    console.error('[SEAT:CONFIRM] EXCEPTION - Transaction aborted', {
+      operationId,
+      orderId,
+      enrollmentId,
+      error: error.message
+    });
+    console.log('[SEAT:CONFIRM] ========== END (ERROR) ==========', { operationId });
     throw error;
   } finally {
     session.endSession();
@@ -601,25 +775,54 @@ export const confirmSeatBooking = async ({ orderId, enrollmentId }) => {
  * @param {Object} params - { orderId }
  */
 export const releaseSeatReservation = async ({ orderId }) => {
+  const operationId = `RLS-${Date.now().toString(36)}`;
+  console.log('[SEAT:RELEASE] ========== START ==========', {
+    operationId,
+    orderId
+  });
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
+    console.log('[SEAT:RELEASE] Searching for arrangement with reserved seats', {
+      operationId,
+      searchCriteria: { 'seats.orderId': orderId }
+    });
+
     const arrangement = await SeatArrangement.findOne({
       "seats.orderId": orderId,
     }).session(session);
 
     if (!arrangement) {
       // No seats to release - this is OK
+      console.log('[SEAT:RELEASE] No arrangement found with orderId - nothing to release', {
+        operationId,
+        orderId
+      });
       await session.commitTransaction();
+      console.log('[SEAT:RELEASE] ========== END (NO-OP) ==========', { operationId });
       return null;
     }
 
+    console.log('[SEAT:RELEASE] Arrangement found', {
+      operationId,
+      arrangementId: arrangement._id,
+      eventId: arrangement.eventId
+    });
+
     let releasedCount = 0;
+    const releasedSeats = [];
 
     // Release all RESERVED seats with this orderId
     for (const seat of arrangement.seats) {
       if (seat.status === "RESERVED" && seat.orderId === orderId) {
+        releasedSeats.push({
+          label: seat.label,
+          previousStatus: seat.status,
+          phone: seat.bookedByPhone
+        });
+
         seat.status = "AVAILABLE";
         seat.reservedBy = null;
         seat.reservationExpiry = null;
@@ -629,21 +832,35 @@ export const releaseSeatReservation = async ({ orderId }) => {
       }
     }
 
+    console.log('[SEAT:RELEASE] Seats released', {
+      operationId,
+      releasedCount,
+      releasedSeats
+    });
+
     if (releasedCount > 0) {
       await arrangement.save({ session });
-      console.log(
-        `[SEAT-ARRANGEMENT] Released ${releasedCount} reserved seats for order ${orderId}`
-      );
     }
 
     await session.commitTransaction();
+
+    console.log('[SEAT:RELEASE] SUCCESS - Transaction committed', {
+      operationId,
+      orderId,
+      releasedCount,
+      releasedLabels: releasedSeats.map(s => s.label)
+    });
+    console.log('[SEAT:RELEASE] ========== END ==========', { operationId });
+
     return arrangement;
   } catch (error) {
     await session.abortTransaction();
-    console.error(
-      "[SEAT-ARRANGEMENT] Release reservation error:",
-      error.message
-    );
+    console.error('[SEAT:RELEASE] EXCEPTION - Transaction aborted', {
+      operationId,
+      orderId,
+      error: error.message
+    });
+    console.log('[SEAT:RELEASE] ========== END (ERROR) ==========', { operationId });
     throw error;
   } finally {
     session.endSession();
@@ -656,11 +873,27 @@ export const releaseSeatReservation = async ({ orderId }) => {
  * @param {Object} params - { enrollmentId, phone }
  */
 export const cancelSeatBooking = async ({ enrollmentId, phone }) => {
+  const operationId = `CXL-${Date.now().toString(36)}`;
+  const normalizedPhone = normalizePhone(phone);
+
+  console.log('[SEAT:CANCEL] ========== START ==========', {
+    operationId,
+    enrollmentId,
+    phone,
+    normalizedPhone
+  });
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const normalizedPhone = normalizePhone(phone);
+    console.log('[SEAT:CANCEL] Searching for booked seat', {
+      operationId,
+      searchCriteria: {
+        'seats.enrollmentId': enrollmentId,
+        'seats.bookedByPhone': normalizedPhone
+      }
+    });
 
     const arrangement = await SeatArrangement.findOne({
       "seats.enrollmentId": enrollmentId,
@@ -669,9 +902,21 @@ export const cancelSeatBooking = async ({ enrollmentId, phone }) => {
 
     if (!arrangement) {
       // No seat found - this is OK (event might not have seat arrangement)
+      console.log('[SEAT:CANCEL] No arrangement found - event may not have seat arrangement', {
+        operationId,
+        enrollmentId,
+        phone: normalizedPhone
+      });
       await session.commitTransaction();
+      console.log('[SEAT:CANCEL] ========== END (NO-OP) ==========', { operationId });
       return null;
     }
+
+    console.log('[SEAT:CANCEL] Arrangement found', {
+      operationId,
+      arrangementId: arrangement._id,
+      eventId: arrangement.eventId
+    });
 
     // Find and release the specific seat
     const seat = arrangement.seats.find(
@@ -682,22 +927,57 @@ export const cancelSeatBooking = async ({ enrollmentId, phone }) => {
     );
 
     if (seat) {
+      console.log('[SEAT:CANCEL] Found seat to cancel', {
+        operationId,
+        label: seat.label,
+        previousStatus: seat.status,
+        bookedBy: seat.bookedBy,
+        enrollmentId: seat.enrollmentId
+      });
+
       seat.status = "AVAILABLE";
       seat.bookedBy = null;
       seat.bookedByPhone = null;
       seat.enrollmentId = null;
 
       await arrangement.save({ session });
-      console.log(
-        `[SEAT-ARRANGEMENT] Released seat ${seat.label} for enrollment ${enrollmentId}, phone ${normalizedPhone}`
-      );
+
+      console.log('[SEAT:CANCEL] Seat cancelled and released', {
+        operationId,
+        label: seat.label,
+        newStatus: 'AVAILABLE'
+      });
+    } else {
+      console.warn('[SEAT:CANCEL] WARNING - Seat not found in arrangement', {
+        operationId,
+        enrollmentId,
+        phone: normalizedPhone,
+        availableSeatsWithEnrollment: arrangement.seats
+          .filter(s => s.enrollmentId)
+          .map(s => ({ label: s.label, enrollmentId: s.enrollmentId, phone: s.bookedByPhone }))
+      });
     }
 
     await session.commitTransaction();
+
+    console.log('[SEAT:CANCEL] SUCCESS - Transaction committed', {
+      operationId,
+      enrollmentId,
+      phone: normalizedPhone,
+      seatCancelled: seat ? seat.label : 'none'
+    });
+    console.log('[SEAT:CANCEL] ========== END ==========', { operationId });
+
     return arrangement;
   } catch (error) {
     await session.abortTransaction();
-    console.error("[SEAT-ARRANGEMENT] Cancel seat booking error:", error.message);
+    console.error('[SEAT:CANCEL] EXCEPTION - Transaction aborted', {
+      operationId,
+      enrollmentId,
+      phone: normalizedPhone,
+      error: error.message
+    });
+    console.log('[SEAT:CANCEL] ========== END (ERROR) ==========', { operationId });
     throw error;
   } finally {
     session.endSession();

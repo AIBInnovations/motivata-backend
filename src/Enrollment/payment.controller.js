@@ -54,17 +54,37 @@ export const createPaymentOrder = async (req, res) => {
 
       // If event has seat arrangement, validate seat selection
       if (event.hasSeatArrangement) {
+        console.log('[PAYMENT:SEAT] Event has seat arrangement, validating selection', {
+          eventId,
+          hasSeatArrangement: event.hasSeatArrangement
+        });
+
         const { selectedSeats } = metadata || {};
 
         if (!selectedSeats || !Array.isArray(selectedSeats) || selectedSeats.length === 0) {
+          console.log('[PAYMENT:SEAT] Validation FAILED - No seats selected', {
+            eventId,
+            selectedSeats: selectedSeats || 'undefined'
+          });
           return responseUtil.badRequest(res, 'Seat selection is required for this event');
         }
 
         // Validate count matches total tickets
         const totalTickets = metadata.totalTickets || 1;
         if (selectedSeats.length !== totalTickets) {
+          console.log('[PAYMENT:SEAT] Validation FAILED - Seat count mismatch', {
+            eventId,
+            selectedSeatsCount: selectedSeats.length,
+            expectedCount: totalTickets
+          });
           return responseUtil.badRequest(res, `Must select ${totalTickets} seat(s)`);
         }
+
+        console.log('[PAYMENT:SEAT] Validation PASSED', {
+          eventId,
+          selectedSeats: selectedSeats.map(s => ({ seatLabel: s.seatLabel, phone: s.phone })),
+          totalTickets
+        });
       }
     }
 
@@ -157,18 +177,45 @@ export const createPaymentOrder = async (req, res) => {
     if (type === 'EVENT' && eventId) {
       const event = await Event.findById(eventId).select('hasSeatArrangement');
       if (event?.hasSeatArrangement && metadata?.selectedSeats) {
+        console.log('[PAYMENT:SEAT] Starting seat reservation', {
+          eventId,
+          orderId: gatewayOrder.id,
+          userId,
+          seatCount: metadata.selectedSeats.length,
+          seats: metadata.selectedSeats.map(s => s.seatLabel)
+        });
+
         try {
+          const reservationStart = Date.now();
           await reserveSeats({
             eventId,
             selectedSeats: metadata.selectedSeats,
             userId,
             orderId: gatewayOrder.id
           });
-          console.log('[PAYMENT] Seats reserved for order:', gatewayOrder.id);
+          const reservationDuration = Date.now() - reservationStart;
+
+          console.log('[PAYMENT:SEAT] Seat reservation SUCCESS', {
+            orderId: gatewayOrder.id,
+            eventId,
+            reservedSeats: metadata.selectedSeats.map(s => s.seatLabel),
+            durationMs: reservationDuration
+          });
         } catch (seatError) {
           // Seat reservation failed - rollback payment
+          console.error('[PAYMENT:SEAT] Seat reservation FAILED', {
+            orderId: gatewayOrder.id,
+            eventId,
+            error: seatError.message,
+            requestedSeats: metadata.selectedSeats.map(s => s.seatLabel)
+          });
+
           await Payment.deleteOne({ _id: payment._id });
-          console.error('[PAYMENT] Seat reservation failed:', seatError.message);
+          console.log('[PAYMENT:SEAT] Payment record rolled back', {
+            paymentId: payment._id,
+            orderId: gatewayOrder.id
+          });
+
           return responseUtil.badRequest(res, seatError.message || 'Selected seats are no longer available');
         }
       }
@@ -477,13 +524,32 @@ export const handlePaymentFailure = async (req, res) => {
 
     // Release seat reservations if event has seat arrangement
     if (payment.eventId && payment.metadata?.selectedSeats) {
+      console.log('[PAYMENT:SEAT] Payment failed, checking for seat release', {
+        orderId: payment.orderId,
+        eventId: payment.eventId,
+        selectedSeats: payment.metadata.selectedSeats.map(s => s.seatLabel)
+      });
+
       const event = await Event.findById(payment.eventId).select('hasSeatArrangement');
       if (event?.hasSeatArrangement) {
         try {
+          const releaseStart = Date.now();
           await releaseSeatReservation({ orderId: payment.orderId });
-          console.log('[PAYMENT] Seats released for failed payment:', payment.orderId);
+          const releaseDuration = Date.now() - releaseStart;
+
+          console.log('[PAYMENT:SEAT] Seat release SUCCESS (payment failed)', {
+            orderId: payment.orderId,
+            eventId: payment.eventId,
+            releasedSeats: payment.metadata.selectedSeats.map(s => s.seatLabel),
+            durationMs: releaseDuration
+          });
         } catch (seatError) {
-          console.error('[PAYMENT] Failed to release seats:', seatError.message);
+          console.error('[PAYMENT:SEAT] Seat release FAILED (payment failed)', {
+            orderId: payment.orderId,
+            eventId: payment.eventId,
+            error: seatError.message,
+            note: 'Seats will be released by cleanup job'
+          });
           // Continue anyway - seats will be released by cleanup job
         }
       }
