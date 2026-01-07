@@ -37,6 +37,7 @@ const communicationLogSchema = new mongoose.Schema(
           "PAYMENT_CONFIRMATION",
           "REFUND_NOTIFICATION",
           "EVENT_REMINDER",
+          "SERVICE_PAYMENT_LINK",
           "MARKETING",
           "TRANSACTIONAL",
           "OTHER",

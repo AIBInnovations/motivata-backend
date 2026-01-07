@@ -10,6 +10,7 @@ import User from "../../schema/User.schema.js";
 import EventEnrollment from "../../schema/EventEnrollment.schema.js";
 import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { reserveSeats, releaseSeatReservation } from "../SeatArrangement/seatArrangement.controller.js";
 
 /**
  * Normalize phone number by extracting last 10 digits
@@ -196,6 +197,32 @@ export const createOrder = async (req, res) => {
       return responseUtil.badRequest(res, "Event booking period has ended");
     }
 
+    // === SEAT SELECTION VALIDATION ===
+    // If event has seat arrangement, validate seat selection
+    if (event.hasSeatArrangement) {
+      console.log('[RAZORPAY:SEAT] Event has seat arrangement, validating selection', {
+        eventId,
+        hasSeatArrangement: event.hasSeatArrangement
+      });
+
+      const { selectedSeats } = metadata || {};
+
+      if (!selectedSeats || !Array.isArray(selectedSeats) || selectedSeats.length === 0) {
+        console.log('[RAZORPAY:SEAT] Validation FAILED - No seats selected', {
+          eventId,
+          selectedSeats: selectedSeats || 'undefined'
+        });
+        return responseUtil.badRequest(res, "Seat selection is required for this event");
+      }
+
+      console.log('[RAZORPAY:SEAT] Seats provided', {
+        eventId,
+        seatCount: selectedSeats.length,
+        seats: selectedSeats.map(s => s.seatLabel || s)
+      });
+    }
+    // === END SEAT SELECTION VALIDATION ===
+
     // === BUYER VALIDATION ===
     // Validate buyer information exists
     if (!metadata.buyer || !metadata.buyer.phone) {
@@ -346,6 +373,23 @@ export const createOrder = async (req, res) => {
     // Note: 'others' array already validated above
     const totalTickets = 1 + others.length; // 1 for buyer + number of others
 
+    // Validate seat count matches total tickets (for events with seat arrangement)
+    if (event.hasSeatArrangement && metadata.selectedSeats) {
+      if (metadata.selectedSeats.length !== totalTickets) {
+        console.log('[RAZORPAY:SEAT] Validation FAILED - Seat count mismatch', {
+          eventId,
+          selectedSeatsCount: metadata.selectedSeats.length,
+          expectedCount: totalTickets
+        });
+        return responseUtil.badRequest(res, `Must select ${totalTickets} seat(s)`);
+      }
+      console.log('[RAZORPAY:SEAT] Seat count validation PASSED', {
+        eventId,
+        selectedSeatsCount: metadata.selectedSeats.length,
+        totalTickets
+      });
+    }
+
     // Use the tier price as the total amount (don't multiply by tickets)
     const totalAmount = amount;
 
@@ -495,6 +539,68 @@ export const createOrder = async (req, res) => {
     });
 
     await payment.save();
+
+    // Reserve seats if event has seat arrangement
+    if (event.hasSeatArrangement && metadata.selectedSeats && Array.isArray(metadata.selectedSeats) && metadata.selectedSeats.length > 0) {
+      console.log('[RAZORPAY:SEAT] Event has seat arrangement, starting reservation', {
+        eventId,
+        orderId: razorpayOrder.id,
+        seatCount: metadata.selectedSeats.length,
+        seats: metadata.selectedSeats.map(s => s.seatLabel || s)
+      });
+
+      try {
+        const reservationStart = Date.now();
+        await reserveSeats({
+          eventId,
+          selectedSeats: metadata.selectedSeats,
+          orderId: razorpayOrder.id
+        });
+        const reservationDuration = Date.now() - reservationStart;
+
+        console.log('[RAZORPAY:SEAT] Seat reservation SUCCESS', {
+          orderId: razorpayOrder.id,
+          eventId,
+          reservedSeats: metadata.selectedSeats.map(s => s.seatLabel || s),
+          durationMs: reservationDuration
+        });
+      } catch (seatError) {
+        // Seat reservation failed - rollback payment and voucher claim
+        console.error('[RAZORPAY:SEAT] Seat reservation FAILED', {
+          orderId: razorpayOrder.id,
+          eventId,
+          error: seatError.message,
+          requestedSeats: metadata.selectedSeats.map(s => s.seatLabel || s)
+        });
+
+        // Rollback payment record
+        await Payment.deleteOne({ _id: payment._id });
+        console.log('[RAZORPAY:SEAT] Payment record rolled back', {
+          paymentId: payment._id,
+          orderId: razorpayOrder.id
+        });
+
+        // Rollback voucher claim if any
+        if (claimedVoucher && voucherClaimedPhones.length > 0) {
+          try {
+            await Voucher.findByIdAndUpdate(claimedVoucher._id, {
+              $pull: { claimedPhones: { $in: voucherClaimedPhones } }
+            });
+            console.log('[RAZORPAY:SEAT] Voucher claim rolled back', {
+              voucherId: claimedVoucher._id,
+              phones: voucherClaimedPhones
+            });
+          } catch (voucherError) {
+            console.error('[RAZORPAY:SEAT] Voucher rollback FAILED', {
+              voucherId: claimedVoucher._id,
+              error: voucherError.message
+            });
+          }
+        }
+
+        return responseUtil.badRequest(res, seatError.message || 'Selected seats are no longer available');
+      }
+    }
 
     // Prepare payment link notes
     const paymentLinkNotes = {
