@@ -9,6 +9,8 @@ import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import Connect from '../../schema/Connect.schema.js';
 import Like from '../../schema/Like.schema.js';
 import Post from '../../schema/Post.schema.js';
+import UserMembership from '../../schema/UserMembership.schema.js';
+import UserServiceSubscription from '../../schema/UserServiceSubscription.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
 
@@ -412,15 +414,25 @@ export const getProfile = async (req, res) => {
     // Fetch all enrollments where:
     // 1. User is the owner (buyer) - userId matches
     // 2. User's phone is a key in the tickets Map (someone bought ticket for them)
-    const enrollments = await EventEnrollment.find({
-      $or: [
-        { userId: userId },
-        { [`tickets.${user.phone}`]: { $exists: true } }
-      ]
-    })
-      .populate('eventId', 'name description startDate endDate mode city price compareAtPrice imageUrls thumbnail location category')
-      .populate('userId', 'name email phone')
-      .sort({ createdAt: -1 });
+    const [enrollments, memberships, serviceSubscriptions] = await Promise.all([
+      EventEnrollment.find({
+        $or: [
+          { userId: userId },
+          { [`tickets.${user.phone}`]: { $exists: true } }
+        ]
+      })
+        .populate('eventId', 'name description startDate endDate mode city price compareAtPrice imageUrls thumbnail location category')
+        .populate('userId', 'name email phone')
+        .sort({ createdAt: -1 }),
+      // Fetch all memberships for this user's phone
+      UserMembership.findByPhone(user.phone),
+      // Fetch all service subscriptions for this user's phone (including expired)
+      UserServiceSubscription.find({
+        phone: user.phone.slice(-10),
+      })
+        .populate('serviceId', 'name description category perks imageUrl')
+        .sort({ createdAt: -1 })
+    ]);
 
     // Enrich enrollments with relationship and myTicket info
     const enrichedEnrollments = enrollments
@@ -444,9 +456,51 @@ export const getProfile = async (req, res) => {
         };
       });
 
+    // Transform memberships to include only user-needed data
+    const enrichedMemberships = memberships.map(membership => {
+      const membershipObj = membership.toObject();
+      return {
+        _id: membershipObj._id,
+        planName: membershipObj.planSnapshot?.name || membershipObj.membershipPlanId?.name,
+        planDescription: membershipObj.planSnapshot?.description || membershipObj.membershipPlanId?.description,
+        perks: membershipObj.planSnapshot?.perks || membershipObj.membershipPlanId?.perks || [],
+        startDate: membershipObj.startDate,
+        endDate: membershipObj.endDate,
+        status: membership.getCurrentStatus(),
+        daysRemaining: membershipObj.daysRemaining,
+        isCurrentlyActive: membershipObj.isCurrentlyActive,
+        amountPaid: membershipObj.amountPaid,
+        purchasedAt: membershipObj.createdAt
+      };
+    });
+
+    // Transform service subscriptions to include only user-needed data
+    const enrichedServiceSubscriptions = serviceSubscriptions.map(subscription => {
+      const subObj = subscription.toObject();
+      return {
+        _id: subObj._id,
+        serviceName: subObj.serviceId?.name,
+        serviceDescription: subObj.serviceId?.description,
+        serviceCategory: subObj.serviceId?.category,
+        perks: subObj.serviceId?.perks || [],
+        imageUrl: subObj.serviceId?.imageUrl,
+        startDate: subObj.startDate,
+        endDate: subObj.endDate,
+        status: subObj.status,
+        isCurrentlyActive: subscription.isCurrentlyActive(),
+        daysRemaining: subObj.endDate
+          ? Math.max(0, Math.ceil((new Date(subObj.endDate) - new Date()) / (1000 * 60 * 60 * 24)))
+          : null, // null for lifetime subscriptions
+        amountPaid: subObj.amountPaid,
+        purchasedAt: subObj.createdAt
+      };
+    });
+
     return responseUtil.success(res, 'Profile retrieved successfully', {
       user,
-      enrollments: enrichedEnrollments
+      enrollments: enrichedEnrollments,
+      memberships: enrichedMemberships,
+      serviceSubscriptions: enrichedServiceSubscriptions
     });
   } catch (error) {
     console.error('Get profile error:', error);
