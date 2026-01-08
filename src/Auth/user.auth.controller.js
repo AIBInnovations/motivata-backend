@@ -424,8 +424,14 @@ export const getProfile = async (req, res) => {
         .populate('eventId', 'name description startDate endDate mode city price compareAtPrice imageUrls thumbnail location category')
         .populate('userId', 'name email phone')
         .sort({ createdAt: -1 }),
-      // Fetch all memberships for this user's phone
-      UserMembership.findByPhone(user.phone),
+      // Fetch only active memberships (with successful payment) for this user's phone
+      UserMembership.find({
+        phone: user.phone.slice(-10),
+        isDeleted: false,
+        paymentStatus: 'SUCCESS'
+      })
+        .populate('membershipPlanId')
+        .sort({ createdAt: -1 }),
       // Fetch all service subscriptions for this user's phone (including expired)
       UserServiceSubscription.find({
         phone: user.phone.slice(-10),
