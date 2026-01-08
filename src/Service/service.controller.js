@@ -380,7 +380,8 @@ export const generatePaymentLink = async (req, res) => {
       description: `Service subscription: ${services.map((s) => s.name).join(", ")}`,
       customer: {
         name: customerName || user?.name || "Customer",
-        contact: normalizedPhone,
+        email: user?.email || "",
+        contact: `91${normalizedPhone}`,
       },
       notify: {
         sms: false,
@@ -828,7 +829,8 @@ export const approveServiceRequest = async (req, res) => {
       description: `Service subscription: ${request.getServiceNamesString()}`,
       customer: {
         name: request.name || "Customer",
-        contact: request.phone,
+        email: request.email || "",
+        contact: `91${request.phone}`,
       },
       notify: {
         sms: false,
