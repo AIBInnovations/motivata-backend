@@ -84,8 +84,8 @@ const userMembershipSchema = new mongoose.Schema(
     // Status
     status: {
       type: String,
-      enum: ['ACTIVE', 'EXPIRED', 'CANCELLED', 'REFUNDED'],
-      default: 'ACTIVE',
+      enum: ['PENDING', 'ACTIVE', 'EXPIRED', 'CANCELLED', 'REFUNDED'],
+      default: 'PENDING',
       index: true
     },
 
@@ -186,6 +186,7 @@ userMembershipSchema.index({ paymentStatus: 1, status: 1 });
 
 // Virtual to check if membership is currently active
 userMembershipSchema.virtual('isCurrentlyActive').get(function () {
+  // Must have successful payment and ACTIVE status
   if (this.isDeleted || this.status !== 'ACTIVE' || this.paymentStatus !== 'SUCCESS') {
     return false;
   }
@@ -221,8 +222,8 @@ userMembershipSchema.methods.getCurrentStatus = function () {
   if (this.status === 'CANCELLED' || this.status === 'REFUNDED') {
     return this.status;
   }
-  if (this.paymentStatus !== 'SUCCESS') {
-    return 'PENDING_PAYMENT';
+  if (this.status === 'PENDING' || this.paymentStatus !== 'SUCCESS') {
+    return 'PENDING';
   }
   const now = new Date();
   if (this.endDate <= now) {
