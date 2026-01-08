@@ -51,9 +51,27 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Payment type is required'],
     enum: {
-      values: ['EVENT', 'SESSION', 'MEMBERSHIP', 'OTHER', 'PRODUCT'],
+      values: ['EVENT', 'SESSION', 'MEMBERSHIP', 'SERVICE', 'OTHER', 'PRODUCT'],
       message: '{VALUE} is not a valid payment type'
     }
+  },
+
+  /**
+   * Phone number (for guest checkout or phone-based payments)
+   */
+  phone: {
+    type: String,
+    trim: true,
+    default: null
+  },
+
+  /**
+   * Reference to ServiceOrder (if type is SERVICE)
+   */
+  serviceOrderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ServiceOrder',
+    default: null
   },
 
   /**
@@ -161,6 +179,8 @@ paymentSchema.index({ userId: 1, status: 1 });
 paymentSchema.index({ type: 1, status: 1 });
 paymentSchema.index({ eventId: 1, status: 1 });
 paymentSchema.index({ sessionId: 1, status: 1 });
+paymentSchema.index({ serviceOrderId: 1, status: 1 });
+paymentSchema.index({ phone: 1, status: 1 });
 paymentSchema.index({ purchaseDateTime: -1 });
 paymentSchema.index({ createdAt: -1 });
 

@@ -9,6 +9,7 @@ import ServiceOrder from "../../schema/ServiceOrder.schema.js";
 import UserServiceSubscription from "../../schema/UserServiceSubscription.schema.js";
 import ServiceRequest from "../../schema/ServiceRequest.schema.js";
 import User from "../../schema/User.schema.js";
+import Payment from "../../schema/Payment.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { razorpayInstance } from "../../utils/razorpay.util.js";
 import { sendServicePaymentLinkWhatsApp } from "../../utils/whatsapp.util.js";
@@ -429,6 +430,28 @@ export const generatePaymentLink = async (req, res) => {
     await serviceOrder.save();
 
     console.log("[SERVICE-ORDER] Service order created:", serviceOrder._id);
+
+    // Create Payment record for webhook processing
+    const payment = new Payment({
+      orderId: orderId,
+      type: "SERVICE",
+      phone: normalizedPhone,
+      userId: user?._id || null,
+      serviceOrderId: serviceOrder._id,
+      amount: totalAmount,
+      finalAmount: totalAmount,
+      status: "PENDING",
+      metadata: {
+        serviceOrderId: serviceOrder._id.toString(),
+        serviceIds: serviceIds,
+        serviceNames: services.map((s) => s.name),
+        paymentLinkId: paymentLink.id,
+        source: "ADMIN",
+      },
+    });
+
+    await payment.save();
+    console.log("[SERVICE-ORDER] Payment record created:", payment._id);
 
     // Send WhatsApp message if requested
     if (sendWhatsApp) {
@@ -851,6 +874,28 @@ export const approveServiceRequest = async (req, res) => {
     });
 
     await serviceOrder.save();
+
+    // Create Payment record for webhook processing
+    const payment = new Payment({
+      orderId: orderId,
+      type: "SERVICE",
+      phone: request.phone,
+      userId: request.userId || null,
+      serviceOrderId: serviceOrder._id,
+      amount: request.totalAmount,
+      finalAmount: request.totalAmount,
+      status: "PENDING",
+      metadata: {
+        serviceOrderId: serviceOrder._id.toString(),
+        serviceRequestId: request._id.toString(),
+        serviceNames: request.getServiceNamesString(),
+        paymentLinkId: paymentLink.id,
+        source: "USER_REQUEST",
+      },
+    });
+
+    await payment.save();
+    console.log("[SERVICE-REQUEST] Payment record created:", payment._id);
 
     // Update request status
     await request.approve(adminId, serviceOrder._id);
