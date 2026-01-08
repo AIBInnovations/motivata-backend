@@ -339,6 +339,8 @@ export const eventSchemas = {
 
   /**
    * Update event schema
+   * Note: For partial updates, date/price cross-field validations are handled at the database level
+   * to allow updating individual fields without requiring all related fields to be present.
    */
   update: Joi.object({
     name: Joi.string().trim().max(200).optional(),
@@ -379,16 +381,19 @@ export const eventSchemas = {
         "OTHER"
       )
       .optional(),
-    startDate: Joi.date().iso().greater("now").optional(),
-    endDate: Joi.date().iso().greater(Joi.ref("startDate")).optional(),
+    // For updates: only validate format, not cross-field constraints
+    // Cross-field validation (endDate > startDate, etc.) is handled at database level
+    startDate: Joi.date().iso().optional(),
+    endDate: Joi.date().iso().optional(),
     price: Joi.number().min(0).optional(),
-    compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+    compareAtPrice: Joi.number().min(0).optional(),
     pricingTiers: Joi.array()
       .items(
         Joi.object({
           name: Joi.string().trim().max(100).required(),
           price: Joi.number().min(0).required(),
-          compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+          // compareAtPrice validation against price is handled at database level for updates
+          compareAtPrice: Joi.number().min(0).optional(),
           shortDescription: Joi.string().trim().max(500).optional(),
           notes: Joi.string().trim().max(1000).optional(),
           ticketQuantity: Joi.number().integer().min(1).default(1).optional(),

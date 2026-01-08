@@ -187,11 +187,10 @@ export const updateEvent = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // DEBUG: Log incoming dates
-    if (req.body.startDate || req.body.endDate) {
-      console.log('[EVENT UPDATE DEBUG] Incoming dates from req.body:');
-      console.log('  startDate:', req.body.startDate, '(type:', typeof req.body.startDate, ')');
-      console.log('  endDate:', req.body.endDate, '(type:', typeof req.body.endDate, ')');
+    // First fetch the existing event to merge values for cross-field validation
+    const existingEvent = await Event.findById(id);
+    if (!existingEvent) {
+      return responseUtil.notFound(res, 'Event not found');
     }
 
     const updates = {
@@ -205,13 +204,40 @@ export const updateEvent = async (req, res) => {
     delete updates.deletedAt;
     delete updates.deletedBy;
 
-    // DEBUG: Log dates before sending to Mongoose
-    if (updates.startDate || updates.endDate) {
-      console.log('[EVENT UPDATE DEBUG] Dates before Mongoose update:');
-      console.log('  startDate:', updates.startDate, '(type:', typeof updates.startDate, ')');
-      console.log('  endDate:', updates.endDate, '(type:', typeof updates.endDate, ')');
+    // Cross-field validation for partial updates
+    // Use existing values when the field is not being updated
+    const finalStartDate = updates.startDate ? new Date(updates.startDate) : existingEvent.startDate;
+    const finalEndDate = updates.endDate ? new Date(updates.endDate) : existingEvent.endDate;
+    const finalPrice = updates.price !== undefined ? updates.price : existingEvent.price;
+    const finalCompareAtPrice = updates.compareAtPrice !== undefined ? updates.compareAtPrice : existingEvent.compareAtPrice;
+
+    // Validate endDate > startDate
+    if (finalEndDate <= finalStartDate) {
+      return responseUtil.validationError(res, 'Validation failed', [
+        { field: 'endDate', message: 'End date must be after start date' }
+      ]);
     }
 
+    // Validate compareAtPrice >= price (if compareAtPrice is set)
+    if (finalCompareAtPrice != null && finalCompareAtPrice < finalPrice) {
+      return responseUtil.validationError(res, 'Validation failed', [
+        { field: 'compareAtPrice', message: 'Compare at price must be greater than or equal to current price' }
+      ]);
+    }
+
+    // Validate pricingTiers compareAtPrice if present in updates
+    if (updates.pricingTiers && Array.isArray(updates.pricingTiers)) {
+      for (let i = 0; i < updates.pricingTiers.length; i++) {
+        const tier = updates.pricingTiers[i];
+        if (tier.compareAtPrice != null && tier.compareAtPrice < tier.price) {
+          return responseUtil.validationError(res, 'Validation failed', [
+            { field: `pricingTiers.${i}.compareAtPrice`, message: 'Tier compare at price must be greater than or equal to tier price' }
+          ]);
+        }
+      }
+    }
+
+    // Now perform the update without relying on schema-level cross-field validators
     const event = await Event.findByIdAndUpdate(
       id,
       updates,
@@ -221,17 +247,6 @@ export const updateEvent = async (req, res) => {
       }
     ).populate('createdBy', 'name email')
      .populate('updatedBy', 'name email');
-
-    // DEBUG: Log dates from database response
-    if (event && (event.startDate || event.endDate)) {
-      console.log('[EVENT UPDATE DEBUG] Dates from database response:');
-      console.log('  startDate:', event.startDate, '(ISO:', event.startDate?.toISOString(), ')');
-      console.log('  endDate:', event.endDate, '(ISO:', event.endDate?.toISOString(), ')');
-    }
-
-    if (!event) {
-      return responseUtil.notFound(res, 'Event not found');
-    }
 
     return responseUtil.success(res, 'Event updated successfully', { event });
   } catch (error) {

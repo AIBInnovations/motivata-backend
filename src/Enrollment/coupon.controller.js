@@ -248,20 +248,35 @@ export const validateCoupon = async (req, res) => {
 export const updateCoupon = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // First fetch the existing coupon to merge values for cross-field validation
+    const existingCoupon = await Coupon.findById(id);
+    if (!existingCoupon) {
+      return responseUtil.notFound(res, 'Coupon not found');
+    }
+
     const updateData = {
       ...req.body,
       updatedBy: req.user.id
     };
+
+    // Cross-field validation for partial updates
+    // Use existing values when the field is not being updated
+    const finalValidFrom = updateData.validFrom ? new Date(updateData.validFrom) : existingCoupon.validFrom;
+    const finalValidUntil = updateData.validUntil ? new Date(updateData.validUntil) : existingCoupon.validUntil;
+
+    // Validate validUntil > validFrom
+    if (finalValidUntil <= finalValidFrom) {
+      return responseUtil.validationError(res, 'Validation failed', [
+        { field: 'validUntil', message: 'Valid until date must be after valid from date' }
+      ]);
+    }
 
     const coupon = await Coupon.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
     );
-
-    if (!coupon) {
-      return responseUtil.notFound(res, 'Coupon not found');
-    }
 
     return responseUtil.success(res, 'Coupon updated successfully', { coupon });
   } catch (error) {
