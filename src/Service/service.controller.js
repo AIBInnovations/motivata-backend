@@ -379,8 +379,8 @@ export const generatePaymentLink = async (req, res) => {
       accept_partial: false,
       description: `Service subscription: ${services.map((s) => s.name).join(", ")}`,
       customer: {
-        contact: `+91${normalizedPhone}`,
         name: customerName || user?.name || "Customer",
+        contact: normalizedPhone,
       },
       notify: {
         sms: false,
@@ -827,8 +827,8 @@ export const approveServiceRequest = async (req, res) => {
       accept_partial: false,
       description: `Service subscription: ${request.getServiceNamesString()}`,
       customer: {
-        contact: `+91${request.phone}`,
         name: request.name || "Customer",
+        contact: request.phone,
       },
       notify: {
         sms: false,
