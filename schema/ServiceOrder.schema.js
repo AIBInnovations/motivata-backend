@@ -71,7 +71,7 @@ const serviceOrderSchema = new mongoose.Schema(
      */
     source: {
       type: String,
-      enum: ["ADMIN", "USER_REQUEST"],
+      enum: ["ADMIN", "USER_REQUEST", "DIRECT_PURCHASE"],
       required: true,
     },
     /**

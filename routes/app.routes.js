@@ -27,6 +27,7 @@ import publicAssetRoutes from "../src/Asset/asset.public.route.js";
 import userStoryRoutes from "../src/Story/story.user.route.js";
 import userMembershipRoutes from "../src/Membership/user.membership.route.js";
 import seatArrangementUserRoutes from "../src/SeatArrangement/seatArrangement.user.route.js";
+import userServiceRoutes from "../src/Service/service.user.route.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -93,6 +94,9 @@ router.use("/notifications", userNotificationRoutes);
 
 // Membership routes - /api/app/membership-plans and /api/app/memberships
 router.use("/", userMembershipRoutes);
+
+// Service routes - /api/app/services (user-facing service browsing and purchase)
+router.use("/services", userServiceRoutes);
 
 // Add more user routes here as needed
 // Example:
