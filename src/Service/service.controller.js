@@ -48,6 +48,7 @@ export const createService = async (req, res) => {
       displayOrder,
       isFeatured,
       isActive,
+      requiresApproval,
       metadata,
     } = req.body;
 
@@ -65,6 +66,7 @@ export const createService = async (req, res) => {
       displayOrder,
       isFeatured,
       isActive,
+      requiresApproval,
       metadata,
     });
 
@@ -240,6 +242,7 @@ export const updateService = async (req, res) => {
       "displayOrder",
       "isFeatured",
       "isActive",
+      "requiresApproval",
       "metadata",
     ];
 
@@ -1222,6 +1225,429 @@ export const updateSubscriptionNotes = async (req, res) => {
   }
 };
 
+/**
+ * USER-FACING CONTROLLERS
+ */
+
+/**
+ * Get all active services for users
+ * @route GET /api/app/services
+ */
+export const getUserServices = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = "displayOrder",
+      sortOrder = "asc",
+      isFeatured,
+      category,
+      search,
+      requiresApproval,
+    } = req.query;
+
+    console.log("[USER-SERVICE] Fetching active services for users");
+
+    const query = { isActive: true };
+
+    if (isFeatured !== undefined) {
+      query.isFeatured = isFeatured === "true";
+    }
+
+    if (category) {
+      query.category = category;
+    }
+
+    if (requiresApproval !== undefined) {
+      query.requiresApproval = requiresApproval === "true";
+    }
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
+
+    const [services, totalCount] = await Promise.all([
+      Service.find(query).sort(sort).skip(skip).limit(parseInt(limit)),
+      Service.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    console.log("[USER-SERVICE] Found", services.length, "services");
+
+    return responseUtil.success(res, "Services fetched successfully", {
+      services,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalCount,
+        limit: parseInt(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("[USER-SERVICE] Error fetching services:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch services",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get single service details for users
+ * @route GET /api/app/services/:id
+ */
+export const getUserServiceById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log("[USER-SERVICE] Fetching service:", id);
+
+    const service = await Service.findOne({ _id: id, isActive: true });
+
+    if (!service) {
+      return responseUtil.notFound(res, "Service not found");
+    }
+
+    return responseUtil.success(res, "Service fetched successfully", {
+      service,
+    });
+  } catch (error) {
+    console.error("[USER-SERVICE] Error fetching service:", error.message);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid service ID format");
+    }
+
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch service",
+      error.message
+    );
+  }
+};
+
+/**
+ * Create direct purchase (without admin approval)
+ * @route POST /api/app/services/purchase
+ */
+export const createDirectPurchase = async (req, res) => {
+  try {
+    console.log("[DIRECT-PURCHASE] Creating direct purchase");
+    console.log("[DIRECT-PURCHASE] Request body:", req.body);
+
+    const { phone, customerName, serviceIds } = req.body;
+    const userId = req.user?._id;
+
+    const normalizedPhone = normalizePhone(phone);
+
+    // Fetch services
+    const services = await Service.find({
+      _id: { $in: serviceIds },
+      isActive: true,
+      requiresApproval: false, // Only allow direct purchase for non-approval services
+    });
+
+    if (services.length !== serviceIds.length) {
+      return responseUtil.badRequest(
+        res,
+        "One or more services not found, inactive, or require admin approval"
+      );
+    }
+
+    // Check if all services have available slots
+    for (const service of services) {
+      if (!service.hasAvailableSlots()) {
+        return responseUtil.badRequest(
+          res,
+          `Service "${service.name}" has reached maximum subscriptions`
+        );
+      }
+    }
+
+    // Check if user exists
+    const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+    const userExists = !!user;
+
+    // Calculate total amount
+    const totalAmount = services.reduce((sum, s) => sum + s.price, 0);
+
+    // Generate unique order ID
+    const orderId = ServiceOrder.generateOrderId();
+
+    // Create payment link expiry (24 hours from now)
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // Create Razorpay payment link
+    const paymentLinkOptions = {
+      amount: totalAmount * 100, // Amount in paise
+      currency: "INR",
+      accept_partial: false,
+      description: `Service: ${services.map((s) => s.name).join(", ")}`,
+      customer: {
+        name: customerName || user?.name || "Customer",
+        email: user?.email || "",
+        contact: `91${normalizedPhone}`,
+      },
+      notify: {
+        sms: false,
+        email: false,
+      },
+      reminder_enable: false,
+      notes: {
+        orderId: orderId,
+        type: "SERVICE",
+        phone: normalizedPhone,
+      },
+      callback_url: `${process.env.BASE_URL || "https://motivata.in"}/payment-success`,
+      callback_method: "get",
+      expire_by: Math.floor(expiresAt.getTime() / 1000),
+      reference_id: orderId,
+    };
+
+    console.log("[DIRECT-PURCHASE] Creating Razorpay payment link");
+
+    const paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
+
+    console.log("[DIRECT-PURCHASE] Payment link created:", paymentLink.id);
+
+    // Create service order record
+    const serviceOrder = new ServiceOrder({
+      phone: normalizedPhone,
+      customerName: customerName || user?.name,
+      services: services.map((s) => ({
+        serviceId: s._id,
+        serviceName: s.name,
+        price: s.price,
+        durationInDays: s.durationInDays,
+      })),
+      totalAmount,
+      source: "DIRECT_PURCHASE",
+      adminId: null,
+      orderId,
+      paymentLinkId: paymentLink.id,
+      paymentLinkUrl: paymentLink.short_url,
+      paymentLinkShortUrl: paymentLink.short_url,
+      expiresAt,
+      userExists,
+      userId: user?._id || null,
+    });
+
+    await serviceOrder.save();
+
+    console.log("[DIRECT-PURCHASE] Service order created:", serviceOrder._id);
+
+    // Create Payment record for webhook processing
+    const payment = new Payment({
+      orderId: orderId,
+      type: "SERVICE",
+      phone: normalizedPhone,
+      userId: user?._id || null,
+      serviceOrderId: serviceOrder._id,
+      amount: totalAmount,
+      finalAmount: totalAmount,
+      status: "PENDING",
+      metadata: {
+        serviceOrderId: serviceOrder._id.toString(),
+        serviceIds: serviceIds,
+        serviceNames: services.map((s) => s.name),
+        paymentLinkId: paymentLink.id,
+        source: "DIRECT_PURCHASE",
+      },
+    });
+
+    await payment.save();
+    console.log("[DIRECT-PURCHASE] Payment record created:", payment._id);
+
+    return responseUtil.created(res, "Payment link created successfully", {
+      serviceOrder: {
+        _id: serviceOrder._id,
+        orderId: serviceOrder.orderId,
+        services: serviceOrder.services,
+        totalAmount: serviceOrder.totalAmount,
+        expiresAt: serviceOrder.expiresAt,
+      },
+      paymentLink: paymentLink.short_url,
+    });
+  } catch (error) {
+    console.error("[DIRECT-PURCHASE] Error creating purchase:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to create purchase",
+      error.message
+    );
+  }
+};
+
+/**
+ * Create service request (for approval-required services)
+ * @route POST /api/app/service-requests
+ */
+export const createServiceRequest = async (req, res) => {
+  try {
+    console.log("[SERVICE-REQUEST] Creating service request");
+    console.log("[SERVICE-REQUEST] Request body:", req.body);
+
+    const { phone, name, email, serviceIds, userNote } = req.body;
+    const userId = req.user?._id;
+
+    const normalizedPhone = normalizePhone(phone);
+
+    // Fetch services
+    const services = await Service.find({
+      _id: { $in: serviceIds },
+      isActive: true,
+    });
+
+    if (services.length !== serviceIds.length) {
+      return responseUtil.badRequest(
+        res,
+        "One or more services not found or inactive"
+      );
+    }
+
+    // Check if user exists
+    const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+    const userExists = !!user;
+
+    // Calculate total amount
+    const totalAmount = services.reduce((sum, s) => sum + s.price, 0);
+
+    // Create service request
+    const serviceRequest = new ServiceRequest({
+      phone: normalizedPhone,
+      name: name || user?.name,
+      email: email || user?.email,
+      services: services.map((s) => ({
+        serviceId: s._id,
+        serviceName: s.name,
+        price: s.price,
+      })),
+      totalAmount,
+      userExists,
+      userId: user?._id || null,
+      userNote,
+      status: "PENDING",
+    });
+
+    await serviceRequest.save();
+
+    console.log("[SERVICE-REQUEST] Service request created:", serviceRequest._id);
+
+    return responseUtil.created(res, "Service request submitted successfully", {
+      serviceRequest,
+    });
+  } catch (error) {
+    console.error("[SERVICE-REQUEST] Error creating request:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to create service request",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get user's service requests
+ * @route GET /api/app/service-requests
+ */
+export const getUserServiceRequests = async (req, res) => {
+  try {
+    const { phone } = req.query;
+    const userId = req.user?._id;
+
+    console.log("[SERVICE-REQUEST] Fetching user service requests");
+
+    let query = {};
+
+    if (phone) {
+      const normalizedPhone = normalizePhone(phone);
+      query.phone = normalizedPhone;
+    } else if (userId) {
+      query.userId = userId;
+    } else {
+      return responseUtil.badRequest(
+        res,
+        "Phone number or user ID is required"
+      );
+    }
+
+    const serviceRequests = await ServiceRequest.find(query)
+      .sort({ createdAt: -1 })
+      .populate("services.serviceId", "name imageUrl category");
+
+    return responseUtil.success(
+      res,
+      "Service requests fetched successfully",
+      {
+        serviceRequests,
+      }
+    );
+  } catch (error) {
+    console.error(
+      "[SERVICE-REQUEST] Error fetching requests:",
+      error.message
+    );
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch service requests",
+      error.message
+    );
+  }
+};
+
+/**
+ * Get user's active subscriptions
+ * @route GET /api/app/subscriptions
+ */
+export const getUserSubscriptions = async (req, res) => {
+  try {
+    const { phone } = req.query;
+    const userId = req.user?._id;
+
+    console.log("[USER-SUBSCRIPTION] Fetching user subscriptions");
+
+    let subscriptions;
+
+    if (phone) {
+      const normalizedPhone = normalizePhone(phone);
+      subscriptions = await UserServiceSubscription.findActiveByPhone(
+        normalizedPhone
+      );
+    } else if (userId) {
+      subscriptions = await UserServiceSubscription.findActiveByUserId(userId);
+    } else {
+      return responseUtil.badRequest(
+        res,
+        "Phone number or user ID is required"
+      );
+    }
+
+    return responseUtil.success(res, "Subscriptions fetched successfully", {
+      subscriptions,
+    });
+  } catch (error) {
+    console.error(
+      "[USER-SUBSCRIPTION] Error fetching subscriptions:",
+      error.message
+    );
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch subscriptions",
+      error.message
+    );
+  }
+};
+
 export default {
   // Service CRUD
   createService,
@@ -1245,4 +1671,11 @@ export default {
   checkSubscriptionStatus,
   cancelSubscription,
   updateSubscriptionNotes,
+  // User-facing
+  getUserServices,
+  getUserServiceById,
+  createDirectPurchase,
+  createServiceRequest,
+  getUserServiceRequests,
+  getUserSubscriptions,
 };

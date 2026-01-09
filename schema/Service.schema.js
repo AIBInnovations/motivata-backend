@@ -106,6 +106,15 @@ const serviceSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    /**
+     * Whether this service requires admin approval before purchase
+     * true = User must request, admin approves, then payment link sent
+     * false = User can purchase directly without approval
+     */
+    requiresApproval: {
+      type: Boolean,
+      default: true,
+    },
     metadata: {
       type: mongoose.Schema.Types.Mixed,
       default: {},

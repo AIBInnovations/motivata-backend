@@ -1802,6 +1802,7 @@ export const serviceSchemas = {
     displayOrder: Joi.number().integer().min(0).optional().default(0),
     isFeatured: Joi.boolean().optional().default(false),
     isActive: Joi.boolean().optional().default(true),
+    requiresApproval: Joi.boolean().optional().default(true),
     metadata: Joi.object().optional(),
   }),
 
@@ -1832,6 +1833,7 @@ export const serviceSchemas = {
     displayOrder: Joi.number().integer().min(0).optional(),
     isFeatured: Joi.boolean().optional(),
     isActive: Joi.boolean().optional(),
+    requiresApproval: Joi.boolean().optional(),
     metadata: Joi.object().optional(),
   }),
 
@@ -1858,6 +1860,7 @@ export const serviceSchemas = {
       .optional(),
     isActive: Joi.boolean().optional(),
     isFeatured: Joi.boolean().optional(),
+    requiresApproval: Joi.boolean().optional(),
     search: Joi.string().trim().optional(),
   }),
 
@@ -1904,7 +1907,7 @@ export const serviceOrderSchemas = {
     status: Joi.string()
       .valid("PENDING", "SUCCESS", "FAILED", "EXPIRED", "CANCELLED")
       .optional(),
-    source: Joi.string().valid("ADMIN", "USER_REQUEST").optional(),
+    source: Joi.string().valid("ADMIN", "USER_REQUEST", "DIRECT_PURCHASE").optional(),
     phone: schemas.phone.optional(),
     search: Joi.string().trim().optional(),
   }),
@@ -1921,6 +1924,40 @@ export const serviceOrderSchemas = {
    */
   resendLink: Joi.object({
     id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Direct purchase (user-initiated, no approval)
+   */
+  directPurchase: Joi.object({
+    phone: schemas.phone.required(),
+    customerName: schemas.name.optional(),
+    serviceIds: Joi.array()
+      .items(schemas.mongoId)
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one service is required",
+        "any.required": "Service IDs are required",
+      }),
+  }),
+
+  /**
+   * Create service request (for approval-required services)
+   */
+  createServiceRequest: Joi.object({
+    phone: schemas.phone.required(),
+    name: schemas.name.optional(),
+    email: schemas.email.optional().allow(null, ""),
+    serviceIds: Joi.array()
+      .items(schemas.mongoId)
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one service is required",
+        "any.required": "Service IDs are required",
+      }),
+    userNote: Joi.string().trim().max(1000).optional(),
   }),
 };
 
@@ -1985,6 +2022,13 @@ export const serviceRequestSchemas = {
       "string.empty": "Rejection reason is required",
     }),
     adminNotes: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Query parameters for user's service requests
+   */
+  userList: Joi.object({
+    phone: schemas.phone.optional(),
   }),
 };
 
