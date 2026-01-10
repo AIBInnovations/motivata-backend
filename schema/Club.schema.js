@@ -61,6 +61,45 @@ const clubSchema = new mongoose.Schema(
     },
 
     /**
+     * Whether this club requires admin approval before joining
+     * false = Anyone can join immediately (open club)
+     * true = User must request to join, admin approves
+     */
+    requiresApproval: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    /**
+     * Who can post in this club (multiple selections allowed)
+     * ANYONE - Any authenticated user can post (no membership required)
+     * MEMBERS - Approved club members can post
+     * ADMIN - System admins can post
+     *
+     * Examples:
+     * - ['MEMBERS'] - Only members can post (default)
+     * - ['ADMIN', 'MEMBERS'] - Both admins and members can post
+     * - ['ANYONE'] - Everyone can post (no restrictions)
+     */
+    postPermissions: {
+      type: [String],
+      enum: ['ANYONE', 'MEMBERS', 'ADMIN'],
+      default: ['MEMBERS'],
+      validate: {
+        validator: function(arr) {
+          // Must have at least one permission
+          if (!arr || arr.length === 0) return false;
+          // If ANYONE is selected, it should be the only option (overrides others)
+          if (arr.includes('ANYONE') && arr.length > 1) return false;
+          return true;
+        },
+        message: 'Invalid permission combination. If ANYONE is selected, no other permissions are needed.'
+      },
+      index: true,
+    },
+
+    /**
      * Soft delete flag
      */
     isDeleted: {

@@ -1424,6 +1424,24 @@ export const clubSchemas = {
     thumbnail: Joi.string().uri().optional().allow(null, "").messages({
       "string.uri": "Please provide a valid thumbnail URL",
     }),
+    postPermissions: Joi.array()
+      .items(Joi.string().valid('ANYONE', 'MEMBERS', 'ADMIN'))
+      .min(1)
+      .optional()
+      .default(['MEMBERS'])
+      .custom((value, helpers) => {
+        // If ANYONE is selected, it should be the only option
+        if (value.includes('ANYONE') && value.length > 1) {
+          return helpers.error('any.custom', {
+            message: 'If ANYONE is selected, no other permissions should be selected'
+          });
+        }
+        return value;
+      })
+      .messages({
+        "array.min": "At least one permission is required",
+        "any.only": "Post permissions must be one of: ANYONE, MEMBERS, ADMIN",
+      }),
   }),
 
   /**
@@ -1440,6 +1458,26 @@ export const clubSchemas = {
     thumbnail: Joi.string().uri().optional().allow(null, "").messages({
       "string.uri": "Please provide a valid thumbnail URL",
     }),
+    requiresApproval: Joi.boolean().optional().messages({
+      "boolean.base": "requiresApproval must be a boolean",
+    }),
+    postPermissions: Joi.array()
+      .items(Joi.string().valid('ANYONE', 'MEMBERS', 'ADMIN'))
+      .min(1)
+      .optional()
+      .custom((value, helpers) => {
+        // If ANYONE is selected, it should be the only option
+        if (value.includes('ANYONE') && value.length > 1) {
+          return helpers.error('any.custom', {
+            message: 'If ANYONE is selected, no other permissions should be selected'
+          });
+        }
+        return value;
+      })
+      .messages({
+        "array.min": "At least one permission is required",
+        "any.only": "Post permissions must be one of: ANYONE, MEMBERS, ADMIN",
+      }),
   }),
 
   /**
@@ -1488,6 +1526,100 @@ export const clubSchemas = {
   paginationQuery: Joi.object({
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(20),
+  }),
+
+  /**
+   * Update club approval setting schema
+   */
+  updateApprovalSetting: Joi.object({
+    requiresApproval: Joi.boolean().required().messages({
+      "any.required": "requiresApproval is required",
+      "boolean.base": "requiresApproval must be a boolean",
+    }),
+  }),
+
+  /**
+   * Request ID parameter validation
+   */
+  requestId: Joi.object({
+    requestId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Join request query parameters (user)
+   */
+  joinRequestQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    status: Joi.string()
+      .valid("PENDING", "APPROVED", "REJECTED")
+      .optional()
+      .messages({
+        "any.only": "Status must be one of: PENDING, APPROVED, REJECTED",
+      }),
+  }),
+
+  /**
+   * Join request query parameters (admin)
+   */
+  joinRequestAdminQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    status: Joi.string()
+      .valid("PENDING", "APPROVED", "REJECTED")
+      .optional()
+      .messages({
+        "any.only": "Status must be one of: PENDING, APPROVED, REJECTED",
+      }),
+    clubId: schemas.mongoId.optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Approve join request schema
+   */
+  approveRequest: Joi.object({
+    adminNotes: Joi.string().trim().max(500).optional().allow(null, "").messages({
+      "string.max": "Admin notes cannot exceed 500 characters",
+    }),
+  }),
+
+  /**
+   * Reject join request schema
+   */
+  rejectRequest: Joi.object({
+    rejectionReason: Joi.string().trim().max(500).required().messages({
+      "any.required": "Rejection reason is required",
+      "string.empty": "Rejection reason is required",
+      "string.max": "Rejection reason cannot exceed 500 characters",
+    }),
+    adminNotes: Joi.string().trim().max(500).optional().allow(null, "").messages({
+      "string.max": "Admin notes cannot exceed 500 characters",
+    }),
+  }),
+
+  /**
+   * Update post permissions schema (array)
+   */
+  updatePostPermission: Joi.object({
+    postPermissions: Joi.array()
+      .items(Joi.string().valid('ANYONE', 'MEMBERS', 'ADMIN'))
+      .min(1)
+      .required()
+      .custom((value, helpers) => {
+        // If ANYONE is selected, it should be the only option
+        if (value.includes('ANYONE') && value.length > 1) {
+          return helpers.error('any.custom', {
+            message: 'If ANYONE is selected, no other permissions should be selected'
+          });
+        }
+        return value;
+      })
+      .messages({
+        "any.required": "Post permissions are required",
+        "array.min": "At least one permission is required",
+        "any.only": "Post permissions must be one of: ANYONE, MEMBERS, ADMIN",
+      }),
   }),
 };
 

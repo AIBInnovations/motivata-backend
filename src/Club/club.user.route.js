@@ -12,6 +12,7 @@ import {
   getClubFeed,
   getClubMembers,
   getMyClubs,
+  getMyJoinRequests,
 } from "./club.user.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
 import {
@@ -39,6 +40,18 @@ router.get(
   authenticate,
   validateQuery(clubSchemas.paginationQuery),
   getMyClubs
+);
+
+/**
+ * @route   GET /api/app/connect/clubs/my-join-requests
+ * @desc    Get user's club join requests
+ * @access  Private
+ */
+router.get(
+  "/my-join-requests",
+  authenticate,
+  validateQuery(clubSchemas.joinRequestQuery),
+  getMyJoinRequests
 );
 
 /**
