@@ -85,14 +85,45 @@ export const createPost = async (req, res) => {
         return responseUtil.notFound(res, "Club not found");
       }
 
-      // Check if user is a member of the club
-      const isMember = await ClubMember.isMember(authorId, clubId);
-      if (!isMember) {
-        return responseUtil.forbidden(res, "You must join this club before posting");
+      // Check posting permissions based on club settings
+      // Support both old single permission (postPermission) and new array (postPermissions)
+      let permissions = club.postPermissions || (club.postPermission ? [club.postPermission === 'ADMIN_ONLY' ? 'ADMIN' : club.postPermission] : ['MEMBERS']);
+      const isAdmin = req.user.userType === 'admin';
+
+      // If ANYONE is in permissions, no checks needed
+      if (permissions.includes('ANYONE')) {
+        // Anyone can post, no restrictions
+      } else {
+        // Check if user meets any of the permission requirements
+        let hasPermission = false;
+
+        // Check if admin and ADMIN permission exists
+        if (isAdmin && permissions.includes('ADMIN')) {
+          hasPermission = true;
+        }
+
+        // Check if member and MEMBERS permission exists
+        if (!hasPermission && permissions.includes('MEMBERS')) {
+          const isMember = await ClubMember.isMember(authorId, clubId);
+          if (isMember) {
+            hasPermission = true;
+          }
+        }
+
+        // If no permission granted, return error
+        if (!hasPermission) {
+          const allowedRoles = permissions.join(' or ');
+          return responseUtil.forbidden(
+            res,
+            `Only ${allowedRoles.toLowerCase()} can post in this club`
+          );
+        }
       }
     }
 
+    const isAdmin = req.user.userType === 'admin';
     const postData = {
+      authorType: isAdmin ? 'Admin' : 'User',
       author: authorId,
       caption: caption?.trim() || "",
       mediaType,
@@ -104,8 +135,10 @@ export const createPost = async (req, res) => {
     const post = new Post(postData);
     await post.save();
 
-    // Update user's post count
-    await User.findByIdAndUpdate(authorId, { $inc: { postCount: 1 } });
+    // Update user's or admin's post count (only update User postCount, admins don't have this field)
+    if (!isAdmin) {
+      await User.findByIdAndUpdate(authorId, { $inc: { postCount: 1 } });
+    }
 
     // If post belongs to a club, increment club's post count
     if (clubId) {
@@ -113,6 +146,8 @@ export const createPost = async (req, res) => {
     }
 
     // Populate author and club info for response
+    // For User: select name, email
+    // For Admin: select name, email (both have these fields)
     await post.populate([
       { path: "author", select: "name email" },
       { path: "club", select: "name thumbnail" },
@@ -166,7 +201,6 @@ export const getFeed = async (req, res) => {
         .populate({
           path: "author",
           select: "name email isDeleted",
-          match: { isDeleted: false },
         })
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -174,8 +208,16 @@ export const getFeed = async (req, res) => {
       Post.countDocuments(query),
     ]);
 
-    // Filter out posts with deleted authors
-    const validPosts = posts.filter((post) => post.author !== null);
+    // Filter out posts with deleted authors (only Users have isDeleted field)
+    const validPosts = posts.filter((post) => {
+      if (!post.author) return false;
+      // If author has isDeleted field (User), check if not deleted
+      if ('isDeleted' in post.author) {
+        return !post.author.isDeleted;
+      }
+      // If no isDeleted field (Admin), include the post
+      return true;
+    });
 
     // Get like status for all posts
     const postIds = validPosts.map((p) => p._id);
@@ -223,7 +265,6 @@ export const getExploreFeed = async (req, res) => {
         .populate({
           path: "author",
           select: "name email isDeleted",
-          match: { isDeleted: false },
         })
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -231,8 +272,16 @@ export const getExploreFeed = async (req, res) => {
       Post.countDocuments(query),
     ]);
 
-    // Filter out posts with deleted authors
-    const validPosts = posts.filter((post) => post.author !== null);
+    // Filter out posts with deleted authors (only Users have isDeleted field)
+    const validPosts = posts.filter((post) => {
+      if (!post.author) return false;
+      // If author has isDeleted field (User), check if not deleted
+      if ('isDeleted' in post.author) {
+        return !post.author.isDeleted;
+      }
+      // If no isDeleted field (Admin), include the post
+      return true;
+    });
 
     // Get like status and following status for all posts if user is logged in
     let likedPostIds = new Set();

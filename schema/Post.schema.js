@@ -14,11 +14,22 @@ import mongoose from "mongoose";
 const postSchema = new mongoose.Schema(
   {
     /**
-     * Post author (User who created the post)
+     * Author type (User or Admin)
+     */
+    authorType: {
+      type: String,
+      required: true,
+      enum: ["User", "Admin"],
+      default: "User",
+    },
+
+    /**
+     * Post author (User or Admin who created the post)
+     * Uses dynamic reference based on authorType
      */
     author: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      refPath: "authorType",
       required: true,
       index: true,
     },

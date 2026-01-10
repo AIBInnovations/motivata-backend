@@ -9,6 +9,7 @@
 
 import Club from "../../schema/Club.schema.js";
 import ClubMember from "../../schema/ClubMember.schema.js";
+import ClubJoinRequest from "../../schema/ClubJoinRequest.schema.js";
 import Post from "../../schema/Post.schema.js";
 import Like from "../../schema/Like.schema.js";
 import Connect from "../../schema/Connect.schema.js";
@@ -60,6 +61,8 @@ export const getAllClubs = async (req, res) => {
       memberCount: club.memberCount,
       postCount: club.postCount,
       isJoined: currentUserId ? joinedClubIds.has(club._id.toString()) : false,
+      requiresApproval: club.requiresApproval,
+      postPermissions: club.postPermissions || (club.postPermission ? [club.postPermission] : ['MEMBERS']),
       createdAt: club.createdAt,
       updatedAt: club.updatedAt,
     }));
@@ -115,6 +118,8 @@ export const getClubById = async (req, res) => {
         memberCount: club.memberCount,
         postCount: club.postCount,
         isJoined,
+        requiresApproval: club.requiresApproval,
+        postPermissions: club.postPermissions || (club.postPermission ? [club.postPermission] : ['MEMBERS']),
         createdAt: club.createdAt,
         updatedAt: club.updatedAt,
       },
@@ -126,7 +131,7 @@ export const getClubById = async (req, res) => {
 };
 
 /**
- * Join a club
+ * Join a club (or request to join if approval required)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  * @returns {Object} Response with success message
@@ -134,6 +139,7 @@ export const getClubById = async (req, res) => {
 export const joinClub = async (req, res) => {
   try {
     const { clubId } = req.params;
+    const { userNote } = req.body;
     const userId = req.user.id;
 
     // Check if club exists
@@ -149,13 +155,49 @@ export const joinClub = async (req, res) => {
     });
 
     if (existingMembership) {
-      return responseUtil.conflict(res, "Already a member of this club");
+      if (existingMembership.status === 'APPROVED') {
+        return responseUtil.conflict(res, "Already a member of this club");
+      } else if (existingMembership.status === 'PENDING') {
+        return responseUtil.conflict(res, "Your join request is pending approval");
+      } else if (existingMembership.status === 'REJECTED') {
+        return responseUtil.conflict(res, "Your previous join request was rejected");
+      }
     }
 
-    // Create membership
+    // Check if there's already a pending join request
+    if (club.requiresApproval) {
+      const existingRequest = await ClubJoinRequest.findOne({
+        user: userId,
+        club: clubId,
+        status: 'PENDING',
+      });
+
+      if (existingRequest) {
+        return responseUtil.conflict(res, "You already have a pending join request for this club");
+      }
+    }
+
+    // If club requires approval, create join request
+    if (club.requiresApproval) {
+      const joinRequest = new ClubJoinRequest({
+        user: userId,
+        club: clubId,
+        userNote: userNote || null,
+      });
+
+      await joinRequest.save();
+
+      return responseUtil.created(res, "Join request submitted successfully. Waiting for admin approval.", {
+        requiresApproval: true,
+        status: 'PENDING',
+      });
+    }
+
+    // If club doesn't require approval, create membership directly
     const membership = new ClubMember({
       user: userId,
       club: clubId,
+      status: 'APPROVED',
     });
 
     await membership.save();
@@ -164,13 +206,14 @@ export const joinClub = async (req, res) => {
     await Club.findByIdAndUpdate(clubId, { $inc: { memberCount: 1 } });
 
     return responseUtil.created(res, "Joined club successfully", {
+      requiresApproval: false,
       memberCount: club.memberCount + 1,
     });
   } catch (error) {
     console.error("[CLUB-USER] Join club error:", error);
 
     if (error.code === 11000) {
-      return responseUtil.conflict(res, "Already a member of this club");
+      return responseUtil.conflict(res, "Already a member of this club or request already exists");
     }
 
     return responseUtil.internalError(res, "Failed to join club", error.message);
@@ -296,8 +339,7 @@ export const getClubFeed = async (req, res) => {
       Post.find({ club: clubId })
         .populate({
           path: "author",
-          select: "name email",
-          match: { isDeleted: false },
+          select: "name email isDeleted",
         })
         .populate({
           path: "club",
@@ -309,8 +351,17 @@ export const getClubFeed = async (req, res) => {
       Post.countDocuments({ club: clubId }),
     ]);
 
-    // Filter out posts with deleted authors
-    const validPosts = posts.filter((post) => post.author);
+    // Filter out posts with deleted authors (only Users have isDeleted field)
+    // Admin authors don't have isDeleted field, so they pass through
+    const validPosts = posts.filter((post) => {
+      if (!post.author) return false;
+      // If author has isDeleted field (User), check if not deleted
+      if ('isDeleted' in post.author) {
+        return !post.author.isDeleted;
+      }
+      // If no isDeleted field (Admin), include the post
+      return true;
+    });
 
     // If user is authenticated, get like status and following status
     let likedPostIds = new Set();
@@ -429,6 +480,77 @@ export const getClubMembers = async (req, res) => {
 };
 
 /**
+ * Get user's club join requests
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with paginated join requests
+ */
+export const getMyJoinRequests = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+    const userId = req.user.id;
+    const skip = (page - 1) * limit;
+
+    // Build filter
+    const filter = { user: userId };
+    if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status.toUpperCase())) {
+      filter.status = status.toUpperCase();
+    }
+
+    const [requests, totalCount] = await Promise.all([
+      ClubJoinRequest.find(filter)
+        .populate({
+          path: 'club',
+          select: 'name description thumbnail memberCount postCount',
+          match: { isDeleted: false },
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
+      ClubJoinRequest.countDocuments(filter),
+    ]);
+
+    // Filter out null clubs (deleted clubs)
+    const validRequests = requests.filter((r) => r.club);
+
+    const formattedRequests = validRequests.map((request) => ({
+      id: request._id,
+      club: {
+        id: request.club._id,
+        name: request.club.name,
+        description: request.club.description,
+        thumbnail: request.club.thumbnail,
+        memberCount: request.club.memberCount,
+        postCount: request.club.postCount,
+      },
+      status: request.status,
+      userNote: request.userNote,
+      rejectionReason: request.rejectionReason,
+      reviewedAt: request.reviewedAt,
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt,
+    }));
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return responseUtil.success(res, 'Join requests fetched successfully', {
+      requests: formattedRequests,
+      pagination: {
+        currentPage: Number(page),
+        totalPages,
+        totalCount,
+        limit: Number(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error('[CLUB-USER] Get my join requests error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch join requests', error.message);
+  }
+};
+
+/**
  * Get user's joined clubs
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -444,7 +566,7 @@ export const getMyClubs = async (req, res) => {
       ClubMember.find({ user: userId })
         .populate({
           path: "club",
-          select: "name description thumbnail memberCount postCount",
+          select: "name description thumbnail memberCount postCount requiresApproval postPermission",
           match: { isDeleted: false },
         })
         .sort({ createdAt: -1 })
@@ -464,6 +586,8 @@ export const getMyClubs = async (req, res) => {
       memberCount: membership.club.memberCount,
       postCount: membership.club.postCount,
       isJoined: true,
+      requiresApproval: membership.club.requiresApproval,
+      postPermissions: membership.club.postPermissions || (membership.club.postPermission ? [membership.club.postPermission] : ['MEMBERS']),
       joinedAt: membership.createdAt,
       createdAt: membership.club.createdAt,
       updatedAt: membership.club.updatedAt,

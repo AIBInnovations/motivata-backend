@@ -6,6 +6,7 @@ dotenv.config();
 import app from "./config/express.config.js";
 import connectDB from "./config/database.config.js";
 import { runCashTicketAudit } from "./scripts/cashTicketAudit.js";
+import seedFeatureAccess from "./seeds/featureAccessSeed.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -37,6 +38,11 @@ const startServer = async () => {
     validateEnvironment();
 
     await connectDB();
+
+    // Seed feature access data on startup (non-blocking)
+    seedFeatureAccess().catch((err) => {
+      console.error("> Feature access seed failed:", err.message);
+    });
 
     // Run cash ticket audit on startup (non-blocking)
     runCashTicketAudit().catch((err) => {

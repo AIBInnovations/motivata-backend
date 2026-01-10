@@ -31,6 +31,45 @@ const clubMemberSchema = new mongoose.Schema(
     },
 
     /**
+     * Membership status
+     * PENDING - Join request submitted, waiting for admin approval
+     * APPROVED - Approved and active member
+     * REJECTED - Join request was rejected
+     */
+    status: {
+      type: String,
+      enum: ['PENDING', 'APPROVED', 'REJECTED'],
+      default: 'APPROVED', // For backwards compatibility with existing records
+      index: true,
+    },
+
+    /**
+     * Admin who reviewed the join request (for approval-required clubs)
+     */
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null,
+    },
+
+    /**
+     * When the membership was reviewed/approved
+     */
+    reviewedAt: {
+      type: Date,
+      default: null,
+    },
+
+    /**
+     * Reason for rejection (if status is REJECTED)
+     */
+    rejectionReason: {
+      type: String,
+      maxlength: 500,
+      default: null,
+    },
+
+    /**
      * Soft delete flag - used when user leaves club or club is deleted
      */
     isDeleted: {
