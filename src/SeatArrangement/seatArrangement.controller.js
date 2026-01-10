@@ -197,7 +197,7 @@ export const getSeatArrangement = async (req, res) => {
     await cleanupExpiredReservations(eventId);
 
     const arrangement = await SeatArrangement.findOne({ eventId })
-      .populate("eventId", "name startDate endDate mode city")
+      .populate("eventId", "name startDate endDate bookingStartDate bookingEndDate mode city")
       .populate("createdBy", "name email")
       .populate("updatedBy", "name email");
 

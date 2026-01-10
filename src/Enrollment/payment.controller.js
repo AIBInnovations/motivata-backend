@@ -41,15 +41,23 @@ export const createPaymentOrder = async (req, res) => {
         return responseUtil.badRequest(res, 'Event is not available for booking');
       }
 
+      const now = new Date();
+
+      // Check booking window
+      if (now < event.bookingStartDate) {
+        return responseUtil.badRequest(
+          res,
+          `Booking opens on ${event.bookingStartDate.toLocaleString()}`
+        );
+      }
+
+      if (now > event.bookingEndDate) {
+        return responseUtil.badRequest(res, 'Booking has closed for this event');
+      }
+
       // Check available seats only if the event tracks them
       if (event.availableSeats != null && event.availableSeats <= 0) {
         return responseUtil.badRequest(res, 'No seats available for this event');
-      }
-
-      // Check if event has already started or ended
-      const now = new Date();
-      if (now > event.endDate) {
-        return responseUtil.badRequest(res, 'Event has ended');
       }
 
       // If event has seat arrangement, validate seat selection
@@ -357,7 +365,7 @@ export const getUserPayments = async (req, res) => {
         .sort(sortOptions)
         .skip(skip)
         .limit(Number(limit))
-        .populate('eventId', 'name startDate endDate mode city')
+        .populate('eventId', 'name startDate endDate bookingStartDate bookingEndDate mode city')
         .populate('sessionId', 'name startDate endDate'),
       Payment.countDocuments(query)
     ]);
@@ -395,7 +403,7 @@ export const getPaymentById = async (req, res) => {
 
     const payment = await Payment.findOne(query)
       .populate('userId', 'name email phone')
-      .populate('eventId', 'name startDate endDate mode city price')
+      .populate('eventId', 'name startDate endDate bookingStartDate bookingEndDate mode city price')
       .populate('sessionId', 'name startDate endDate');
 
     if (!payment) {
@@ -455,7 +463,7 @@ export const getAllPayments = async (req, res) => {
         .skip(skip)
         .limit(Number(limit))
         .populate('userId', 'name email phone')
-        .populate('eventId', 'name startDate endDate mode city')
+        .populate('eventId', 'name startDate endDate bookingStartDate bookingEndDate mode city')
         .populate('sessionId', 'name startDate endDate'),
       Payment.countDocuments(query)
     ]);

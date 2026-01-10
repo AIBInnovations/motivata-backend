@@ -317,16 +317,19 @@ export const eventSchemas = {
         "OTHER"
       )
       .required(),
-    startDate: Joi.date().iso().greater("now").required(),
-    endDate: Joi.date().iso().greater(Joi.ref("startDate")).required(),
+    startDate: Joi.date().iso().required(),
+    endDate: Joi.date().iso().required(),
+    bookingStartDate: Joi.date().iso().optional(),
+    bookingEndDate: Joi.date().iso().optional(),
+    duration: Joi.number().min(0).optional(),
     price: Joi.number().min(0).optional(),
-    compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+    compareAtPrice: Joi.number().min(0).optional(),
     pricingTiers: Joi.array()
       .items(
         Joi.object({
           name: Joi.string().trim().max(100).required(),
           price: Joi.number().min(0).required(),
-          compareAtPrice: Joi.number().min(0).min(Joi.ref("price")).optional(),
+          compareAtPrice: Joi.number().min(0).optional(),
           shortDescription: Joi.string().trim().max(500).optional(),
           notes: Joi.string().trim().max(1000).optional(),
           ticketQuantity: Joi.number().integer().min(1).default(1).optional(),
@@ -335,7 +338,7 @@ export const eventSchemas = {
       .optional(),
     availableSeats: Joi.number().integer().min(0).optional(),
     coupons: Joi.array().items(schemas.mongoId).optional(),
-  }).or("price", "pricingTiers"),
+  }),
 
   /**
    * Update event schema
@@ -385,6 +388,9 @@ export const eventSchemas = {
     // Cross-field validation (endDate > startDate, etc.) is handled at database level
     startDate: Joi.date().iso().optional(),
     endDate: Joi.date().iso().optional(),
+    bookingStartDate: Joi.date().iso().optional(),
+    bookingEndDate: Joi.date().iso().optional(),
+    duration: Joi.number().min(0).optional(),
     price: Joi.number().min(0).optional(),
     compareAtPrice: Joi.number().min(0).optional(),
     pricingTiers: Joi.array()

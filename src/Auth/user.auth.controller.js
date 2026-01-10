@@ -421,7 +421,7 @@ export const getProfile = async (req, res) => {
           { [`tickets.${user.phone}`]: { $exists: true } }
         ]
       })
-        .populate('eventId', 'name description startDate endDate mode city price compareAtPrice imageUrls thumbnail location category')
+        .populate('eventId', 'name description startDate endDate bookingStartDate bookingEndDate mode city price compareAtPrice imageUrls thumbnail location category')
         .populate('userId', 'name email phone')
         .sort({ createdAt: -1 }),
       // Fetch only active memberships (with successful payment) for this user's phone

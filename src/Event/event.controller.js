@@ -204,40 +204,7 @@ export const updateEvent = async (req, res) => {
     delete updates.deletedAt;
     delete updates.deletedBy;
 
-    // Cross-field validation for partial updates
-    // Use existing values when the field is not being updated
-    const finalStartDate = updates.startDate ? new Date(updates.startDate) : existingEvent.startDate;
-    const finalEndDate = updates.endDate ? new Date(updates.endDate) : existingEvent.endDate;
-    const finalPrice = updates.price !== undefined ? updates.price : existingEvent.price;
-    const finalCompareAtPrice = updates.compareAtPrice !== undefined ? updates.compareAtPrice : existingEvent.compareAtPrice;
-
-    // Validate endDate > startDate
-    if (finalEndDate <= finalStartDate) {
-      return responseUtil.validationError(res, 'Validation failed', [
-        { field: 'endDate', message: 'End date must be after start date' }
-      ]);
-    }
-
-    // Validate compareAtPrice >= price (if compareAtPrice is set)
-    if (finalCompareAtPrice != null && finalCompareAtPrice < finalPrice) {
-      return responseUtil.validationError(res, 'Validation failed', [
-        { field: 'compareAtPrice', message: 'Compare at price must be greater than or equal to current price' }
-      ]);
-    }
-
-    // Validate pricingTiers compareAtPrice if present in updates
-    if (updates.pricingTiers && Array.isArray(updates.pricingTiers)) {
-      for (let i = 0; i < updates.pricingTiers.length; i++) {
-        const tier = updates.pricingTiers[i];
-        if (tier.compareAtPrice != null && tier.compareAtPrice < tier.price) {
-          return responseUtil.validationError(res, 'Validation failed', [
-            { field: `pricingTiers.${i}.compareAtPrice`, message: 'Tier compare at price must be greater than or equal to tier price' }
-          ]);
-        }
-      }
-    }
-
-    // Now perform the update without relying on schema-level cross-field validators
+    // Perform the update directly without cross-field validations
     const event = await Event.findByIdAndUpdate(
       id,
       updates,
