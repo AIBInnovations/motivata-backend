@@ -74,7 +74,7 @@ export const generateTicketToken = async (req, res) => {
     const enrollment = await EventEnrollment.findOne({
       _id: enrollmentId,
       userId,
-    }).populate("eventId", "name startDate endDate");
+    }).populate("eventId", "name startDate endDate bookingStartDate bookingEndDate");
 
     if (!enrollment) {
       return responseUtil.notFound(res, "Enrollment not found");
@@ -255,7 +255,7 @@ export const verifyTicket = async (req, res) => {
       _id: enrollmentId,
       eventId,
     })
-      .populate("eventId", "name startDate endDate location")
+      .populate("eventId", "name startDate endDate bookingStartDate bookingEndDate location")
       .populate("userId", "name email phone");
 
     if (!enrollment) {

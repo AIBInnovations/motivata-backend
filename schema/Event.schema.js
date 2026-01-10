@@ -135,16 +135,6 @@ const eventSchema = new mongoose.Schema(
     startDate: {
       type: Date,
       required: [true, "Event start date is required"],
-      validate: {
-        validator: function (value) {
-          // Only validate future date for new documents
-          if (this.isNew) {
-            return value > new Date();
-          }
-          return true;
-        },
-        message: "Start date must be in the future",
-      },
     },
 
     /**
@@ -153,14 +143,33 @@ const eventSchema = new mongoose.Schema(
     endDate: {
       type: Date,
       required: [true, "Event end date is required"],
-      validate: {
-        validator: function (value) {
-          // Skip validation if startDate is not available (during updates)
-          if (!this.startDate) return true;
-          return value > this.startDate;
-        },
-        message: "End date must be after start date",
-      },
+    },
+
+    /**
+     * Booking start date - when users can begin booking tickets
+     * If not provided, defaults to event creation time (or now)
+     */
+    bookingStartDate: {
+      type: Date,
+      required: false, // Optional - will be auto-filled if not provided
+    },
+
+    /**
+     * Booking end date - when booking window closes
+     * If not provided, defaults to event start date (bookings close when event starts)
+     */
+    bookingEndDate: {
+      type: Date,
+      required: false, // Optional - will be auto-filled if not provided
+    },
+
+    /**
+     * Event duration (kept for backward compatibility)
+     */
+    duration: {
+      type: Number,
+      required: false,
+      min: [0, "Duration cannot be negative"],
     },
 
     /**
@@ -169,16 +178,6 @@ const eventSchema = new mongoose.Schema(
     price: {
       type: Number,
       min: [0, "Price cannot be negative"],
-      validate: {
-        validator: function (value) {
-          // Price is required only if pricingTiers is not provided
-          if (!this.pricingTiers || this.pricingTiers.length === 0) {
-            return value != null;
-          }
-          return true;
-        },
-        message: "Event price is required when not using multi-tier pricing",
-      },
     },
 
     /**
@@ -187,13 +186,6 @@ const eventSchema = new mongoose.Schema(
     compareAtPrice: {
       type: Number,
       min: [0, "Compare at price cannot be negative"],
-      validate: {
-        validator: function (value) {
-          return !value || value >= this.price;
-        },
-        message:
-          "Compare at price must be greater than or equal to current price",
-      },
     },
 
     /**
@@ -218,13 +210,6 @@ const eventSchema = new mongoose.Schema(
         compareAtPrice: {
           type: Number,
           min: [0, "Compare at price cannot be negative"],
-          validate: {
-            validator: function (value) {
-              return !value || value >= this.price;
-            },
-            message:
-              "Tier compare at price must be greater than or equal to tier price",
-          },
         },
         shortDescription: {
           type: String,
@@ -350,6 +335,7 @@ const eventSchema = new mongoose.Schema(
 // eventSchema.index({ startDate: 1, endDate: 1 });
 // eventSchema.index({ mode: 1, city: 1 });
 eventSchema.index({ createdAt: -1 });
+eventSchema.index({ bookingStartDate: 1, endDate: 1 });
 
 /**
  * Pre-query middleware to exclude soft deleted documents
@@ -363,28 +349,33 @@ eventSchema.pre(/^find/, function () {
 });
 
 /**
- * Pre-save middleware to auto-update isLive status and validate pricing
+ * Pre-save middleware to auto-update isLive status, auto-fill booking dates, and validate pricing
  */
 eventSchema.pre("save", function (next) {
-  if (this.endDate <= new Date()) {
-    this.isLive = false;
+  const now = new Date();
+
+  // Auto-fill booking dates if not provided (only for new documents)
+  if (this.isNew) {
+    // If bookingStartDate not provided, set it to now
+    if (!this.bookingStartDate) {
+      this.bookingStartDate = now;
+      console.log(`[Event] Auto-filled bookingStartDate to current time for event: ${this.name}`);
+    }
+
+    // If bookingEndDate not provided, set it to event start date (booking closes when event starts)
+    if (!this.bookingEndDate && this.startDate) {
+      this.bookingEndDate = this.startDate;
+      console.log(`[Event] Auto-filled bookingEndDate to event start date for event: ${this.name}`);
+    }
   }
 
-  // Validate that at least one pricing method is provided
-  const hasSimplePricing = this.price != null;
-  const hasTieredPricing = this.pricingTiers && this.pricingTiers.length > 0;
-
-  if (!hasSimplePricing && !hasTieredPricing) {
-    return next(
-      new Error("Event must have either simple pricing or multi-tier pricing")
-    );
-  }
-
-  // Warn if both are provided (allow it but log)
-  if (hasSimplePricing && hasTieredPricing) {
-    console.warn(
-      "Event has both simple and tiered pricing. Tiered pricing will take precedence."
-    );
+  // Update isLive: true from bookingStartDate until eventEndDate
+  if (this.bookingStartDate && this.endDate) {
+    if (now >= this.bookingStartDate && now <= this.endDate) {
+      this.isLive = true;
+    } else if (now > this.endDate) {
+      this.isLive = false;
+    }
   }
 
   next();
@@ -406,7 +397,9 @@ eventSchema.methods.softDelete = function (adminId) {
   this.isDeleted = true;
   this.deletedAt = new Date();
   this.deletedBy = adminId;
-  return this.save();
+  // Skip validation when soft deleting to avoid issues with events
+  // that may not have the new booking date fields yet
+  return this.save({ validateBeforeSave: false });
 };
 
 /**
@@ -431,10 +424,24 @@ eventSchema.statics.permanentDelete = function (id) {
  */
 eventSchema.methods.updateEventStatus = function () {
   const now = new Date();
+
+  // Check if event has ended
   if (this.endDate <= now && this.isLive) {
     this.isLive = false;
     return this.save();
   }
+
+  // Check if event is within live window (bookingStart to eventEnd)
+  if (
+    this.bookingStartDate &&
+    this.bookingStartDate <= now &&
+    now <= this.endDate &&
+    !this.isLive
+  ) {
+    this.isLive = true;
+    return this.save();
+  }
+
   return Promise.resolve(this);
 };
 

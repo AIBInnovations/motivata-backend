@@ -122,7 +122,7 @@ export const createEnrollment = async (req, res) => {
     await Event.findByIdAndUpdate(payment.eventId, updateFields);
 
     const populatedEnrollment = await EventEnrollment.findById(enrollment._id)
-      .populate('eventId', 'name startDate endDate mode city price')
+      .populate('eventId', 'name startDate endDate bookingStartDate bookingEndDate mode city price')
       .populate('userId', 'name email phone');
 
     return responseUtil.created(res, 'Enrollment created successfully', {
@@ -248,11 +248,11 @@ export const getUserEnrollments = async (req, res) => {
     // Execute both queries in parallel
     const [onlineEnrollments, cashEnrollments] = await Promise.all([
       EventEnrollment.find(onlineQuery)
-        .populate('eventId', 'name description startDate endDate mode city price imageUrls')
+        .populate('eventId', 'name description startDate endDate bookingStartDate bookingEndDate mode city price imageUrls')
         .populate('paymentId', 'orderId amount finalAmount discountAmount')
         .lean(),
       CashEventEnrollment.find(cashQuery)
-        .populate('eventId', 'name description startDate endDate mode city price imageUrls')
+        .populate('eventId', 'name description startDate endDate bookingStartDate bookingEndDate mode city price imageUrls')
         .populate('offlineCashId', 'priceCharged signature')
         .lean()
     ]);
@@ -382,7 +382,7 @@ export const getEnrollmentById = async (req, res) => {
     }
 
     const enrollment = await EventEnrollment.findOne(query)
-      .populate('eventId', 'name description startDate endDate mode city price imageUrls')
+      .populate('eventId', 'name description startDate endDate bookingStartDate bookingEndDate mode city price imageUrls')
       .populate('userId', 'name email phone')
       .populate('paymentId', 'orderId amount finalAmount discountAmount couponCode');
 
@@ -537,7 +537,7 @@ export const getAllEnrollments = async (req, res) => {
         .sort(sortOptions)
         .skip(skip)
         .limit(Number(limit))
-        .populate('eventId', 'name startDate endDate mode city')
+        .populate('eventId', 'name startDate endDate bookingStartDate bookingEndDate mode city')
         .populate('userId', 'name email phone')
         .populate('paymentId', 'orderId amount finalAmount'),
       EventEnrollment.countDocuments(query)
@@ -895,7 +895,7 @@ export const createMockEnrollment = async (req, res) => {
     await Event.findByIdAndUpdate(eventId, updateFields);
 
     const populatedEnrollment = await EventEnrollment.findById(enrollment._id)
-      .populate('eventId', 'name startDate endDate mode city price')
+      .populate('eventId', 'name startDate endDate bookingStartDate bookingEndDate mode city price')
       .populate('userId', 'name email phone');
 
     return responseUtil.created(res, 'Mock enrollment created successfully', {

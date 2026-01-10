@@ -662,7 +662,7 @@ export const getCommunicationLogs = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
-      .populate("eventId", "name startDate")
+      .populate("eventId", "name startDate endDate bookingStartDate bookingEndDate")
       .populate("userId", "name email phone");
 
     const total = await CommunicationLog.countDocuments(filter);

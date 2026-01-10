@@ -821,7 +821,7 @@ export const getPaymentStatus = async (req, res) => {
 
     // Find payment in database
     const payment = await Payment.findOne({ orderId })
-      .populate("eventId", "name startDate endDate")
+      .populate("eventId", "name startDate endDate bookingStartDate bookingEndDate")
       .populate("sessionId", "name startDate endDate");
 
     if (!payment) {

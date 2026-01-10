@@ -236,7 +236,7 @@ export const getOfflineCashRecords = async (req, res) => {
 
     const [records, total] = await Promise.all([
       OfflineCash.find(filter)
-        .populate("eventId", "name startDate")
+        .populate("eventId", "name startDate endDate bookingStartDate bookingEndDate")
         .populate("generatedBy", "name email")
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -271,7 +271,7 @@ export const getOfflineCashById = async (req, res) => {
     const { id } = req.params;
 
     const record = await OfflineCash.findById(id)
-      .populate("eventId", "name startDate endDate")
+      .populate("eventId", "name startDate endDate bookingStartDate bookingEndDate")
       .populate("generatedBy", "name email");
 
     if (!record) {
@@ -351,7 +351,7 @@ export const validateRedemptionLink = async (req, res) => {
     const record = await OfflineCash.findOne({
       generatedFor: normalizedPhone,
       signature: sign,
-    }).populate("eventId", "name startDate endDate");
+    }).populate("eventId", "name startDate endDate bookingStartDate bookingEndDate");
 
     if (!record) {
       if (isBrowser) {
@@ -881,7 +881,7 @@ export const scanCashTicket = async (req, res) => {
       eventId,
       phone: normalizedPhone,
     })
-      .populate("eventId", "name startDate endDate")
+      .populate("eventId", "name startDate endDate bookingStartDate bookingEndDate")
       .populate("userId", "name email phone");
 
     if (!enrollment) {
