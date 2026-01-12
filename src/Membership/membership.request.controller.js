@@ -279,20 +279,37 @@ export const approveMembershipRequest = async (req, res) => {
     const { planId, paymentAmount, adminNotes, sendWhatsApp = true } = req.body;
     const adminId = req.user?._id;
 
-    console.log('[MEMBERSHIP-REQUEST] Approving request:', id);
-    console.log('[MEMBERSHIP-REQUEST] Plan:', planId, 'Amount:', paymentAmount);
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Starting approval process');
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Request ID:', id);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Plan ID:', planId);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Payment Amount:', paymentAmount);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Send WhatsApp:', sendWhatsApp);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Admin ID:', adminId);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Admin Notes:', adminNotes);
+    console.log('═══════════════════════════════════════════════════════════');
 
     // Validate request exists and is pending
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 1: Fetching request from database...');
     const request = await MembershipRequest.findOne({
       _id: id,
       isDeleted: false,
     });
 
     if (!request) {
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Request not found');
       return responseUtil.notFound(res, 'Membership request not found');
     }
 
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Request found');
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Request details:');
+    console.log('  - Name:', request.name);
+    console.log('  - Phone:', request.phone);
+    console.log('  - Current Status:', request.status);
+    console.log('  - Requested Plan:', request.requestedPlanId);
+
     if (request.status !== 'PENDING') {
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Invalid status:', request.status);
       return responseUtil.badRequest(
         res,
         `Cannot approve request with status: ${request.status}. Only PENDING requests can be approved.`
@@ -300,28 +317,43 @@ export const approveMembershipRequest = async (req, res) => {
     }
 
     // Validate plan
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 2: Validating membership plan...');
     const plan = await MembershipPlan.findOne({
       _id: planId,
       isDeleted: false,
     });
 
     if (!plan) {
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Plan not found:', planId);
       return responseUtil.notFound(res, 'Membership plan not found');
     }
 
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Plan found:', plan.name);
+    console.log('  - Price:', plan.price);
+    console.log('  - Duration:', plan.durationInDays, 'days');
+    console.log('  - Is Active:', plan.isActive);
+
     const canPurchase = plan.canBePurchased();
     if (!canPurchase.canPurchase) {
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Plan cannot be purchased:', canPurchase.reason);
       return responseUtil.badRequest(res, canPurchase.reason);
     }
 
     // Validate payment amount
     const amount = paymentAmount !== undefined && paymentAmount !== null ? paymentAmount : plan.price;
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 3: Setting payment amount');
+    console.log('  - Plan price:', plan.price);
+    console.log('  - Custom amount:', paymentAmount);
+    console.log('  - Final amount:', amount);
+
     if (amount < 0) {
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Invalid amount:', amount);
       return responseUtil.badRequest(res, 'Payment amount cannot be negative');
     }
 
     // Generate order ID
     const orderId = `MR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 4: Generated Order ID:', orderId);
 
     // Create Razorpay payment link with phone prefill
     const expiresAt = new Date();
@@ -356,10 +388,34 @@ export const approveMembershipRequest = async (req, res) => {
       reference_id: orderId,
     };
 
-    console.log('[MEMBERSHIP-REQUEST] Creating Razorpay payment link');
-    const paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 5: Creating Razorpay payment link...');
+    console.log('[RAZORPAY] Payment link options:');
+    console.log('  - Amount (paise):', paymentLinkOptions.amount);
+    console.log('  - Customer Name:', paymentLinkOptions.customer.name);
+    console.log('  - Customer Contact:', paymentLinkOptions.customer.contact);
+    console.log('  - Description:', paymentLinkOptions.description);
+    console.log('  - Expires At:', expiresAt.toISOString());
+    console.log('  - Callback URL:', paymentLinkOptions.callback_url);
+    console.log('  - Reference ID:', paymentLinkOptions.reference_id);
+
+    let paymentLink;
+    try {
+      paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
+      console.log('[RAZORPAY] ✓ Payment link created successfully!');
+      console.log('[RAZORPAY] Payment Link ID:', paymentLink.id);
+      console.log('[RAZORPAY] Short URL:', paymentLink.short_url);
+      console.log('[RAZORPAY] Full Response:', JSON.stringify(paymentLink, null, 2));
+    } catch (razorpayError) {
+      console.error('[RAZORPAY] ❌ Failed to create payment link');
+      console.error('[RAZORPAY] Error Name:', razorpayError.name);
+      console.error('[RAZORPAY] Error Message:', razorpayError.message);
+      console.error('[RAZORPAY] Error Stack:', razorpayError.stack);
+      console.error('[RAZORPAY] Full Error:', JSON.stringify(razorpayError, null, 2));
+      throw razorpayError;
+    }
 
     // Create Payment record for webhook processing
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 6: Creating Payment record in database...');
     const payment = new Payment({
       orderId: orderId,
       type: 'MEMBERSHIP_REQUEST',
@@ -379,9 +435,14 @@ export const approveMembershipRequest = async (req, res) => {
     });
 
     await payment.save();
-    console.log('[MEMBERSHIP-REQUEST] Payment record created:', payment._id);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Payment record created');
+    console.log('  - Payment ID:', payment._id);
+    console.log('  - Order ID:', payment.orderId);
+    console.log('  - Type:', payment.type);
+    console.log('  - Amount:', payment.amount);
 
     // Update request with approval details
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 7: Updating request status to PAYMENT_SENT...');
     request.status = 'PAYMENT_SENT';
     request.reviewedBy = adminId;
     request.reviewedAt = new Date();
@@ -393,31 +454,70 @@ export const approveMembershipRequest = async (req, res) => {
     request.orderId = orderId;
 
     await request.save();
-    console.log('[MEMBERSHIP-REQUEST] Request updated to PAYMENT_SENT');
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Request updated to PAYMENT_SENT');
+    console.log('  - Status:', request.status);
+    console.log('  - Payment URL:', request.paymentUrl);
+    console.log('  - Payment Link ID:', request.paymentLinkId);
 
     // Send WhatsApp with payment link
     let whatsappSent = false;
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 8: Sending WhatsApp notification...');
+    console.log('[WHATSAPP] Send WhatsApp flag:', sendWhatsApp);
+
     if (sendWhatsApp) {
+      console.log('[WHATSAPP] Preparing WhatsApp message...');
+      console.log('[WHATSAPP] WhatsApp parameters:');
+      console.log('  - Phone:', request.phone);
+      console.log('  - Service Name:', `${plan.name} Membership`);
+      console.log('  - Payment Link:', paymentLink.short_url);
+      console.log('  - Amount:', amount);
+      console.log('  - Order ID:', request._id.toString());
+
       try {
-        await sendServicePaymentLinkWhatsApp({
+        console.log('[WHATSAPP] Calling sendServicePaymentLinkWhatsApp function...');
+
+        const whatsappResult = await sendServicePaymentLinkWhatsApp({
           phone: request.phone,
           serviceName: `${plan.name} Membership`,
           paymentLink: paymentLink.short_url,
           amount: amount,
           serviceOrderId: request._id.toString(),
         });
+
         whatsappSent = true;
-        console.log('[MEMBERSHIP-REQUEST] WhatsApp sent successfully');
+        console.log('[WHATSAPP] ✓ WhatsApp sent successfully!');
+        console.log('[WHATSAPP] Result:', JSON.stringify(whatsappResult, null, 2));
+
       } catch (whatsappError) {
-        console.error('[MEMBERSHIP-REQUEST] WhatsApp error:', whatsappError.message);
+        console.error('[WHATSAPP] ❌ Failed to send WhatsApp');
+        console.error('[WHATSAPP] Error Name:', whatsappError.name);
+        console.error('[WHATSAPP] Error Message:', whatsappError.message);
+        console.error('[WHATSAPP] Error Stack:', whatsappError.stack);
+        console.error('[WHATSAPP] Full Error:', JSON.stringify(whatsappError, null, 2));
+
         // Don't fail the request if WhatsApp fails
+        console.log('[WHATSAPP] Continuing despite WhatsApp error (payment link is still valid)');
       }
+    } else {
+      console.log('[WHATSAPP] Skipping WhatsApp (sendWhatsApp = false)');
     }
 
     // Populate response
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 9: Preparing response...');
     const populatedRequest = await MembershipRequest.findById(request._id)
       .populate('approvedPlanId', 'name price durationInDays')
       .populate('reviewedBy', 'name username');
+
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Approval process completed successfully!');
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Summary:');
+    console.log('  - Request ID:', request._id);
+    console.log('  - User:', request.name);
+    console.log('  - Phone:', request.phone);
+    console.log('  - Plan:', plan.name);
+    console.log('  - Amount:', amount);
+    console.log('  - Payment Link:', paymentLink.short_url);
+    console.log('  - WhatsApp Sent:', whatsappSent);
+    console.log('═══════════════════════════════════════════════════════════');
 
     return responseUtil.success(res, 'Membership request approved. Payment link sent.', {
       request: populatedRequest,
@@ -426,7 +526,13 @@ export const approveMembershipRequest = async (req, res) => {
       whatsappSent,
     });
   } catch (error) {
-    console.error('[MEMBERSHIP-REQUEST] Error approving request:', error.message);
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('[MEMBERSHIP-REQUEST-APPROVE] ❌ FATAL ERROR during approval');
+    console.error('[MEMBERSHIP-REQUEST-APPROVE] Error Name:', error.name);
+    console.error('[MEMBERSHIP-REQUEST-APPROVE] Error Message:', error.message);
+    console.error('[MEMBERSHIP-REQUEST-APPROVE] Error Stack:', error.stack);
+    console.error('[MEMBERSHIP-REQUEST-APPROVE] Full Error:', JSON.stringify(error, null, 2));
+    console.error('═══════════════════════════════════════════════════════════');
     return responseUtil.internalError(res, 'Failed to approve membership request', error.message);
   }
 };
@@ -489,7 +595,10 @@ export const resendPaymentLink = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log('[MEMBERSHIP-REQUEST] Resending payment link for request:', id);
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('[MEMBERSHIP-REQUEST-RESEND] Resending payment link');
+    console.log('[MEMBERSHIP-REQUEST-RESEND] Request ID:', id);
+    console.log('═══════════════════════════════════════════════════════════');
 
     const request = await MembershipRequest.findOne({
       _id: id,
@@ -497,10 +606,18 @@ export const resendPaymentLink = async (req, res) => {
     }).populate('approvedPlanId');
 
     if (!request) {
+      console.log('[MEMBERSHIP-REQUEST-RESEND] ❌ Request not found');
       return responseUtil.notFound(res, 'Membership request not found');
     }
 
+    console.log('[MEMBERSHIP-REQUEST-RESEND] Request found:');
+    console.log('  - Name:', request.name);
+    console.log('  - Phone:', request.phone);
+    console.log('  - Status:', request.status);
+    console.log('  - Payment URL:', request.paymentUrl);
+
     if (request.status !== 'PAYMENT_SENT') {
+      console.log('[MEMBERSHIP-REQUEST-RESEND] ❌ Invalid status:', request.status);
       return responseUtil.badRequest(
         res,
         `Cannot resend link for request with status: ${request.status}. Only PAYMENT_SENT requests can have links resent.`
@@ -508,12 +625,20 @@ export const resendPaymentLink = async (req, res) => {
     }
 
     if (!request.paymentUrl) {
+      console.log('[MEMBERSHIP-REQUEST-RESEND] ❌ No payment URL found');
       return responseUtil.badRequest(res, 'No payment link available for this request');
     }
 
     // Send WhatsApp
+    console.log('[MEMBERSHIP-REQUEST-RESEND] Sending WhatsApp...');
+    console.log('[WHATSAPP] Parameters:');
+    console.log('  - Phone:', request.phone);
+    console.log('  - Service Name:', `${request.approvedPlanId?.name || 'Membership'} Membership`);
+    console.log('  - Payment Link:', request.paymentUrl);
+    console.log('  - Amount:', request.paymentAmount);
+
     try {
-      await sendServicePaymentLinkWhatsApp({
+      const whatsappResult = await sendServicePaymentLinkWhatsApp({
         phone: request.phone,
         serviceName: `${request.approvedPlanId?.name || 'Membership'} Membership`,
         paymentLink: request.paymentUrl,
@@ -521,17 +646,27 @@ export const resendPaymentLink = async (req, res) => {
         serviceOrderId: request._id.toString(),
       });
 
-      console.log('[MEMBERSHIP-REQUEST] Payment link resent via WhatsApp');
+      console.log('[WHATSAPP] ✓ WhatsApp sent successfully!');
+      console.log('[WHATSAPP] Result:', JSON.stringify(whatsappResult, null, 2));
+      console.log('═══════════════════════════════════════════════════════════');
 
       return responseUtil.success(res, 'Payment link resent successfully', {
         paymentLink: request.paymentUrl,
       });
     } catch (whatsappError) {
-      console.error('[MEMBERSHIP-REQUEST] WhatsApp error:', whatsappError.message);
+      console.error('[WHATSAPP] ❌ Failed to send WhatsApp');
+      console.error('[WHATSAPP] Error Name:', whatsappError.name);
+      console.error('[WHATSAPP] Error Message:', whatsappError.message);
+      console.error('[WHATSAPP] Error Stack:', whatsappError.stack);
+      console.error('═══════════════════════════════════════════════════════════');
       return responseUtil.internalError(res, 'Failed to send WhatsApp message', whatsappError.message);
     }
   } catch (error) {
-    console.error('[MEMBERSHIP-REQUEST] Error resending link:', error.message);
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('[MEMBERSHIP-REQUEST-RESEND] ❌ FATAL ERROR');
+    console.error('[MEMBERSHIP-REQUEST-RESEND] Error:', error.message);
+    console.error('[MEMBERSHIP-REQUEST-RESEND] Stack:', error.stack);
+    console.error('═══════════════════════════════════════════════════════════');
     return responseUtil.internalError(res, 'Failed to resend payment link', error.message);
   }
 };
