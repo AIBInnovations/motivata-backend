@@ -2222,6 +2222,71 @@ export const userServiceSubscriptionSchemas = {
   }),
 };
 
+/**
+ * Membership Request validation schemas
+ */
+export const membershipRequestSchemas = {
+  /**
+   * Submit membership request (public form)
+   */
+  submit: Joi.object({
+    phone: schemas.phone.required(),
+    name: schemas.name.required(),
+    requestedPlanId: schemas.mongoId.optional(),
+  }),
+
+  /**
+   * Query parameters for listing membership requests
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string()
+      .valid("createdAt", "status", "name")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    status: Joi.string()
+      .valid("PENDING", "APPROVED", "REJECTED", "PAYMENT_SENT", "COMPLETED")
+      .optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Request ID parameter validation
+   */
+  requestId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Approve membership request
+   */
+  approve: Joi.object({
+    planId: schemas.mongoId.required().messages({
+      "any.required": "Membership plan is required",
+    }),
+    paymentAmount: Joi.number().min(0).required().messages({
+      "number.base": "Payment amount must be a number",
+      "number.min": "Payment amount cannot be negative",
+      "any.required": "Payment amount is required",
+    }),
+    adminNotes: Joi.string().trim().max(500).optional(),
+    sendWhatsApp: Joi.boolean().optional().default(true),
+  }),
+
+  /**
+   * Reject membership request
+   */
+  reject: Joi.object({
+    rejectionReason: Joi.string().trim().min(1).max(500).required().messages({
+      "string.empty": "Rejection reason is required",
+      "any.required": "Rejection reason is required",
+      "string.max": "Rejection reason cannot exceed 500 characters",
+    }),
+    adminNotes: Joi.string().trim().max(500).optional(),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -2242,6 +2307,7 @@ export default {
   connectSchemas,
   membershipPlanSchemas,
   userMembershipSchemas,
+  membershipRequestSchemas,
   seatArrangementSchemas,
   serviceSchemas,
   serviceOrderSchemas,
