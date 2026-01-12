@@ -20,6 +20,7 @@ import analyticsRoutes from "../src/Analytics/analytics.route.js";
 import adminAssetRoutes from "../src/Asset/asset.admin.route.js";
 import adminStoryRoutes from "../src/Story/story.admin.route.js";
 import adminMembershipRoutes from "../src/Membership/admin.membership.route.js";
+import membershipRequestRoutes from "../src/Membership/membership.request.route.js";
 import adminClubRoutes from "../src/Club/club.admin.route.js";
 import seatArrangementAdminRoutes from "../src/SeatArrangement/seatArrangement.admin.route.js";
 import adminServiceRoutes from "../src/Service/service.admin.route.js";
@@ -97,6 +98,9 @@ router.use("/stories", adminStoryRoutes);
 
 // Membership routes - /api/web/membership-plans and /api/web/user-memberships
 router.use("/", adminMembershipRoutes);
+
+// Membership Request routes - /api/web/membership-requests (public + admin)
+router.use("/membership-requests", membershipRequestRoutes);
 
 // Club routes - /api/web/clubs
 router.use("/clubs", adminClubRoutes);

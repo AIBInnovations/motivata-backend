@@ -15,6 +15,7 @@ import Session from '../../schema/Session.schema.js';
 import SessionBooking from '../../schema/SessionBooking.schema.js';
 import MembershipPlan from '../../schema/MembershipPlan.schema.js';
 import UserMembership from '../../schema/UserMembership.schema.js';
+import MembershipRequest from '../../schema/MembershipRequest.schema.js';
 import Service from '../../schema/Service.schema.js';
 import ServiceOrder from '../../schema/ServiceOrder.schema.js';
 import UserServiceSubscription from '../../schema/UserServiceSubscription.schema.js';
@@ -2299,6 +2300,157 @@ const handleMembershipRefund = async (payment) => {
 };
 
 /**
+ * Confirm membership request payment
+ * Creates UserMembership record and updates MembershipRequest status
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const confirmMembershipRequestPayment = async (payment) => {
+  try {
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] ========== CONFIRM MEMBERSHIP REQUEST PAYMENT START ==========');
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Payment orderId:', payment.orderId);
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Payment metadata:', JSON.stringify(payment.metadata, null, 2));
+
+    const { membershipRequestId, planId, phone, planName, durationInDays } = payment.metadata || {};
+
+    // Try to find MembershipRequest by requestId in metadata or by orderId
+    let request = null;
+
+    if (membershipRequestId) {
+      request = await MembershipRequest.findById(membershipRequestId);
+    }
+
+    if (!request) {
+      // Try to find by orderId
+      request = await MembershipRequest.findByOrderId(payment.orderId);
+    }
+
+    if (!request) {
+      console.error('[MEMBERSHIP-REQUEST-WEBHOOK] MembershipRequest not found');
+      console.error('[MEMBERSHIP-REQUEST-WEBHOOK] Tried requestId:', membershipRequestId, 'and orderId:', payment.orderId);
+      return;
+    }
+
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Found request:', {
+      _id: request._id,
+      phone: request.phone,
+      status: request.status
+    });
+
+    if (request.status === 'COMPLETED') {
+      console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Request already completed, skipping');
+      return;
+    }
+
+    if (request.status !== 'PAYMENT_SENT') {
+      console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Request not in PAYMENT_SENT status, current:', request.status);
+      return;
+    }
+
+    // Get the approved plan
+    const plan = await MembershipPlan.findById(planId || request.approvedPlanId);
+
+    if (!plan) {
+      console.error('[MEMBERSHIP-REQUEST-WEBHOOK] Plan not found:', planId || request.approvedPlanId);
+      return;
+    }
+
+    // Calculate dates
+    const startDate = new Date();
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + (plan.durationInDays || parseInt(durationInDays) || 30));
+
+    // Check for existing user
+    const normalizedPhone = (phone || request.phone).slice(-10);
+    const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+
+    // Generate order ID for UserMembership
+    const membershipOrderId = `MRQ_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create UserMembership record
+    const userMembership = new UserMembership({
+      phone: normalizedPhone,
+      userId: user?._id || request.existingUserId,
+      membershipPlanId: plan._id,
+      orderId: membershipOrderId,
+      purchaseMethod: 'WEBSITE',
+      amountPaid: payment.finalAmount || payment.amount,
+      startDate,
+      endDate,
+      status: 'ACTIVE',
+      paymentStatus: 'SUCCESS',
+      paymentId: payment.paymentId,
+      planSnapshot: {
+        name: plan.name,
+        description: plan.description,
+        durationInDays: plan.durationInDays,
+        perks: plan.perks,
+        metadata: plan.metadata,
+      },
+      adminNotes: `Created from membership request ${request._id}`,
+      createdBy: request.reviewedBy,
+    });
+
+    await userMembership.save();
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] UserMembership created:', userMembership._id);
+
+    // Increment plan purchase count
+    await plan.incrementPurchaseCount();
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Plan purchase count incremented');
+
+    // Update MembershipRequest to COMPLETED
+    await request.markCompleted(payment.paymentId, userMembership._id);
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] MembershipRequest marked as COMPLETED');
+
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] ========== CONFIRM MEMBERSHIP REQUEST PAYMENT END ==========');
+  } catch (error) {
+    console.error('[MEMBERSHIP-REQUEST-WEBHOOK] Error confirming membership request payment:', error.message);
+    console.error('[MEMBERSHIP-REQUEST-WEBHOOK] Stack:', error.stack);
+  }
+};
+
+/**
+ * Handle membership request payment failure
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const handleMembershipRequestFailure = async (payment) => {
+  try {
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Handling membership request payment failure');
+
+    const { membershipRequestId } = payment.metadata || {};
+
+    let request = null;
+
+    if (membershipRequestId) {
+      request = await MembershipRequest.findById(membershipRequestId);
+    }
+
+    if (!request) {
+      request = await MembershipRequest.findByOrderId(payment.orderId);
+    }
+
+    if (!request) {
+      console.log('[MEMBERSHIP-REQUEST-WEBHOOK] MembershipRequest not found - skipping');
+      return;
+    }
+
+    // We don't change the status - admin can resend the link or the user can retry
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Payment failed for request:', request._id);
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Request remains in PAYMENT_SENT status for retry');
+
+  } catch (error) {
+    console.error('[MEMBERSHIP-REQUEST-WEBHOOK] Error handling failure:', error.message);
+  }
+};
+
+/**
  * Confirm service payment and create subscriptions
  * Updates ServiceOrder status and creates UserServiceSubscription records
  *
@@ -2567,6 +2719,14 @@ const updateRelatedEntities = async (payment) => {
     console.log('[UPDATE-ENTITIES] Detected MEMBERSHIP type payment, calling confirmMembershipPayment...');
     await confirmMembershipPayment(payment);
     console.log('[UPDATE-ENTITIES] Membership payment processed');
+    console.log('[UPDATE-ENTITIES] ========== END ==========');
+    return;
+  }
+
+  if (payment.type === 'MEMBERSHIP_REQUEST') {
+    console.log('[UPDATE-ENTITIES] Detected MEMBERSHIP_REQUEST type payment, calling confirmMembershipRequestPayment...');
+    await confirmMembershipRequestPayment(payment);
+    console.log('[UPDATE-ENTITIES] Membership request payment processed');
     console.log('[UPDATE-ENTITIES] ========== END ==========');
     return;
   }

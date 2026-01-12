@@ -51,7 +51,7 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Payment type is required'],
     enum: {
-      values: ['EVENT', 'SESSION', 'MEMBERSHIP', 'SERVICE', 'OTHER', 'PRODUCT'],
+      values: ['EVENT', 'SESSION', 'MEMBERSHIP', 'MEMBERSHIP_REQUEST', 'SERVICE', 'OTHER', 'PRODUCT'],
       message: '{VALUE} is not a valid payment type'
     }
   },
