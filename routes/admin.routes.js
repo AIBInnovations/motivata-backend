@@ -96,11 +96,12 @@ router.use("/assets", adminAssetRoutes);
 // Story routes - /api/web/stories
 router.use("/stories", adminStoryRoutes);
 
+// Membership Request routes - /api/web/membership-requests (public + admin)
+// IMPORTANT: Must come BEFORE adminMembershipRoutes to avoid auth middleware
+router.use("/membership-requests", membershipRequestRoutes);
+
 // Membership routes - /api/web/membership-plans and /api/web/user-memberships
 router.use("/", adminMembershipRoutes);
-
-// Membership Request routes - /api/web/membership-requests (public + admin)
-router.use("/membership-requests", membershipRequestRoutes);
 
 // Club routes - /api/web/clubs
 router.use("/clubs", adminClubRoutes);
