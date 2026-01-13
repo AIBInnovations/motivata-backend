@@ -1654,11 +1654,26 @@ export const membershipPlanSchemas = {
       "number.base": "Compare at price must be a number",
       "number.min": "Compare at price must be greater than or equal to price",
     }),
-    durationInDays: Joi.number().integer().min(1).required().messages({
-      "number.base": "Duration must be a number",
-      "number.min": "Duration must be at least 1 day",
-      "any.required": "Duration is required",
-    }),
+    durationInDays: Joi.number()
+      .integer()
+      .min(0)
+      .optional()
+      .allow(null)
+      .messages({
+        "number.base": "Duration must be a number",
+        "number.min": "Duration must be 0 (lifetime), null (lifetime), or a positive number",
+      })
+      .custom((value, helpers) => {
+        // Allow null or 0 for lifetime memberships
+        if (value === null || value === 0) {
+          return value;
+        }
+        // For non-lifetime, must be positive
+        if (value < 1) {
+          return helpers.error("number.positive");
+        }
+        return value;
+      }),
     perks: Joi.array().items(Joi.string().trim().max(500)).optional().messages({
       "string.max": "Each perk cannot exceed 500 characters",
     }),
@@ -1677,7 +1692,26 @@ export const membershipPlanSchemas = {
     description: Joi.string().trim().max(2000).optional(),
     price: Joi.number().min(0).optional(),
     compareAtPrice: Joi.number().min(0).optional().allow(null),
-    durationInDays: Joi.number().integer().min(1).optional(),
+    durationInDays: Joi.number()
+      .integer()
+      .min(0)
+      .optional()
+      .allow(null)
+      .messages({
+        "number.base": "Duration must be a number",
+        "number.min": "Duration must be 0 (lifetime), null (lifetime), or a positive number",
+      })
+      .custom((value, helpers) => {
+        // Allow null or 0 for lifetime memberships
+        if (value === null || value === 0) {
+          return value;
+        }
+        // For non-lifetime, must be positive
+        if (value < 1) {
+          return helpers.error("number.positive");
+        }
+        return value;
+      }),
     perks: Joi.array().items(Joi.string().trim().max(500)).optional(),
     metadata: Joi.object().optional(),
     displayOrder: Joi.number().integer().min(0).optional(),
@@ -1914,10 +1948,26 @@ export const serviceSchemas = {
       "number.base": "Compare at price must be a number",
       "number.min": "Compare at price must be greater than or equal to price",
     }),
-    durationInDays: Joi.number().integer().min(1).optional().allow(null).messages({
-      "number.base": "Duration must be a number",
-      "number.min": "Duration must be at least 1 day",
-    }),
+    durationInDays: Joi.number()
+      .integer()
+      .min(0)
+      .optional()
+      .allow(null)
+      .messages({
+        "number.base": "Duration must be a number",
+        "number.min": "Duration must be 0 (lifetime), null (lifetime), or a positive number",
+      })
+      .custom((value, helpers) => {
+        // Allow null or 0 for lifetime subscriptions
+        if (value === null || value === 0) {
+          return value;
+        }
+        // For non-lifetime, must be positive
+        if (value < 1) {
+          return helpers.error("number.positive");
+        }
+        return value;
+      }),
     category: Joi.string()
       .valid(
         "CONSULTATION",
@@ -1953,7 +2003,26 @@ export const serviceSchemas = {
     shortDescription: Joi.string().trim().max(500).optional().allow(null, ""),
     price: Joi.number().min(0).optional(),
     compareAtPrice: Joi.number().min(0).optional().allow(null),
-    durationInDays: Joi.number().integer().min(1).optional().allow(null),
+    durationInDays: Joi.number()
+      .integer()
+      .min(0)
+      .optional()
+      .allow(null)
+      .messages({
+        "number.base": "Duration must be a number",
+        "number.min": "Duration must be 0 (lifetime), null (lifetime), or a positive number",
+      })
+      .custom((value, helpers) => {
+        // Allow null or 0 for lifetime subscriptions
+        if (value === null || value === 0) {
+          return value;
+        }
+        // For non-lifetime, must be positive
+        if (value < 1) {
+          return helpers.error("number.positive");
+        }
+        return value;
+      }),
     category: Joi.string()
       .valid(
         "CONSULTATION",
