@@ -1,0 +1,48 @@
+============================================================================
+SIMPLE MONGODB COMMANDS - FIX ALL DELETED MEMBERSHIPS
+============================================================================
+
+COPY AND PASTE THESE COMMANDS ONE BY ONE INTO MONGODB SHELL
+
+============================================================================
+STEP 1: CONNECT TO YOUR DATABASE
+============================================================================
+
+mongosh "your-mongodb-connection-string"
+
+use motivata
+
+
+============================================================================
+STEP 2: CHECK HOW MANY USERS ARE AFFECTED
+============================================================================
+
+db.usermemberships.countDocuments({ isDeleted: true, status: { $in: ["ACTIVE", "PENDING"] } })
+
+
+============================================================================
+STEP 3: SEE WHICH USERS ARE AFFECTED (OPTIONAL)
+============================================================================
+
+db.usermemberships.find({ isDeleted: true, status: { $in: ["ACTIVE", "PENDING"] } }, { phone: 1, status: 1, "planSnapshot.name": 1 }).sort({ phone: 1 })
+
+
+============================================================================
+STEP 4: FIX ALL OF THEM (MAIN COMMAND)
+============================================================================
+
+db.usermemberships.updateMany({ isDeleted: true, status: { $in: ["ACTIVE", "PENDING"] } }, { $set: { status: "CANCELLED", cancelledAt: new Date(), cancellationReason: "Deleted by admin - retroactive fix" } })
+
+
+============================================================================
+STEP 5: VERIFY IT WORKED
+============================================================================
+
+db.usermemberships.countDocuments({ isDeleted: true, status: "ACTIVE" })
+
+(Should return 0)
+
+
+============================================================================
+DONE! All affected users will immediately lose access to features.
+============================================================================
