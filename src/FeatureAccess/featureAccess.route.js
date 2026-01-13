@@ -17,24 +17,8 @@ import { featureAccessSchemas } from './featureAccess.validation.js';
 const router = express.Router();
 
 /**
- * @route   GET /api/web/feature-access
- * @desc    Get all feature access settings
- * @access  Admin
+ * PUBLIC ROUTES (No authentication required)
  */
-router.get('/feature-access', authenticate, isAdmin, getAllFeatureAccess);
-
-/**
- * @route   PUT /api/web/feature-access
- * @desc    Update feature access settings (create or update)
- * @access  Admin
- */
-router.put(
-  '/feature-access',
-  authenticate,
-  isAdmin,
-  validateBody(featureAccessSchemas.update),
-  updateFeatureAccess
-);
 
 /**
  * @route   POST /api/web/feature-access/check
@@ -42,9 +26,33 @@ router.put(
  * @access  Public
  */
 router.post(
-  '/feature-access/check',
+  '/check',
   validateBody(featureAccessSchemas.check),
   checkFeatureAccess
+);
+
+/**
+ * ADMIN ROUTES (Authentication required)
+ */
+
+/**
+ * @route   GET /api/web/feature-access
+ * @desc    Get all feature access settings
+ * @access  Admin
+ */
+router.get('/', authenticate, isAdmin, getAllFeatureAccess);
+
+/**
+ * @route   PUT /api/web/feature-access
+ * @desc    Update feature access settings (create or update)
+ * @access  Admin
+ */
+router.put(
+  '/',
+  authenticate,
+  isAdmin,
+  validateBody(featureAccessSchemas.update),
+  updateFeatureAccess
 );
 
 export default router;

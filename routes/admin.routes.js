@@ -100,6 +100,10 @@ router.use("/stories", adminStoryRoutes);
 // IMPORTANT: Must come BEFORE adminMembershipRoutes to avoid auth middleware
 router.use("/membership-requests", membershipRequestRoutes);
 
+// Feature Access routes - /api/web/feature-access (includes public check endpoint)
+// IMPORTANT: Must come BEFORE root-mounted routes to avoid auth middleware
+router.use("/feature-access", featureAccessRoutes);
+
 // Membership routes - /api/web/membership-plans and /api/web/user-memberships
 router.use("/", adminMembershipRoutes);
 
@@ -108,9 +112,6 @@ router.use("/clubs", adminClubRoutes);
 
 // Service routes - /api/web/services, /api/web/service-orders, /api/web/service-requests, /api/web/user-subscriptions
 router.use("/", adminServiceRoutes);
-
-// Feature Access routes - /api/web/feature-access
-router.use("/", featureAccessRoutes);
 
 // Add more admin routes here as needed
 // Example:
