@@ -21,6 +21,7 @@ import {
   rejectMembershipRequest,
   resendPaymentLink,
   getPendingCount,
+  withdrawMembershipRequest,
 } from './membership.request.controller.js';
 
 const router = express.Router();
@@ -46,6 +47,17 @@ router.post(
   '/',
   validateBody(membershipRequestSchemas.submit),
   submitMembershipRequest
+);
+
+/**
+ * @route   POST /api/web/membership-requests/:id/withdraw
+ * @desc    Withdraw a pending membership request
+ * @access  Public (requires phone verification)
+ */
+router.post(
+  '/:id/withdraw',
+  validateParams(membershipRequestSchemas.requestId),
+  withdrawMembershipRequest
 );
 
 /**

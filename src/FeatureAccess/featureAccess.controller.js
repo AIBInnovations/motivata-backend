@@ -137,11 +137,15 @@ export const checkFeatureAccess = async (req, res) => {
     }
 
     // Step 5: Check user's membership status
+    // Query: ACTIVE status + (not expired OR lifetime)
     const membership = await UserMembership.findOne({
       phone: normalizedPhone,
       isDeleted: false,
       status: 'ACTIVE',
-      endDate: { $gte: new Date() },
+      $or: [
+        { isLifetime: true }, // Lifetime memberships never expire
+        { endDate: { $gte: new Date() } }, // Regular memberships must not be expired
+      ],
     }).populate('membershipPlanId');
 
     // Step 6: Validate membership
@@ -158,11 +162,12 @@ export const checkFeatureAccess = async (req, res) => {
     }
 
     // All checks passed - grant access
-    const daysRemaining = Math.ceil(
-      (membership.endDate - new Date()) / (1000 * 60 * 60 * 24)
-    );
+    const daysRemaining = membership.isLifetime
+      ? Infinity
+      : Math.ceil((membership.endDate - new Date()) / (1000 * 60 * 60 * 24));
 
     console.log('[FEATURE-ACCESS] Access granted with membership');
+    console.log('[FEATURE-ACCESS] Is lifetime:', membership.isLifetime);
 
     return res.json({
       success: true,
@@ -172,8 +177,9 @@ export const checkFeatureAccess = async (req, res) => {
         message: 'Access granted',
         membership: {
           planName: membership.membershipPlanId?.name || 'Unknown Plan',
-          endDate: membership.endDate,
+          endDate: membership.isLifetime ? null : membership.endDate,
           daysRemaining: daysRemaining,
+          isLifetime: membership.isLifetime,
         },
       },
     });
