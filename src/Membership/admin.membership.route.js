@@ -5,6 +5,7 @@
  */
 
 import express from 'express';
+import { authenticate, isAdmin } from '../../middleware/auth.middleware.js';
 import {
   validateBody,
   validateParams,
@@ -30,6 +31,12 @@ import {
 } from './membership.controller.js';
 
 const router = express.Router();
+
+/**
+ * All routes require authentication and admin access
+ */
+router.use(authenticate);
+router.use(isAdmin);
 
 /**
  * MEMBERSHIP PLAN ROUTES (Admin)
