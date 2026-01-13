@@ -77,7 +77,15 @@ const userMembershipSchema = new mongoose.Schema(
 
     endDate: {
       type: Date,
-      required: [true, 'End date is required'],
+      required: false, // Not required for lifetime memberships
+      default: null,
+      index: true
+    },
+
+    // Lifetime membership flag
+    isLifetime: {
+      type: Boolean,
+      default: false,
       index: true
     },
 
@@ -190,6 +198,12 @@ userMembershipSchema.virtual('isCurrentlyActive').get(function () {
   if (this.isDeleted || this.status !== 'ACTIVE' || this.paymentStatus !== 'SUCCESS') {
     return false;
   }
+
+  // Lifetime memberships never expire by date
+  if (this.isLifetime) {
+    return true;
+  }
+
   const now = new Date();
   return this.startDate <= now && this.endDate > now;
 });
@@ -199,6 +213,12 @@ userMembershipSchema.virtual('isExpired').get(function () {
   if (this.isDeleted || this.status === 'CANCELLED' || this.status === 'REFUNDED') {
     return false;
   }
+
+  // Lifetime memberships never expire
+  if (this.isLifetime) {
+    return false;
+  }
+
   const now = new Date();
   return this.endDate <= now;
 });
@@ -208,6 +228,12 @@ userMembershipSchema.virtual('daysRemaining').get(function () {
   if (!this.isCurrentlyActive) {
     return 0;
   }
+
+  // Lifetime memberships return Infinity (never expires)
+  if (this.isLifetime) {
+    return Infinity;
+  }
+
   const now = new Date();
   const diffTime = this.endDate - now;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -225,6 +251,16 @@ userMembershipSchema.methods.getCurrentStatus = function () {
   if (this.status === 'PENDING' || this.paymentStatus !== 'SUCCESS') {
     return 'PENDING';
   }
+
+  // Lifetime memberships never expire
+  if (this.isLifetime) {
+    const now = new Date();
+    if (this.startDate <= now) {
+      return 'ACTIVE';
+    }
+    return 'UPCOMING';
+  }
+
   const now = new Date();
   if (this.endDate <= now) {
     return 'EXPIRED';

@@ -46,12 +46,22 @@ export const submitMembershipRequest = async (req, res) => {
     }
 
     // Check for existing pending request
-    const hasPending = await MembershipRequest.hasPendingRequest(normalizedPhone);
-    if (hasPending) {
+    const pendingRequest = await MembershipRequest.findOne({
+      phone: normalizedPhone,
+      status: 'PENDING',
+      isDeleted: false,
+    }).select('_id createdAt');
+
+    if (pendingRequest) {
       console.log('[MEMBERSHIP-REQUEST] Pending request already exists for phone:', normalizedPhone);
       return responseUtil.conflict(
         res,
-        'You already have a pending membership request. Please wait for admin review.'
+        'You already have a pending membership request. You can withdraw the existing request and submit a new one.',
+        {
+          existingRequestId: pendingRequest._id,
+          canWithdraw: true,
+          submittedAt: pendingRequest.createdAt,
+        }
       );
     }
 
@@ -68,10 +78,28 @@ export const submitMembershipRequest = async (req, res) => {
       const membership = completedRequest.userMembershipId;
       const now = new Date();
 
+      // Check if membership is lifetime
+      if (
+        !membership.isDeleted &&
+        membership.status === 'ACTIVE' &&
+        membership.isLifetime
+      ) {
+        console.log(
+          '[MEMBERSHIP-REQUEST] Active LIFETIME membership found for phone:',
+          normalizedPhone
+        );
+
+        return responseUtil.conflict(
+          res,
+          'You already have an active lifetime membership. You cannot submit a new request.'
+        );
+      }
+
       // Check if membership is active and not expired by date
       if (
         !membership.isDeleted &&
         membership.status === 'ACTIVE' &&
+        !membership.isLifetime &&
         membership.endDate > now
       ) {
         const daysRemaining = Math.ceil((membership.endDate - now) / (1000 * 60 * 60 * 24));
@@ -82,22 +110,24 @@ export const submitMembershipRequest = async (req, res) => {
           daysRemaining
         );
 
-        return responseUtil.conflict(res, `You already have an active membership that expires in ${daysRemaining} day(s). You cannot submit a new request until your current membership expires.`);
+        return responseUtil.conflict(
+          res,
+          `You already have an active membership that expires in ${daysRemaining} day(s). You cannot submit a new request until your current membership expires.`
+        );
       }
 
       // If membership exists but is expired by date, mark it as EXPIRED if status is still ACTIVE
       if (
         !membership.isDeleted &&
         membership.status === 'ACTIVE' &&
+        !membership.isLifetime &&
         membership.endDate <= now
       ) {
         console.log('[MEMBERSHIP-REQUEST] Found expired ACTIVE membership, updating status to EXPIRED');
         membership.status = 'EXPIRED';
         await membership.save();
 
-        console.log(
-          '[MEMBERSHIP-REQUEST] Membership expired, allowing new request submission'
-        );
+        console.log('[MEMBERSHIP-REQUEST] Membership expired, allowing new request submission');
         // Continue with request creation (membership is now expired)
       }
     }
@@ -715,6 +745,62 @@ export const resendPaymentLink = async (req, res) => {
     console.error('[MEMBERSHIP-REQUEST-RESEND] Stack:', error.stack);
     console.error('═══════════════════════════════════════════════════════════');
     return responseUtil.internalError(res, 'Failed to resend payment link', error.message);
+  }
+};
+
+/**
+ * Withdraw a pending membership request (public)
+ * @route POST /api/web/membership-requests/:id/withdraw
+ */
+export const withdrawMembershipRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { phone } = req.body;
+
+    console.log('[MEMBERSHIP-REQUEST-WITHDRAW] Withdrawal request received');
+    console.log('[MEMBERSHIP-REQUEST-WITHDRAW] Request ID:', id);
+    console.log('[MEMBERSHIP-REQUEST-WITHDRAW] Phone:', phone);
+
+    // Validate phone
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone || normalizedPhone.length !== 10) {
+      return responseUtil.badRequest(res, 'Invalid phone number.');
+    }
+
+    // Find the request
+    const request = await MembershipRequest.findOne({
+      _id: id,
+      phone: normalizedPhone,
+      isDeleted: false,
+    });
+
+    if (!request) {
+      console.log('[MEMBERSHIP-REQUEST-WITHDRAW] Request not found or phone mismatch');
+      return responseUtil.notFound(res, 'Membership request not found or phone number mismatch.');
+    }
+
+    // Only allow withdrawal of PENDING requests
+    if (request.status !== 'PENDING') {
+      console.log('[MEMBERSHIP-REQUEST-WITHDRAW] Invalid status for withdrawal:', request.status);
+      return responseUtil.badRequest(
+        res,
+        `Cannot withdraw request with status: ${request.status}. Only PENDING requests can be withdrawn.`
+      );
+    }
+
+    // Mark as deleted (soft delete)
+    request.isDeleted = true;
+    request.deletedAt = new Date();
+    await request.save();
+
+    console.log('[MEMBERSHIP-REQUEST-WITHDRAW] Request withdrawn successfully');
+
+    return responseUtil.success(res, 'Membership request withdrawn successfully. You can now submit a new request.', {
+      withdrawnRequestId: request._id,
+    });
+  } catch (error) {
+    console.error('[MEMBERSHIP-REQUEST-WITHDRAW] Error withdrawing request:', error.message);
+    return responseUtil.internalError(res, 'Failed to withdraw membership request', error.message);
   }
 };
 

@@ -41,11 +41,23 @@ const membershipPlanSchema = new mongoose.Schema(
       }
     },
 
-    // Duration
+    // Duration (0 or null = lifetime membership)
     durationInDays: {
       type: Number,
-      required: [true, 'Membership duration is required'],
-      min: [1, 'Duration must be at least 1 day']
+      default: null,
+      validate: {
+        validator: function (value) {
+          // Allow null (lifetime), 0 (lifetime), or positive numbers
+          return value === null || value === 0 || value > 0;
+        },
+        message: 'Duration must be null/0 (lifetime) or a positive number'
+      }
+    },
+
+    // Flag to explicitly mark lifetime memberships
+    isLifetime: {
+      type: Boolean,
+      default: false
     },
 
     // Perks and Benefits
@@ -128,10 +140,18 @@ const membershipPlanSchema = new mongoose.Schema(
   }
 );
 
+// Pre-save hook to automatically set isLifetime flag
+membershipPlanSchema.pre('save', function (next) {
+  // Automatically set isLifetime based on durationInDays
+  this.isLifetime = this.durationInDays === null || this.durationInDays === 0;
+  next();
+});
+
 // Indexes
 membershipPlanSchema.index({ isDeleted: 1, isActive: 1 });
 membershipPlanSchema.index({ displayOrder: 1 });
 membershipPlanSchema.index({ isFeatured: 1 });
+membershipPlanSchema.index({ isLifetime: 1 });
 
 // Virtual for availability check
 membershipPlanSchema.virtual('isAvailable').get(function () {

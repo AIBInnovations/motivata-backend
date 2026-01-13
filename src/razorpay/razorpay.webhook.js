@@ -2360,8 +2360,20 @@ const confirmMembershipRequestPayment = async (payment) => {
 
     // Calculate dates
     const startDate = new Date();
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + (plan.durationInDays || parseInt(durationInDays) || 30));
+    const isLifetime = plan.durationInDays === null || plan.durationInDays === 0;
+    let endDate = null;
+
+    if (!isLifetime) {
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + (plan.durationInDays || parseInt(durationInDays) || 30));
+    }
+
+    console.log('[MEMBERSHIP-REQUEST-WEBHOOK] Membership dates:', {
+      startDate,
+      endDate,
+      isLifetime,
+      durationInDays: plan.durationInDays
+    });
 
     // Check for existing user
     const normalizedPhone = (phone || request.phone).slice(-10);
@@ -2380,6 +2392,7 @@ const confirmMembershipRequestPayment = async (payment) => {
       amountPaid: payment.finalAmount || payment.amount,
       startDate,
       endDate,
+      isLifetime,
       status: 'ACTIVE',
       paymentStatus: 'SUCCESS',
       paymentId: payment.paymentId,
