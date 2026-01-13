@@ -139,6 +139,7 @@ export const checkFeatureAccess = async (req, res) => {
     // Step 5: Check user's membership status
     const membership = await UserMembership.findOne({
       phone: normalizedPhone,
+      isDeleted: false,
       status: 'ACTIVE',
       endDate: { $gte: new Date() },
     }).populate('membershipPlanId');

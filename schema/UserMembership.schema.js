@@ -277,6 +277,16 @@ userMembershipSchema.methods.softDelete = async function (deletedBy) {
   this.isDeleted = true;
   this.deletedAt = new Date();
   this.deletedBy = deletedBy;
+
+  // Cancel the membership if it's active or pending
+  // This ensures deleted memberships don't grant access to features
+  if (this.status === 'ACTIVE' || this.status === 'PENDING') {
+    this.status = 'CANCELLED';
+    this.cancelledAt = new Date();
+    this.cancelledBy = deletedBy;
+    this.cancellationReason = 'Deleted by admin';
+  }
+
   await this.save();
 };
 
