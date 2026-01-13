@@ -1,0 +1,63 @@
+
+> motivata-backend@1.0.0 start
+> node server.js
+
+[dotenv@17.2.3] injecting env (39) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+> Missing required Firebase environment variables: FIREBASE_API_KEY, FIREBASE_MESSAGING_SENDER_ID, FIREBASE_APP_ID
+> Please check your .env file and ensure all variables are set.
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+> Cloudinary configured successfully
+> Cloud Name: dk94hyz5e
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+> Environment variables validated
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"username":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"eventId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"orderId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"orderId":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"phone":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"partnerCode":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"signature":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(node:27068) [MONGOOSE] Warning: Duplicate schema index on {"featureKey":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+> MongoDB Connected
+[SEED] Starting feature access seed...
+[AUDIT] Starting cash ticket audit...
+> Server is running on port 5000
+(node:27068) [MONGOOSE] Warning: mongoose: Cannot specify a custom index on `_id` for model name "CalendlyConfig", MongoDB does not allow overwriting the default `_id` index. See https://bit.ly/mongodb-id-index
+[SEED] ✅ SOS - SOS Feature (Quizzes)
+[REQ] 2026-01-13T18:32:11.387Z | POST /api/web/feature-access/check | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:32:11.412Z | GET /api/app/sessions?limit=50 | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:32:11.425Z | GET /api/app/sos/programs | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:32:11.429Z | GET /api/app/sessions/my-bookings?status=confirmed | Origin: N/A | IP: ::ffff:192.168.29.151
+[SEED] ✅ CONNECT - Connect Feature (Clubs)
+[SEED] ✅ CHALLENGE - Challenge Feature (Challenges)
+[SEED] ✅ Feature access data seeded successfully
+[REQ] 2026-01-13T18:32:11.964Z | POST /api/app/memberships/check-active | Origin: N/A | IP: ::ffff:192.168.29.151
+[AUDIT] ROOT_DIR: D:\AIB Innovations\Motivata\Backend\Motivata Backend NEW\motivata-backend
+[AUDIT] Reports dir: D:\AIB Innovations\Motivata\Backend\Motivata Backend NEW\motivata-backend\reports
+[AUDIT] Writing to: D:\AIB Innovations\Motivata\Backend\Motivata Backend NEW\motivata-backend\reports\cash-ticket-audit.md
+[AUDIT] File verified - exists at: D:\AIB Innovations\Motivata\Backend\Motivata Backend NEW\motivata-backend\reports\cash-ticket-audit.md
+[AUDIT] Cash ticket audit completed. Report saved to: D:\AIB Innovations\Motivata\Backend\Motivata Backend NEW\motivata-backend\reports\cash-ticket-audit.md
+[AUDIT] Summary: 28 issues found
+[REQ] 2026-01-13T18:32:13.899Z | GET /api/app/events?isLive=true&limit=100 | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:32:13.906Z | GET /api/app/enrollments | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:32:16.813Z | POST /api/web/feature-access/check | Origin: N/A | IP: ::1
+[REQ] 2026-01-13T18:32:30.630Z | OPTIONS /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:32:30.634Z | GET /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:32:38.947Z | POST /api/app/memberships/check-active | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:32:50.540Z | OPTIONS /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:32:50.549Z | GET /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:33:06.238Z | POST /api/web/feature-access/check | Origin: N/A | IP: ::1
+[REQ] 2026-01-13T18:33:08.952Z | POST /api/app/memberships/check-active | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:33:16.618Z | OPTIONS /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:33:16.625Z | GET /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:33:39.110Z | POST /api/app/memberships/check-active | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:33:46.891Z | OPTIONS /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:33:46.898Z | GET /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:34:09.209Z | POST /api/app/memberships/check-active | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:34:16.629Z | OPTIONS /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:34:16.637Z | GET /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:34:39.214Z | POST /api/app/memberships/check-active | Origin: N/A | IP: ::ffff:192.168.29.151
+[REQ] 2026-01-13T18:34:46.616Z | OPTIONS /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:34:46.621Z | GET /api/web/membership-requests/pending-count | Origin: http://localhost:5173 | IP: ::ffff:192.168.29.69
+[REQ] 2026-01-13T18:35:09.218Z | POST /api/app/memberships/check-active | Origin: N/A | IP: ::ffff:192.168.29.151
