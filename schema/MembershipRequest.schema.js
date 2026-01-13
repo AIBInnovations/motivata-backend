@@ -239,6 +239,45 @@ membershipRequestSchema.statics.findByOrderId = function (orderId) {
 };
 
 /**
+ * Static: Check if phone has an active membership from a completed request
+ * Returns { hasActiveMembership: boolean, membership: object|null, daysRemaining: number|null }
+ */
+membershipRequestSchema.statics.checkActiveMembershipFromRequest = async function (phone) {
+  const normalizedPhone = phone.replace(/\D/g, '').slice(-10);
+
+  const completedRequest = await this.findOne({
+    phone: normalizedPhone,
+    status: 'COMPLETED',
+    isDeleted: false
+  })
+    .sort({ createdAt: -1 })
+    .populate('userMembershipId');
+
+  if (!completedRequest || !completedRequest.userMembershipId) {
+    return { hasActiveMembership: false, membership: null, daysRemaining: null };
+  }
+
+  const membership = completedRequest.userMembershipId;
+  const now = new Date();
+
+  // Check if membership is active and not expired
+  if (
+    !membership.isDeleted &&
+    membership.status === 'ACTIVE' &&
+    membership.endDate > now
+  ) {
+    const daysRemaining = Math.ceil((membership.endDate - now) / (1000 * 60 * 60 * 24));
+    return {
+      hasActiveMembership: true,
+      membership: membership,
+      daysRemaining: daysRemaining
+    };
+  }
+
+  return { hasActiveMembership: false, membership: membership, daysRemaining: null };
+};
+
+/**
  * Instance method: Mark as payment sent
  */
 membershipRequestSchema.methods.markPaymentSent = async function (paymentData) {

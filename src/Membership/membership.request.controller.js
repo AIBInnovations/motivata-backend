@@ -55,6 +55,53 @@ export const submitMembershipRequest = async (req, res) => {
       );
     }
 
+    // Check for existing COMPLETED request with active membership
+    const completedRequest = await MembershipRequest.findOne({
+      phone: normalizedPhone,
+      status: 'COMPLETED',
+      isDeleted: false,
+    })
+      .sort({ createdAt: -1 })
+      .populate('userMembershipId');
+
+    if (completedRequest && completedRequest.userMembershipId) {
+      const membership = completedRequest.userMembershipId;
+      const now = new Date();
+
+      // Check if membership is active and not expired by date
+      if (
+        !membership.isDeleted &&
+        membership.status === 'ACTIVE' &&
+        membership.endDate > now
+      ) {
+        const daysRemaining = Math.ceil((membership.endDate - now) / (1000 * 60 * 60 * 24));
+        console.log(
+          '[MEMBERSHIP-REQUEST] Active membership found for phone:',
+          normalizedPhone,
+          'Days remaining:',
+          daysRemaining
+        );
+
+        return responseUtil.conflict(res, `You already have an active membership that expires in ${daysRemaining} day(s). You cannot submit a new request until your current membership expires.`);
+      }
+
+      // If membership exists but is expired by date, mark it as EXPIRED if status is still ACTIVE
+      if (
+        !membership.isDeleted &&
+        membership.status === 'ACTIVE' &&
+        membership.endDate <= now
+      ) {
+        console.log('[MEMBERSHIP-REQUEST] Found expired ACTIVE membership, updating status to EXPIRED');
+        membership.status = 'EXPIRED';
+        await membership.save();
+
+        console.log(
+          '[MEMBERSHIP-REQUEST] Membership expired, allowing new request submission'
+        );
+        // Continue with request creation (membership is now expired)
+      }
+    }
+
     // Validate requested plan if provided
     let requestedPlan = null;
     if (requestedPlanId) {
