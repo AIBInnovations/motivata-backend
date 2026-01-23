@@ -2207,6 +2207,15 @@ const confirmMembershipPayment = async (payment) => {
       console.log('[MEMBERSHIP-WEBHOOK] Plan purchase count incremented');
     }
 
+    // Increment coupon usage if coupon was used
+    if (payment.couponCode) {
+      await Coupon.findOneAndUpdate(
+        { code: payment.couponCode },
+        { $inc: { usageCount: 1 } }
+      );
+      console.log('[MEMBERSHIP-WEBHOOK] Coupon usage incremented:', payment.couponCode);
+    }
+
     console.log('[MEMBERSHIP-WEBHOOK] Membership activation completed successfully');
   } catch (error) {
     console.error('[MEMBERSHIP-WEBHOOK] Error confirming membership payment:', error.message);
@@ -2291,6 +2300,15 @@ const handleMembershipRefund = async (payment) => {
     if (plan) {
       await plan.decrementPurchaseCount();
       console.log('[MEMBERSHIP-REFUND] Plan purchase count decremented');
+    }
+
+    // Decrement coupon usage if coupon was used
+    if (payment.couponCode) {
+      await Coupon.findOneAndUpdate(
+        { code: payment.couponCode },
+        { $inc: { usageCount: -1 } }
+      );
+      console.log('[MEMBERSHIP-REFUND] Coupon usage decremented:', payment.couponCode);
     }
 
     console.log('[MEMBERSHIP-REFUND] Membership refund completed successfully');

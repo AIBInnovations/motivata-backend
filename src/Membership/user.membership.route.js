@@ -18,7 +18,8 @@ import {
   createMembershipPaymentOrder,
   getMyMemberships,
   checkMembershipStatus,
-  checkActiveMembership
+  checkActiveMembership,
+  validateMembershipCoupon
 } from './membership.controller.js';
 
 const router = express.Router();
@@ -52,6 +53,17 @@ router.get(
 /**
  * USER MEMBERSHIP ROUTES (User)
  */
+
+/**
+ * @route   POST /api/app/memberships/validate-coupon
+ * @desc    Validate a coupon code for membership purchase (preview discount)
+ * @access  Public
+ */
+router.post(
+  '/memberships/validate-coupon',
+  validateBody(userMembershipSchemas.validateCoupon),
+  validateMembershipCoupon
+);
 
 /**
  * @route   POST /api/app/memberships/create-order
