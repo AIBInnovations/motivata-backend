@@ -107,12 +107,59 @@ const membershipRequestSchema = new mongoose.Schema(
     },
 
     /**
-     * Payment amount set by admin (can differ from plan price)
+     * Original plan price before any discount
+     */
+    originalAmount: {
+      type: Number,
+      min: [0, 'Original amount must be positive'],
+      default: null
+    },
+
+    /**
+     * Payment amount set by admin (final amount after discount)
      */
     paymentAmount: {
       type: Number,
       min: [0, 'Payment amount must be positive'],
       default: null
+    },
+
+    /**
+     * Coupon reference (if coupon was applied)
+     */
+    couponId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Coupon',
+      default: null
+    },
+
+    /**
+     * Coupon code used (stored for reference even if coupon is deleted)
+     */
+    couponCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null
+    },
+
+    /**
+     * Discount percentage from the coupon
+     */
+    discountPercent: {
+      type: Number,
+      min: [0, 'Discount percent must be positive'],
+      max: [100, 'Discount percent cannot exceed 100'],
+      default: 0
+    },
+
+    /**
+     * Calculated discount amount (how much user saved)
+     */
+    discountAmount: {
+      type: Number,
+      min: [0, 'Discount amount must be positive'],
+      default: 0
     },
 
     /**
@@ -300,14 +347,32 @@ membershipRequestSchema.methods.markCompleted = async function (paymentId, userM
 
 /**
  * Instance method: Approve request (sets plan and amount, ready for payment link)
+ * @param {ObjectId} adminId - Admin who approved
+ * @param {ObjectId} approvedPlanId - Approved plan ID
+ * @param {number} paymentAmount - Final amount to pay (after discount)
+ * @param {string} adminNotes - Optional admin notes
+ * @param {Object} couponInfo - Optional coupon info { couponId, couponCode, discountPercent, discountAmount, originalAmount }
  */
-membershipRequestSchema.methods.approve = async function (adminId, approvedPlanId, paymentAmount, adminNotes = null) {
+membershipRequestSchema.methods.approve = async function (adminId, approvedPlanId, paymentAmount, adminNotes = null, couponInfo = null) {
   this.status = 'APPROVED';
   this.reviewedBy = adminId;
   this.reviewedAt = new Date();
   this.approvedPlanId = approvedPlanId;
   this.paymentAmount = paymentAmount;
   this.adminNotes = adminNotes;
+
+  // Store coupon information if provided
+  if (couponInfo) {
+    this.couponId = couponInfo.couponId || null;
+    this.couponCode = couponInfo.couponCode || null;
+    this.discountPercent = couponInfo.discountPercent || 0;
+    this.discountAmount = couponInfo.discountAmount || 0;
+    this.originalAmount = couponInfo.originalAmount || paymentAmount;
+  } else {
+    // No coupon - original amount equals payment amount
+    this.originalAmount = paymentAmount;
+  }
+
   return this.save();
 };
 
