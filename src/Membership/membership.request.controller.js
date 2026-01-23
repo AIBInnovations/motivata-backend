@@ -31,10 +31,12 @@ const normalizePhone = (phone) => {
  */
 export const submitMembershipRequest = async (req, res) => {
   try {
-    const { phone, name, requestedPlanId } = req.body;
+    const { phone, name, requestedPlanId, couponCode } = req.body;
 
     console.log('[MEMBERSHIP-REQUEST] New request submission');
     console.log('[MEMBERSHIP-REQUEST] Phone:', phone, 'Name:', name);
+    console.log('[MEMBERSHIP-REQUEST] Requested Plan ID:', requestedPlanId);
+    console.log('[MEMBERSHIP-REQUEST] Coupon Code:', couponCode || 'None');
 
     const normalizedPhone = normalizePhone(phone);
 
@@ -147,29 +149,94 @@ export const submitMembershipRequest = async (req, res) => {
       }
     }
 
+    // Validate coupon if provided (requires a plan to be selected)
+    let couponInfo = null;
+    if (couponCode) {
+      console.log('[MEMBERSHIP-REQUEST] User provided coupon code:', couponCode);
+
+      if (!requestedPlan) {
+        console.log('[MEMBERSHIP-REQUEST] Coupon provided but no plan selected');
+        return responseUtil.badRequest(res, 'Please select a membership plan to apply a coupon.');
+      }
+
+      console.log('[MEMBERSHIP-REQUEST] Validating coupon for plan:', requestedPlan.name, 'Price:', requestedPlan.price);
+
+      const couponValidation = await validateCouponForType(
+        couponCode,
+        requestedPlan.price,
+        normalizedPhone,
+        'MEMBERSHIP'
+      );
+
+      if (!couponValidation.isValid) {
+        console.log('[MEMBERSHIP-REQUEST] Coupon validation failed:', couponValidation.error);
+        return responseUtil.badRequest(res, `Coupon error: ${couponValidation.error}`);
+      }
+
+      // Store coupon information (admin can later choose to accept or override this)
+      couponInfo = {
+        couponId: couponValidation.coupon._id,
+        couponCode: couponValidation.coupon.code,
+        discountPercent: couponValidation.coupon.discountPercent,
+        discountAmount: couponValidation.discountAmount,
+        originalAmount: requestedPlan.price,
+        finalAmount: couponValidation.finalAmount,
+      };
+
+      console.log('[MEMBERSHIP-REQUEST] Coupon validated successfully:');
+      console.log('  - Original Amount:', couponInfo.originalAmount);
+      console.log('  - Discount:', couponInfo.discountAmount, `(${couponInfo.discountPercent}%)`);
+      console.log('  - Final Amount:', couponInfo.finalAmount);
+    }
+
     // Check if user already exists in our database
     const existingUser = await User.findOne({
       phone: { $regex: normalizedPhone + '$' },
       isDeleted: false,
     });
 
-    // Create membership request
+    // Create membership request with coupon info if provided
     const membershipRequest = new MembershipRequest({
       phone: normalizedPhone,
       name: name.trim(),
       requestedPlanId: requestedPlan?._id || null,
       existingUserId: existingUser?._id || null,
       status: 'PENDING',
+      // Store user's requested coupon (admin can override during approval)
+      ...(couponInfo && {
+        couponId: couponInfo.couponId,
+        couponCode: couponInfo.couponCode,
+        discountPercent: couponInfo.discountPercent,
+        discountAmount: couponInfo.discountAmount,
+        originalAmount: couponInfo.originalAmount,
+        paymentAmount: couponInfo.finalAmount,
+      }),
     });
 
     await membershipRequest.save();
 
     console.log('[MEMBERSHIP-REQUEST] Request created:', membershipRequest._id);
+    if (couponInfo) {
+      console.log('[MEMBERSHIP-REQUEST] Request includes coupon:', couponInfo.couponCode);
+    }
 
-    return responseUtil.created(res, 'Membership request submitted successfully. You will be notified once reviewed.', {
-      requestId: membershipRequest._id,
-      status: membershipRequest.status,
-    });
+    return responseUtil.created(
+      res,
+      'Membership request submitted successfully. You will be notified once reviewed.',
+      {
+        requestId: membershipRequest._id,
+        status: membershipRequest.status,
+        ...(couponInfo && {
+          appliedCoupon: {
+            code: couponInfo.couponCode,
+            discountPercent: couponInfo.discountPercent,
+            originalAmount: couponInfo.originalAmount,
+            discountAmount: couponInfo.discountAmount,
+            finalAmount: couponInfo.finalAmount,
+          },
+        }),
+      }
+    );
   } catch (error) {
     console.error('[MEMBERSHIP-REQUEST] Error submitting request:', error.message);
 
