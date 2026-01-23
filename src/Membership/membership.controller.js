@@ -502,22 +502,29 @@ export const createUserMembershipAdmin = async (req, res) => {
  * @route POST /api/app/memberships/create-order
  */
 export const createMembershipPaymentOrder = async (req, res) => {
+  const logPrefix = "[MEMBERSHIP-ORDER]";
+  const startTime = Date.now();
+  const requestId = `ORDER-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  console.log(`${logPrefix} ========== CREATE ORDER REQUEST START ==========`);
+  console.log(`${logPrefix} Request ID: ${requestId}`);
+  console.log(`${logPrefix} Timestamp: ${new Date().toISOString()}`);
+
   try {
     const { phone, membershipPlanId, couponCode } = req.body;
     const userId = req.user?._id;
-
     const normalizedPhone = normalizePhone(phone);
 
-    console.log("[MEMBERSHIP-ORDER] Creating payment order for membership");
-    console.log(
-      "[MEMBERSHIP-ORDER] Phone:",
-      normalizedPhone,
-      "Plan:",
+    console.log(`${logPrefix} Request details:`, {
+      phone: normalizedPhone ? `***${normalizedPhone.slice(-4)}` : 'N/A',
       membershipPlanId,
-      "Coupon:",
-      couponCode || "None"
-    );
+      couponCode: couponCode?.toUpperCase() || 'None',
+      userId: userId || 'Guest',
+      ip: req.ip || req.headers['x-forwarded-for'] || 'Unknown'
+    });
 
+    // Step 1: Fetch and validate plan
+    console.log(`${logPrefix} [STEP 1] Fetching membership plan...`);
     const plan = await MembershipPlan.findOne({
       _id: membershipPlanId,
       isDeleted: false,
@@ -525,33 +532,43 @@ export const createMembershipPaymentOrder = async (req, res) => {
     });
 
     if (!plan) {
-      console.log(
-        "[MEMBERSHIP-ORDER] Plan not found or inactive:",
-        membershipPlanId
-      );
-      return responseUtil.notFound(
-        res,
-        "Membership plan not found or inactive"
-      );
+      console.log(`${logPrefix} [STEP 1] [FAIL] Plan not found or inactive: ${membershipPlanId}`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+      console.log(`${logPrefix} ========== CREATE ORDER REQUEST END (FAILED) ==========`);
+      return responseUtil.notFound(res, "Membership plan not found or inactive");
     }
 
+    console.log(`${logPrefix} [STEP 1] Plan found:`, {
+      planId: plan._id,
+      planName: plan.name,
+      price: `₹${plan.price}`,
+      durationInDays: plan.durationInDays,
+      isLifetime: plan.isLifetime
+    });
+
+    // Step 2: Check if plan can be purchased
+    console.log(`${logPrefix} [STEP 2] Checking plan availability...`);
     const canPurchase = plan.canBePurchased();
     if (!canPurchase.canPurchase) {
-      console.log(
-        "[MEMBERSHIP-ORDER] Plan cannot be purchased:",
-        canPurchase.reason
-      );
+      console.log(`${logPrefix} [STEP 2] [FAIL] Plan unavailable: ${canPurchase.reason}`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+      console.log(`${logPrefix} ========== CREATE ORDER REQUEST END (FAILED) ==========`);
       return responseUtil.badRequest(res, canPurchase.reason);
     }
+    console.log(`${logPrefix} [STEP 2] ✓ Plan is available for purchase`);
 
+    // Step 3: Process coupon (if provided)
     const originalAmount = plan.price;
     let discountAmount = 0;
     let finalAmount = originalAmount;
     let appliedCouponCode = null;
+    let couponDetails = null;
 
-    // Validate and apply coupon if provided
     if (couponCode) {
-      console.log("[MEMBERSHIP-ORDER] Validating coupon:", couponCode);
+      console.log(`${logPrefix} [STEP 3] ========== COUPON PROCESSING START ==========`);
+      console.log(`${logPrefix} [STEP 3] Coupon code provided: ${couponCode.toUpperCase()}`);
+      console.log(`${logPrefix} [STEP 3] Calling coupon validation service...`);
+
       const couponValidation = await validateCouponForType(
         couponCode,
         originalAmount,
@@ -560,25 +577,39 @@ export const createMembershipPaymentOrder = async (req, res) => {
       );
 
       if (!couponValidation.isValid) {
-        console.log("[MEMBERSHIP-ORDER] Coupon validation failed:", couponValidation.error);
+        console.log(`${logPrefix} [STEP 3] [FAIL] Coupon validation failed`);
+        console.log(`${logPrefix} [STEP 3] Reason: ${couponValidation.error}`);
+        console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+        console.log(`${logPrefix} ========== CREATE ORDER REQUEST END (COUPON FAILED) ==========`);
         return responseUtil.badRequest(res, couponValidation.error);
       }
 
+      // Coupon is valid - apply discount
       discountAmount = couponValidation.discountAmount;
       finalAmount = couponValidation.finalAmount;
       appliedCouponCode = couponValidation.coupon.code;
-      console.log(
-        "[MEMBERSHIP-ORDER] Coupon applied - Original:",
-        originalAmount,
-        "Discount:",
-        discountAmount,
-        "Final:",
-        finalAmount
-      );
+      couponDetails = couponValidation.coupon;
+
+      console.log(`${logPrefix} [STEP 3] ✓ Coupon validated and applied successfully`);
+      console.log(`${logPrefix} [STEP 3] Discount summary:`, {
+        couponCode: appliedCouponCode,
+        discountPercent: `${couponDetails.discountPercent}%`,
+        originalAmount: `₹${originalAmount}`,
+        discountAmount: `₹${discountAmount}`,
+        finalAmount: `₹${finalAmount}`,
+        savings: `₹${discountAmount} (${((discountAmount/originalAmount)*100).toFixed(1)}%)`
+      });
+      console.log(`${logPrefix} [STEP 3] ========== COUPON PROCESSING END ==========`);
+    } else {
+      console.log(`${logPrefix} [STEP 3] No coupon code provided - proceeding with full price: ₹${originalAmount}`);
     }
 
+    // Step 4: Create Razorpay order
+    console.log(`${logPrefix} [STEP 4] Creating Razorpay order...`);
+    console.log(`${logPrefix} [STEP 4] Amount to charge: ₹${finalAmount} (${Math.round(finalAmount * 100)} paise)`);
+
     const razorpayOrder = await razorpayInstance.orders.create({
-      amount: Math.round(finalAmount * 100), // Use finalAmount (after discount)
+      amount: Math.round(finalAmount * 100),
       currency: "INR",
       receipt: `membership_${Date.now()}`,
       notes: {
@@ -589,13 +620,23 @@ export const createMembershipPaymentOrder = async (req, res) => {
       },
     });
 
-    console.log("[MEMBERSHIP-ORDER] Razorpay order created:", razorpayOrder.id);
+    console.log(`${logPrefix} [STEP 4] ✓ Razorpay order created:`, {
+      orderId: razorpayOrder.id,
+      amount: `₹${razorpayOrder.amount / 100}`,
+      currency: razorpayOrder.currency,
+      status: razorpayOrder.status
+    });
 
+    // Step 5: Find or identify user
+    console.log(`${logPrefix} [STEP 5] Looking up user by phone...`);
     const user = await User.findOne({
       phone: normalizedPhone,
       isDeleted: false,
     });
+    console.log(`${logPrefix} [STEP 5] User: ${user ? `Found (${user._id})` : 'Guest/Not found'}`);
 
+    // Step 6: Create UserMembership record
+    console.log(`${logPrefix} [STEP 6] Creating UserMembership record...`);
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + plan.durationInDays);
@@ -606,7 +647,7 @@ export const createMembershipPaymentOrder = async (req, res) => {
       membershipPlanId: plan._id,
       orderId: razorpayOrder.id,
       purchaseMethod: "IN_APP",
-      amountPaid: finalAmount, // Store the discounted amount
+      amountPaid: finalAmount,
       startDate,
       endDate,
       status: "ACTIVE",
@@ -628,7 +669,10 @@ export const createMembershipPaymentOrder = async (req, res) => {
     });
 
     await userMembership.save();
+    console.log(`${logPrefix} [STEP 6] ✓ UserMembership created: ${userMembership._id}`);
 
+    // Step 7: Create Payment record
+    console.log(`${logPrefix} [STEP 7] Creating Payment record...`);
     const payment = new Payment({
       type: "MEMBERSHIP",
       orderId: razorpayOrder.id,
@@ -649,10 +693,24 @@ export const createMembershipPaymentOrder = async (req, res) => {
     });
 
     await payment.save();
+    console.log(`${logPrefix} [STEP 7] ✓ Payment record created: ${payment._id}`);
 
-    console.log(
-      "[MEMBERSHIP-ORDER] User membership and payment record created"
-    );
+    // Success summary
+    console.log(`${logPrefix} ========== ORDER CREATION SUMMARY ==========`);
+    console.log(`${logPrefix} Request ID: ${requestId}`);
+    console.log(`${logPrefix} Razorpay Order ID: ${razorpayOrder.id}`);
+    console.log(`${logPrefix} UserMembership ID: ${userMembership._id}`);
+    console.log(`${logPrefix} Payment ID: ${payment._id}`);
+    console.log(`${logPrefix} Plan: ${plan.name} (${plan.durationInDays} days)`);
+    console.log(`${logPrefix} Pricing:`, {
+      originalPrice: `₹${originalAmount}`,
+      couponApplied: appliedCouponCode || 'None',
+      discount: `₹${discountAmount}`,
+      finalAmount: `₹${finalAmount}`
+    });
+    console.log(`${logPrefix} Status: PENDING (awaiting payment)`);
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    console.log(`${logPrefix} ========== CREATE ORDER REQUEST END (SUCCESS) ==========`);
 
     return responseUtil.created(
       res,
@@ -673,7 +731,11 @@ export const createMembershipPaymentOrder = async (req, res) => {
       }
     );
   } catch (error) {
-    console.error("[MEMBERSHIP-ORDER] Error creating order:", error.message);
+    console.error(`${logPrefix} [ERROR] Exception during order creation`);
+    console.error(`${logPrefix} [ERROR] Message: ${error.message}`);
+    console.error(`${logPrefix} [ERROR] Stack: ${error.stack}`);
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    console.log(`${logPrefix} ========== CREATE ORDER REQUEST END (ERROR) ==========`);
 
     if (error.name === "ValidationError") {
       const errors = Object.values(error.errors).map((err) => ({
@@ -1307,21 +1369,42 @@ export const deleteUserMembership = async (req, res) => {
  * @route POST /api/app/memberships/validate-coupon
  */
 export const validateMembershipCoupon = async (req, res) => {
+  const logPrefix = "[MEMBERSHIP-COUPON-PREVIEW]";
+  const startTime = Date.now();
+  const requestId = `REQ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  console.log(`${logPrefix} ========== COUPON PREVIEW REQUEST START ==========`);
+  console.log(`${logPrefix} Request ID: ${requestId}`);
+  console.log(`${logPrefix} Timestamp: ${new Date().toISOString()}`);
+
   try {
     const { couponCode, membershipPlanId } = req.body;
     const userPhone = req.user?.phone || req.body.phone;
+    const userId = req.user?._id;
 
-    console.log("[MEMBERSHIP-COUPON] Validating coupon:", couponCode, "for plan:", membershipPlanId);
+    console.log(`${logPrefix} Request details:`, {
+      couponCode: couponCode?.toUpperCase() || 'N/A',
+      membershipPlanId,
+      phone: userPhone ? `***${userPhone.slice(-4)}` : 'N/A',
+      userId: userId || 'Guest',
+      ip: req.ip || req.headers['x-forwarded-for'] || 'Unknown'
+    });
 
+    // Validate input
     if (!couponCode) {
+      console.log(`${logPrefix} [FAIL] Missing coupon code in request`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return responseUtil.badRequest(res, "Coupon code is required");
     }
 
     if (!membershipPlanId) {
+      console.log(`${logPrefix} [FAIL] Missing membership plan ID in request`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return responseUtil.badRequest(res, "Membership plan ID is required");
     }
 
-    // Get the membership plan to know the price
+    // Get the membership plan
+    console.log(`${logPrefix} Fetching membership plan: ${membershipPlanId}`);
     const plan = await MembershipPlan.findOne({
       _id: membershipPlanId,
       isDeleted: false,
@@ -1329,12 +1412,22 @@ export const validateMembershipCoupon = async (req, res) => {
     });
 
     if (!plan) {
+      console.log(`${logPrefix} [FAIL] Membership plan not found or inactive: ${membershipPlanId}`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return responseUtil.notFound(res, "Membership plan not found or inactive");
     }
 
+    console.log(`${logPrefix} Plan found:`, {
+      planId: plan._id,
+      planName: plan.name,
+      price: plan.price,
+      durationInDays: plan.durationInDays
+    });
+
     const normalizedPhone = userPhone ? normalizePhone(userPhone) : null;
 
-    // Validate the coupon
+    // Validate the coupon (this will log detailed validation steps)
+    console.log(`${logPrefix} Calling coupon validation service...`);
     const validation = await validateCouponForType(
       couponCode,
       plan.price,
@@ -1343,13 +1436,15 @@ export const validateMembershipCoupon = async (req, res) => {
     );
 
     if (!validation.isValid) {
-      console.log("[MEMBERSHIP-COUPON] Validation failed:", validation.error);
+      console.log(`${logPrefix} [RESULT] Coupon validation FAILED`);
+      console.log(`${logPrefix} Reason: ${validation.error}`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+      console.log(`${logPrefix} ========== COUPON PREVIEW REQUEST END (FAILED) ==========`);
       return responseUtil.badRequest(res, validation.error);
     }
 
-    console.log("[MEMBERSHIP-COUPON] Coupon validated successfully");
-
-    return responseUtil.success(res, "Coupon is valid", {
+    // Success - prepare response
+    const responseData = {
       isValid: true,
       originalAmount: plan.price,
       discountPercent: validation.coupon.discountPercent,
@@ -1364,9 +1459,26 @@ export const validateMembershipCoupon = async (req, res) => {
         name: plan.name,
         price: plan.price,
       },
+    };
+
+    console.log(`${logPrefix} [RESULT] Coupon validation SUCCESSFUL`);
+    console.log(`${logPrefix} Preview summary:`, {
+      couponCode: validation.coupon.code,
+      planName: plan.name,
+      originalPrice: `₹${plan.price}`,
+      discount: `₹${validation.discountAmount} (${validation.coupon.discountPercent}%)`,
+      finalPrice: `₹${validation.finalAmount}`,
+      userSaves: `₹${validation.discountAmount}`
     });
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    console.log(`${logPrefix} ========== COUPON PREVIEW REQUEST END (SUCCESS) ==========`);
+
+    return responseUtil.success(res, "Coupon is valid", responseData);
   } catch (error) {
-    console.error("[MEMBERSHIP-COUPON] Error validating coupon:", error.message);
+    console.error(`${logPrefix} [ERROR] Exception occurred:`, error.message);
+    console.error(`${logPrefix} Stack trace:`, error.stack);
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    console.log(`${logPrefix} ========== COUPON PREVIEW REQUEST END (ERROR) ==========`);
     return responseUtil.internalError(
       res,
       "Failed to validate coupon",

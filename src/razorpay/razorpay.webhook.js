@@ -2209,16 +2209,43 @@ const confirmMembershipPayment = async (payment) => {
 
     // Increment coupon usage if coupon was used
     if (payment.couponCode) {
-      await Coupon.findOneAndUpdate(
+      console.log('[MEMBERSHIP-WEBHOOK] ========== COUPON USAGE INCREMENT START ==========');
+      console.log('[MEMBERSHIP-WEBHOOK] Coupon code used:', payment.couponCode);
+      console.log('[MEMBERSHIP-WEBHOOK] Payment ID:', payment._id);
+      console.log('[MEMBERSHIP-WEBHOOK] Order ID:', payment.orderId);
+      console.log('[MEMBERSHIP-WEBHOOK] Phone:', payment.phone ? `***${payment.phone.slice(-4)}` : 'N/A');
+      console.log('[MEMBERSHIP-WEBHOOK] Discount applied:', {
+        originalAmount: payment.amount,
+        discountAmount: payment.discountAmount,
+        finalAmount: payment.finalAmount
+      });
+
+      const updatedCoupon = await Coupon.findOneAndUpdate(
         { code: payment.couponCode },
-        { $inc: { usageCount: 1 } }
+        { $inc: { usageCount: 1 } },
+        { new: true }
       );
-      console.log('[MEMBERSHIP-WEBHOOK] Coupon usage incremented:', payment.couponCode);
+
+      if (updatedCoupon) {
+        console.log('[MEMBERSHIP-WEBHOOK] ✓ Coupon usage incremented successfully');
+        console.log('[MEMBERSHIP-WEBHOOK] Coupon stats after increment:', {
+          code: updatedCoupon.code,
+          usageCount: updatedCoupon.usageCount,
+          maxUsageLimit: updatedCoupon.maxUsageLimit || 'Unlimited',
+          remainingUses: updatedCoupon.maxUsageLimit ? updatedCoupon.maxUsageLimit - updatedCoupon.usageCount : 'Unlimited'
+        });
+      } else {
+        console.log('[MEMBERSHIP-WEBHOOK] [WARNING] Coupon not found for increment:', payment.couponCode);
+      }
+      console.log('[MEMBERSHIP-WEBHOOK] ========== COUPON USAGE INCREMENT END ==========');
+    } else {
+      console.log('[MEMBERSHIP-WEBHOOK] No coupon was used in this purchase');
     }
 
     console.log('[MEMBERSHIP-WEBHOOK] Membership activation completed successfully');
   } catch (error) {
     console.error('[MEMBERSHIP-WEBHOOK] Error confirming membership payment:', error.message);
+    console.error('[MEMBERSHIP-WEBHOOK] Stack:', error.stack);
   }
 };
 
@@ -2304,16 +2331,43 @@ const handleMembershipRefund = async (payment) => {
 
     // Decrement coupon usage if coupon was used
     if (payment.couponCode) {
-      await Coupon.findOneAndUpdate(
+      console.log('[MEMBERSHIP-REFUND] ========== COUPON USAGE DECREMENT START ==========');
+      console.log('[MEMBERSHIP-REFUND] Coupon code to decrement:', payment.couponCode);
+      console.log('[MEMBERSHIP-REFUND] Payment ID:', payment._id);
+      console.log('[MEMBERSHIP-REFUND] Order ID:', payment.orderId);
+      console.log('[MEMBERSHIP-REFUND] Refund context:', {
+        originalAmount: payment.amount,
+        discountAmount: payment.discountAmount,
+        finalAmount: payment.finalAmount,
+        refundReason: 'Membership refunded'
+      });
+
+      const updatedCoupon = await Coupon.findOneAndUpdate(
         { code: payment.couponCode },
-        { $inc: { usageCount: -1 } }
+        { $inc: { usageCount: -1 } },
+        { new: true }
       );
-      console.log('[MEMBERSHIP-REFUND] Coupon usage decremented:', payment.couponCode);
+
+      if (updatedCoupon) {
+        console.log('[MEMBERSHIP-REFUND] ✓ Coupon usage decremented successfully');
+        console.log('[MEMBERSHIP-REFUND] Coupon stats after decrement:', {
+          code: updatedCoupon.code,
+          usageCount: updatedCoupon.usageCount,
+          maxUsageLimit: updatedCoupon.maxUsageLimit || 'Unlimited',
+          remainingUses: updatedCoupon.maxUsageLimit ? updatedCoupon.maxUsageLimit - updatedCoupon.usageCount : 'Unlimited'
+        });
+      } else {
+        console.log('[MEMBERSHIP-REFUND] [WARNING] Coupon not found for decrement:', payment.couponCode);
+      }
+      console.log('[MEMBERSHIP-REFUND] ========== COUPON USAGE DECREMENT END ==========');
+    } else {
+      console.log('[MEMBERSHIP-REFUND] No coupon was used in this purchase - no decrement needed');
     }
 
     console.log('[MEMBERSHIP-REFUND] Membership refund completed successfully');
   } catch (error) {
     console.error('[MEMBERSHIP-REFUND] Error handling membership refund:', error.message);
+    console.error('[MEMBERSHIP-REFUND] Stack:', error.stack);
   }
 };
 

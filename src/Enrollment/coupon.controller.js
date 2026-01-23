@@ -166,74 +166,173 @@ export const getCouponById = async (req, res) => {
  * @returns {Object} { isValid, coupon, discountAmount, finalAmount, error }
  */
 export const validateCouponForType = async (code, amount, phone, type) => {
+  const logPrefix = '[COUPON-VALIDATE]';
+  const startTime = Date.now();
+
+  console.log(`${logPrefix} ========== COUPON VALIDATION START ==========`);
+  console.log(`${logPrefix} Input:`, {
+    code: code?.toUpperCase() || 'N/A',
+    amount,
+    phone: phone ? `***${phone.slice(-4)}` : 'N/A',
+    type
+  });
+
   try {
+    // Step 1: Check if code is provided
     if (!code) {
+      console.log(`${logPrefix} [FAIL] No coupon code provided`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return { isValid: false, error: 'Coupon code is required' };
     }
 
+    // Step 2: Find coupon in database
+    console.log(`${logPrefix} [STEP 1] Searching for coupon: ${code.toUpperCase()}`);
     const coupon = await Coupon.findOne({ code: code.toUpperCase() });
 
     if (!coupon) {
+      console.log(`${logPrefix} [FAIL] Coupon not found in database`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return { isValid: false, error: 'Invalid coupon code' };
     }
 
-    // Check if coupon is active
+    console.log(`${logPrefix} [STEP 1] Coupon found:`, {
+      id: coupon._id,
+      code: coupon.code,
+      discountPercent: coupon.discountPercent,
+      maxDiscountAmount: coupon.maxDiscountAmount,
+      minPurchaseAmount: coupon.minPurchaseAmount,
+      applicableTo: coupon.applicableTo,
+      usageCount: coupon.usageCount,
+      maxUsageLimit: coupon.maxUsageLimit,
+      maxUsagePerUser: coupon.maxUsagePerUser,
+      isActive: coupon.isActive,
+      validFrom: coupon.validFrom,
+      validUntil: coupon.validUntil
+    });
+
+    // Step 3: Check if coupon is active
+    console.log(`${logPrefix} [STEP 2] Checking active status...`);
     if (!coupon.isActive) {
+      console.log(`${logPrefix} [FAIL] Coupon is inactive`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return { isValid: false, error: 'Coupon is not active' };
     }
+    console.log(`${logPrefix} [STEP 2] ✓ Coupon is active`);
 
-    // Check validity dates
+    // Step 4: Check validity dates
+    console.log(`${logPrefix} [STEP 3] Checking validity dates...`);
     const now = new Date();
+    console.log(`${logPrefix} [STEP 3] Current time: ${now.toISOString()}`);
+    console.log(`${logPrefix} [STEP 3] Valid from: ${coupon.validFrom.toISOString()}`);
+    console.log(`${logPrefix} [STEP 3] Valid until: ${coupon.validUntil.toISOString()}`);
+
     if (now < coupon.validFrom) {
+      const startsIn = Math.ceil((coupon.validFrom - now) / (1000 * 60 * 60 * 24));
+      console.log(`${logPrefix} [FAIL] Coupon not yet valid. Starts in ${startsIn} day(s)`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return { isValid: false, error: 'Coupon is not yet valid' };
     }
 
     if (now > coupon.validUntil) {
+      const expiredAgo = Math.ceil((now - coupon.validUntil) / (1000 * 60 * 60 * 24));
+      console.log(`${logPrefix} [FAIL] Coupon expired ${expiredAgo} day(s) ago`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return { isValid: false, error: 'Coupon has expired' };
     }
+    console.log(`${logPrefix} [STEP 3] ✓ Coupon is within validity period`);
 
-    // Check if coupon is applicable to this type
+    // Step 5: Check if coupon is applicable to this type
+    console.log(`${logPrefix} [STEP 4] Checking applicability for type: ${type}...`);
     const applicableTypes = coupon.applicableTo || ['ALL'];
+    console.log(`${logPrefix} [STEP 4] Coupon applicable to: ${applicableTypes.join(', ')}`);
+
     if (!applicableTypes.includes('ALL') && !applicableTypes.includes(type)) {
+      console.log(`${logPrefix} [FAIL] Coupon not applicable for ${type}. Only valid for: ${applicableTypes.join(', ')}`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return { isValid: false, error: `This coupon is not valid for ${type.toLowerCase()} purchases` };
     }
+    console.log(`${logPrefix} [STEP 4] ✓ Coupon is applicable for ${type}`);
 
-    // Check usage limit
+    // Step 6: Check global usage limit
+    console.log(`${logPrefix} [STEP 5] Checking global usage limit...`);
+    console.log(`${logPrefix} [STEP 5] Current usage: ${coupon.usageCount}, Max limit: ${coupon.maxUsageLimit || 'Unlimited'}`);
+
     if (coupon.maxUsageLimit !== null && coupon.usageCount >= coupon.maxUsageLimit) {
+      console.log(`${logPrefix} [FAIL] Global usage limit reached (${coupon.usageCount}/${coupon.maxUsageLimit})`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return { isValid: false, error: 'Coupon usage limit reached' };
     }
+    console.log(`${logPrefix} [STEP 5] ✓ Global usage limit OK (${coupon.usageCount}/${coupon.maxUsageLimit || '∞'})`);
 
-    // Check minimum purchase amount
+    // Step 7: Check minimum purchase amount
+    console.log(`${logPrefix} [STEP 6] Checking minimum purchase amount...`);
+    console.log(`${logPrefix} [STEP 6] Purchase amount: ₹${amount}, Minimum required: ₹${coupon.minPurchaseAmount}`);
+
     if (amount < coupon.minPurchaseAmount) {
+      console.log(`${logPrefix} [FAIL] Purchase amount ₹${amount} is below minimum ₹${coupon.minPurchaseAmount}`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
       return {
         isValid: false,
         error: `Minimum purchase amount of ₹${coupon.minPurchaseAmount} required`
       };
     }
+    console.log(`${logPrefix} [STEP 6] ✓ Minimum purchase amount satisfied`);
 
-    // Check user-specific usage by phone
+    // Step 8: Check user-specific usage by phone
+    console.log(`${logPrefix} [STEP 7] Checking per-user usage limit...`);
     if (phone && coupon.maxUsagePerUser) {
       const normalizedPhone = phone.slice(-10);
+      console.log(`${logPrefix} [STEP 7] Checking usage for phone: ***${normalizedPhone.slice(-4)}`);
+      console.log(`${logPrefix} [STEP 7] Max usage per user: ${coupon.maxUsagePerUser}`);
+
       const userUsageCount = await Payment.countDocuments({
         phone: normalizedPhone,
         couponCode: coupon.code,
         status: 'SUCCESS'
       });
 
+      console.log(`${logPrefix} [STEP 7] User's current usage: ${userUsageCount}`);
+
       if (userUsageCount >= coupon.maxUsagePerUser) {
+        console.log(`${logPrefix} [FAIL] Per-user limit reached (${userUsageCount}/${coupon.maxUsagePerUser})`);
+        console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
         return {
           isValid: false,
           error: 'You have reached the maximum usage limit for this coupon'
         };
       }
+      console.log(`${logPrefix} [STEP 7] ✓ Per-user usage limit OK (${userUsageCount}/${coupon.maxUsagePerUser})`);
+    } else {
+      console.log(`${logPrefix} [STEP 7] ✓ No per-user limit check needed (phone: ${phone ? 'provided' : 'not provided'}, maxUsagePerUser: ${coupon.maxUsagePerUser || 'not set'})`);
     }
 
-    // Calculate discount
-    const discountAmount = Math.min(
-      (amount * coupon.discountPercent) / 100,
-      coupon.maxDiscountAmount
-    );
+    // Step 9: Calculate discount
+    console.log(`${logPrefix} [STEP 8] Calculating discount...`);
+    const calculatedDiscount = (amount * coupon.discountPercent) / 100;
+    const discountAmount = Math.min(calculatedDiscount, coupon.maxDiscountAmount);
     const finalAmount = Math.max(amount - discountAmount, 0);
+
+    console.log(`${logPrefix} [STEP 8] Discount calculation:`, {
+      originalAmount: amount,
+      discountPercent: coupon.discountPercent,
+      calculatedDiscount: calculatedDiscount.toFixed(2),
+      maxDiscountCap: coupon.maxDiscountAmount,
+      appliedDiscount: discountAmount.toFixed(2),
+      finalAmount: finalAmount.toFixed(2),
+      savingsPercent: ((discountAmount / amount) * 100).toFixed(1) + '%'
+    });
+
+    // Success
+    console.log(`${logPrefix} [SUCCESS] ✓ Coupon validation passed`);
+    console.log(`${logPrefix} Summary:`, {
+      couponCode: coupon.code,
+      originalAmount: `₹${amount}`,
+      discount: `₹${discountAmount.toFixed(2)} (${coupon.discountPercent}%)`,
+      finalAmount: `₹${finalAmount.toFixed(2)}`,
+      savings: `₹${discountAmount.toFixed(2)}`
+    });
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    console.log(`${logPrefix} ========== COUPON VALIDATION END ==========`);
 
     return {
       isValid: true,
@@ -250,7 +349,10 @@ export const validateCouponForType = async (code, amount, phone, type) => {
       finalAmount
     };
   } catch (error) {
-    console.error('Validate coupon for type error:', error);
+    console.error(`${logPrefix} [ERROR] Exception during validation:`, error.message);
+    console.error(`${logPrefix} [ERROR] Stack:`, error.stack);
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    console.log(`${logPrefix} ========== COUPON VALIDATION END (ERROR) ==========`);
     return { isValid: false, error: 'Failed to validate coupon' };
   }
 };
