@@ -107,6 +107,22 @@ const couponSchema = new mongoose.Schema({
   },
 
   /**
+   * Where this coupon can be applied
+   * EVENT - For event ticket purchases
+   * MEMBERSHIP - For membership plan purchases
+   * SESSION - For session bookings
+   * ALL - Can be used anywhere (default for backward compatibility)
+   */
+  applicableTo: {
+    type: [String],
+    enum: {
+      values: ['EVENT', 'MEMBERSHIP', 'SESSION', 'ALL'],
+      message: '{VALUE} is not a valid application type'
+    },
+    default: ['ALL']
+  },
+
+  /**
    * Whether coupon is active
    */
   isActive: {
@@ -169,6 +185,7 @@ couponSchema.index({ code: 1, isDeleted: 1 });
 couponSchema.index({ isActive: 1, isDeleted: 1 });
 couponSchema.index({ validFrom: 1, validUntil: 1 });
 couponSchema.index({ createdAt: -1 });
+couponSchema.index({ applicableTo: 1, isActive: 1, isDeleted: 1 });
 
 /**
  * Pre-query middleware to exclude soft deleted documents

@@ -474,6 +474,9 @@ export const couponSchemas = {
     validUntil: Joi.date().iso().greater(Joi.ref("validFrom")).required(),
     description: Joi.string().trim().max(500).optional(),
     isActive: Joi.boolean().default(true),
+    applicableTo: Joi.array()
+      .items(Joi.string().valid("EVENT", "MEMBERSHIP", "SESSION", "ALL"))
+      .default(["ALL"]),
   }),
 
   /**
@@ -490,6 +493,9 @@ export const couponSchemas = {
     validUntil: Joi.date().iso().optional(),
     description: Joi.string().trim().max(500).optional(),
     isActive: Joi.boolean().optional(),
+    applicableTo: Joi.array()
+      .items(Joi.string().valid("EVENT", "MEMBERSHIP", "SESSION", "ALL"))
+      .optional(),
   }),
 
   /**
@@ -1763,6 +1769,16 @@ export const userMembershipSchemas = {
   createOrder: Joi.object({
     phone: schemas.phone.required(),
     membershipPlanId: schemas.mongoId.required(),
+    couponCode: Joi.string().trim().uppercase().max(50).optional(),
+  }),
+
+  /**
+   * Validate coupon for membership purchase
+   */
+  validateCoupon: Joi.object({
+    couponCode: Joi.string().trim().uppercase().max(50).required(),
+    membershipPlanId: schemas.mongoId.required(),
+    phone: schemas.phone.optional(),
   }),
 
   /**

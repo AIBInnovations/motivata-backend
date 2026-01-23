@@ -10,6 +10,7 @@ import Payment from "../../schema/Payment.schema.js";
 import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { razorpayInstance } from "../../utils/razorpay.util.js";
+import { validateCouponForType } from "../Enrollment/coupon.controller.js";
 
 // Helper function to normalize phone number
 const normalizePhone = (phone) => {
@@ -502,7 +503,7 @@ export const createUserMembershipAdmin = async (req, res) => {
  */
 export const createMembershipPaymentOrder = async (req, res) => {
   try {
-    const { phone, membershipPlanId } = req.body;
+    const { phone, membershipPlanId, couponCode } = req.body;
     const userId = req.user?._id;
 
     const normalizedPhone = normalizePhone(phone);
@@ -512,7 +513,9 @@ export const createMembershipPaymentOrder = async (req, res) => {
       "[MEMBERSHIP-ORDER] Phone:",
       normalizedPhone,
       "Plan:",
-      membershipPlanId
+      membershipPlanId,
+      "Coupon:",
+      couponCode || "None"
     );
 
     const plan = await MembershipPlan.findOne({
@@ -541,16 +544,48 @@ export const createMembershipPaymentOrder = async (req, res) => {
       return responseUtil.badRequest(res, canPurchase.reason);
     }
 
-    const amount = plan.price;
+    const originalAmount = plan.price;
+    let discountAmount = 0;
+    let finalAmount = originalAmount;
+    let appliedCouponCode = null;
+
+    // Validate and apply coupon if provided
+    if (couponCode) {
+      console.log("[MEMBERSHIP-ORDER] Validating coupon:", couponCode);
+      const couponValidation = await validateCouponForType(
+        couponCode,
+        originalAmount,
+        normalizedPhone,
+        "MEMBERSHIP"
+      );
+
+      if (!couponValidation.isValid) {
+        console.log("[MEMBERSHIP-ORDER] Coupon validation failed:", couponValidation.error);
+        return responseUtil.badRequest(res, couponValidation.error);
+      }
+
+      discountAmount = couponValidation.discountAmount;
+      finalAmount = couponValidation.finalAmount;
+      appliedCouponCode = couponValidation.coupon.code;
+      console.log(
+        "[MEMBERSHIP-ORDER] Coupon applied - Original:",
+        originalAmount,
+        "Discount:",
+        discountAmount,
+        "Final:",
+        finalAmount
+      );
+    }
 
     const razorpayOrder = await razorpayInstance.orders.create({
-      amount: amount * 100,
+      amount: Math.round(finalAmount * 100), // Use finalAmount (after discount)
       currency: "INR",
       receipt: `membership_${Date.now()}`,
       notes: {
         type: "MEMBERSHIP",
         phone: normalizedPhone,
         membershipPlanId: membershipPlanId.toString(),
+        couponCode: appliedCouponCode || "",
       },
     });
 
@@ -571,7 +606,7 @@ export const createMembershipPaymentOrder = async (req, res) => {
       membershipPlanId: plan._id,
       orderId: razorpayOrder.id,
       purchaseMethod: "IN_APP",
-      amountPaid: amount,
+      amountPaid: finalAmount, // Store the discounted amount
       startDate,
       endDate,
       status: "ACTIVE",
@@ -585,6 +620,9 @@ export const createMembershipPaymentOrder = async (req, res) => {
       },
       metadata: {
         razorpayOrderId: razorpayOrder.id,
+        couponCode: appliedCouponCode,
+        originalAmount,
+        discountAmount,
       },
       createdBy: userId,
     });
@@ -594,8 +632,11 @@ export const createMembershipPaymentOrder = async (req, res) => {
     const payment = new Payment({
       type: "MEMBERSHIP",
       orderId: razorpayOrder.id,
-      amount,
-      finalAmount: amount,
+      phone: normalizedPhone,
+      amount: originalAmount,
+      couponCode: appliedCouponCode,
+      discountAmount,
+      finalAmount,
       status: "PENDING",
       paymentMethod: "RAZORPAY",
       metadata: {
@@ -618,7 +659,10 @@ export const createMembershipPaymentOrder = async (req, res) => {
       "Membership payment order created successfully",
       {
         orderId: razorpayOrder.id,
-        amount,
+        amount: originalAmount,
+        discountAmount,
+        finalAmount,
+        couponApplied: appliedCouponCode,
         currency: "INR",
         key: process.env.RAZORPAY_KEY_ID,
         membership: {
@@ -1257,6 +1301,80 @@ export const deleteUserMembership = async (req, res) => {
   }
 };
 
+/**
+ * Validate coupon for membership purchase
+ * User access - allows users to preview discount before purchase
+ * @route POST /api/app/memberships/validate-coupon
+ */
+export const validateMembershipCoupon = async (req, res) => {
+  try {
+    const { couponCode, membershipPlanId } = req.body;
+    const userPhone = req.user?.phone || req.body.phone;
+
+    console.log("[MEMBERSHIP-COUPON] Validating coupon:", couponCode, "for plan:", membershipPlanId);
+
+    if (!couponCode) {
+      return responseUtil.badRequest(res, "Coupon code is required");
+    }
+
+    if (!membershipPlanId) {
+      return responseUtil.badRequest(res, "Membership plan ID is required");
+    }
+
+    // Get the membership plan to know the price
+    const plan = await MembershipPlan.findOne({
+      _id: membershipPlanId,
+      isDeleted: false,
+      isActive: true,
+    });
+
+    if (!plan) {
+      return responseUtil.notFound(res, "Membership plan not found or inactive");
+    }
+
+    const normalizedPhone = userPhone ? normalizePhone(userPhone) : null;
+
+    // Validate the coupon
+    const validation = await validateCouponForType(
+      couponCode,
+      plan.price,
+      normalizedPhone,
+      "MEMBERSHIP"
+    );
+
+    if (!validation.isValid) {
+      console.log("[MEMBERSHIP-COUPON] Validation failed:", validation.error);
+      return responseUtil.badRequest(res, validation.error);
+    }
+
+    console.log("[MEMBERSHIP-COUPON] Coupon validated successfully");
+
+    return responseUtil.success(res, "Coupon is valid", {
+      isValid: true,
+      originalAmount: plan.price,
+      discountPercent: validation.coupon.discountPercent,
+      discountAmount: validation.discountAmount,
+      finalAmount: validation.finalAmount,
+      coupon: {
+        code: validation.coupon.code,
+        description: validation.coupon.description,
+        validUntil: validation.coupon.validUntil,
+      },
+      plan: {
+        name: plan.name,
+        price: plan.price,
+      },
+    });
+  } catch (error) {
+    console.error("[MEMBERSHIP-COUPON] Error validating coupon:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to validate coupon",
+      error.message
+    );
+  }
+};
+
 export default {
   createMembershipPlan,
   getAllMembershipPlans,
@@ -1275,4 +1393,5 @@ export default {
   cancelUserMembership,
   updateMembershipNotes,
   deleteUserMembership,
+  validateMembershipCoupon,
 };

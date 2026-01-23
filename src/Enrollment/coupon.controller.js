@@ -158,6 +158,104 @@ export const getCouponById = async (req, res) => {
 };
 
 /**
+ * Validate coupon for a specific type (utility function for internal use)
+ * @param {string} code - Coupon code
+ * @param {number} amount - Purchase amount
+ * @param {string} phone - User's phone number (normalized to 10 digits)
+ * @param {string} type - Type of purchase: 'EVENT', 'MEMBERSHIP', 'SESSION'
+ * @returns {Object} { isValid, coupon, discountAmount, finalAmount, error }
+ */
+export const validateCouponForType = async (code, amount, phone, type) => {
+  try {
+    if (!code) {
+      return { isValid: false, error: 'Coupon code is required' };
+    }
+
+    const coupon = await Coupon.findOne({ code: code.toUpperCase() });
+
+    if (!coupon) {
+      return { isValid: false, error: 'Invalid coupon code' };
+    }
+
+    // Check if coupon is active
+    if (!coupon.isActive) {
+      return { isValid: false, error: 'Coupon is not active' };
+    }
+
+    // Check validity dates
+    const now = new Date();
+    if (now < coupon.validFrom) {
+      return { isValid: false, error: 'Coupon is not yet valid' };
+    }
+
+    if (now > coupon.validUntil) {
+      return { isValid: false, error: 'Coupon has expired' };
+    }
+
+    // Check if coupon is applicable to this type
+    const applicableTypes = coupon.applicableTo || ['ALL'];
+    if (!applicableTypes.includes('ALL') && !applicableTypes.includes(type)) {
+      return { isValid: false, error: `This coupon is not valid for ${type.toLowerCase()} purchases` };
+    }
+
+    // Check usage limit
+    if (coupon.maxUsageLimit !== null && coupon.usageCount >= coupon.maxUsageLimit) {
+      return { isValid: false, error: 'Coupon usage limit reached' };
+    }
+
+    // Check minimum purchase amount
+    if (amount < coupon.minPurchaseAmount) {
+      return {
+        isValid: false,
+        error: `Minimum purchase amount of ₹${coupon.minPurchaseAmount} required`
+      };
+    }
+
+    // Check user-specific usage by phone
+    if (phone && coupon.maxUsagePerUser) {
+      const normalizedPhone = phone.slice(-10);
+      const userUsageCount = await Payment.countDocuments({
+        phone: normalizedPhone,
+        couponCode: coupon.code,
+        status: 'SUCCESS'
+      });
+
+      if (userUsageCount >= coupon.maxUsagePerUser) {
+        return {
+          isValid: false,
+          error: 'You have reached the maximum usage limit for this coupon'
+        };
+      }
+    }
+
+    // Calculate discount
+    const discountAmount = Math.min(
+      (amount * coupon.discountPercent) / 100,
+      coupon.maxDiscountAmount
+    );
+    const finalAmount = Math.max(amount - discountAmount, 0);
+
+    return {
+      isValid: true,
+      coupon: {
+        _id: coupon._id,
+        code: coupon.code,
+        discountPercent: coupon.discountPercent,
+        maxDiscountAmount: coupon.maxDiscountAmount,
+        description: coupon.description,
+        validUntil: coupon.validUntil
+      },
+      originalAmount: amount,
+      discountAmount,
+      finalAmount
+    };
+  } catch (error) {
+    console.error('Validate coupon for type error:', error);
+    return { isValid: false, error: 'Failed to validate coupon' };
+  }
+};
+
+/**
  * Validate and get coupon discount
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -402,6 +500,7 @@ export default {
   getActiveCoupons,
   getCouponById,
   validateCoupon,
+  validateCouponForType,
   updateCoupon,
   deleteCoupon,
   getDeletedCoupons,
