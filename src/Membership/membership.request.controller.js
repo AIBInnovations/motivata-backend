@@ -13,6 +13,7 @@ import User from '../../schema/User.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { razorpayInstance } from '../../utils/razorpay.util.js';
 import { sendServicePaymentLinkWhatsApp } from '../../utils/whatsapp.util.js';
+import { validateCouponForType } from '../Enrollment/coupon.controller.js';
 
 // Helper function to normalize phone number
 const normalizePhone = (phone) => {
@@ -256,7 +257,8 @@ export const getAllMembershipRequests = async (req, res) => {
         .populate('approvedPlanId', 'name price durationInDays')
         .populate('reviewedBy', 'name username')
         .populate('existingUserId', 'name email phone enrollments')
-        .populate('userMembershipId'),
+        .populate('userMembershipId')
+        .populate('couponId', 'code discountPercent maxDiscountAmount'),
       MembershipRequest.countDocuments(query),
     ]);
 
@@ -317,7 +319,8 @@ export const getMembershipRequestById = async (req, res) => {
       .populate('approvedPlanId')
       .populate('reviewedBy', 'name username')
       .populate('existingUserId', 'name email phone enrollments createdAt')
-      .populate('userMembershipId');
+      .populate('userMembershipId')
+      .populate('couponId', 'code discountPercent maxDiscountAmount');
 
     if (!request) {
       return responseUtil.notFound(res, 'Membership request not found');
@@ -353,14 +356,15 @@ export const getMembershipRequestById = async (req, res) => {
 export const approveMembershipRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const { planId, paymentAmount, adminNotes, sendWhatsApp = true } = req.body;
+    const { planId, paymentAmount, adminNotes, sendWhatsApp = true, couponCode } = req.body;
     const adminId = req.user?._id;
 
     console.log('═══════════════════════════════════════════════════════════');
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Starting approval process');
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Request ID:', id);
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Plan ID:', planId);
-    console.log('[MEMBERSHIP-REQUEST-APPROVE] Payment Amount:', paymentAmount);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Payment Amount (override):', paymentAmount);
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Coupon Code:', couponCode || 'None');
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Send WhatsApp:', sendWhatsApp);
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Admin ID:', adminId);
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Admin Notes:', adminNotes);
@@ -416,17 +420,81 @@ export const approveMembershipRequest = async (req, res) => {
       return responseUtil.badRequest(res, canPurchase.reason);
     }
 
-    // Validate payment amount
-    const amount = paymentAmount !== undefined && paymentAmount !== null ? paymentAmount : plan.price;
-    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 3: Setting payment amount');
-    console.log('  - Plan price:', plan.price);
-    console.log('  - Custom amount:', paymentAmount);
-    console.log('  - Final amount:', amount);
+    // Step 3: Process coupon and calculate amounts
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 3: Processing pricing and coupon...');
+
+    const originalAmount = plan.price;
+    let discountAmount = 0;
+    let discountPercent = 0;
+    let finalAmount = originalAmount;
+    let appliedCouponId = null;
+    let appliedCouponCode = null;
+
+    // If coupon code is provided, validate it
+    if (couponCode) {
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ========== COUPON PROCESSING START ==========');
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] Validating coupon:', couponCode);
+
+      const couponValidation = await validateCouponForType(
+        couponCode,
+        originalAmount,
+        request.phone,
+        'MEMBERSHIP'
+      );
+
+      if (!couponValidation.isValid) {
+        console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Coupon validation failed:', couponValidation.error);
+        return responseUtil.badRequest(res, `Coupon error: ${couponValidation.error}`);
+      }
+
+      // Apply coupon discount
+      discountAmount = couponValidation.discountAmount;
+      discountPercent = couponValidation.coupon.discountPercent;
+      finalAmount = couponValidation.finalAmount;
+      appliedCouponId = couponValidation.coupon._id;
+      appliedCouponCode = couponValidation.coupon.code;
+
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Coupon validated and applied:');
+      console.log('  - Coupon ID:', appliedCouponId);
+      console.log('  - Coupon Code:', appliedCouponCode);
+      console.log('  - Discount Percent:', discountPercent + '%');
+      console.log('  - Original Amount:', originalAmount);
+      console.log('  - Discount Amount:', discountAmount);
+      console.log('  - Final Amount:', finalAmount);
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] ========== COUPON PROCESSING END ==========');
+    }
+
+    // If admin provided a custom payment amount, use that instead (overrides coupon)
+    let amount = finalAmount;
+    if (paymentAmount !== undefined && paymentAmount !== null) {
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] Admin provided custom payment amount:', paymentAmount);
+      console.log('[MEMBERSHIP-REQUEST-APPROVE] This overrides the coupon-calculated amount');
+      amount = paymentAmount;
+      // Recalculate discount based on admin's custom amount
+      discountAmount = originalAmount - amount;
+      if (discountAmount < 0) discountAmount = 0;
+    }
+
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Final pricing summary:');
+    console.log('  - Plan price (original):', originalAmount);
+    console.log('  - Coupon applied:', appliedCouponCode || 'None');
+    console.log('  - Discount percent:', discountPercent + '%');
+    console.log('  - Discount amount:', discountAmount);
+    console.log('  - Final payment amount:', amount);
 
     if (amount < 0) {
       console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Invalid amount:', amount);
       return responseUtil.badRequest(res, 'Payment amount cannot be negative');
     }
+
+    // Prepare coupon info for storage
+    const couponInfo = appliedCouponCode ? {
+      couponId: appliedCouponId,
+      couponCode: appliedCouponCode,
+      discountPercent: discountPercent,
+      discountAmount: discountAmount,
+      originalAmount: originalAmount,
+    } : null;
 
     // Generate order ID
     const orderId = `MR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -498,7 +566,9 @@ export const approveMembershipRequest = async (req, res) => {
       type: 'MEMBERSHIP_REQUEST',
       phone: request.phone,
       userId: request.existingUserId || null,
-      amount: amount,
+      amount: originalAmount,
+      couponCode: appliedCouponCode,
+      discountAmount: discountAmount,
       finalAmount: amount,
       status: 'PENDING',
       metadata: {
@@ -508,6 +578,7 @@ export const approveMembershipRequest = async (req, res) => {
         durationInDays: plan.durationInDays,
         paymentLinkId: paymentLink.id,
         source: 'MEMBERSHIP_REQUEST',
+        couponId: appliedCouponId?.toString() || null,
       },
     });
 
@@ -516,15 +587,23 @@ export const approveMembershipRequest = async (req, res) => {
     console.log('  - Payment ID:', payment._id);
     console.log('  - Order ID:', payment.orderId);
     console.log('  - Type:', payment.type);
-    console.log('  - Amount:', payment.amount);
+    console.log('  - Original Amount:', payment.amount);
+    console.log('  - Coupon Code:', payment.couponCode || 'None');
+    console.log('  - Discount Amount:', payment.discountAmount);
+    console.log('  - Final Amount:', payment.finalAmount);
 
-    // Update request with approval details
+    // Update request with approval details and coupon info
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 7: Updating request status to PAYMENT_SENT...');
     request.status = 'PAYMENT_SENT';
     request.reviewedBy = adminId;
     request.reviewedAt = new Date();
     request.approvedPlanId = plan._id;
+    request.originalAmount = originalAmount;
     request.paymentAmount = amount;
+    request.couponId = appliedCouponId;
+    request.couponCode = appliedCouponCode;
+    request.discountPercent = discountPercent;
+    request.discountAmount = discountAmount;
     request.adminNotes = adminNotes || null;
     request.paymentLinkId = paymentLink.id;
     request.paymentUrl = paymentLink.short_url;
@@ -533,6 +612,11 @@ export const approveMembershipRequest = async (req, res) => {
     await request.save();
     console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Request updated to PAYMENT_SENT');
     console.log('  - Status:', request.status);
+    console.log('  - Original Amount:', request.originalAmount);
+    console.log('  - Coupon Code:', request.couponCode || 'None');
+    console.log('  - Discount Percent:', request.discountPercent + '%');
+    console.log('  - Discount Amount:', request.discountAmount);
+    console.log('  - Payment Amount:', request.paymentAmount);
     console.log('  - Payment URL:', request.paymentUrl);
     console.log('  - Payment Link ID:', request.paymentLinkId);
 
@@ -583,7 +667,8 @@ export const approveMembershipRequest = async (req, res) => {
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 9: Preparing response...');
     const populatedRequest = await MembershipRequest.findById(request._id)
       .populate('approvedPlanId', 'name price durationInDays')
-      .populate('reviewedBy', 'name username');
+      .populate('reviewedBy', 'name username')
+      .populate('couponId', 'code discountPercent maxDiscountAmount');
 
     console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Approval process completed successfully!');
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Summary:');
@@ -591,7 +676,10 @@ export const approveMembershipRequest = async (req, res) => {
     console.log('  - User:', request.name);
     console.log('  - Phone:', request.phone);
     console.log('  - Plan:', plan.name);
-    console.log('  - Amount:', amount);
+    console.log('  - Original Amount:', originalAmount);
+    console.log('  - Coupon:', appliedCouponCode || 'None');
+    console.log('  - Discount:', discountAmount, `(${discountPercent}%)`);
+    console.log('  - Final Amount:', amount);
     console.log('  - Payment Link:', paymentLink.short_url);
     console.log('  - WhatsApp Sent:', whatsappSent);
     console.log('═══════════════════════════════════════════════════════════');
@@ -601,6 +689,13 @@ export const approveMembershipRequest = async (req, res) => {
       paymentLink: paymentLink.short_url,
       paymentLinkId: paymentLink.id,
       whatsappSent,
+      pricing: {
+        originalAmount,
+        couponCode: appliedCouponCode,
+        discountPercent,
+        discountAmount,
+        finalAmount: amount,
+      },
     });
   } catch (error) {
     console.error('═══════════════════════════════════════════════════════════');

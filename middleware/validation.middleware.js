@@ -2355,6 +2355,9 @@ export const membershipRequestSchemas = {
       "number.min": "Payment amount cannot be negative",
       "any.required": "Payment amount is required",
     }),
+    couponCode: Joi.string().trim().uppercase().max(50).optional().messages({
+      "string.max": "Coupon code cannot exceed 50 characters",
+    }),
     adminNotes: Joi.string().trim().max(500).optional(),
     sendWhatsApp: Joi.boolean().optional().default(true),
   }),
