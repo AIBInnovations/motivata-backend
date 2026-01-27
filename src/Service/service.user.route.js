@@ -16,6 +16,7 @@ import {
 import {
   getUserServices,
   getUserServiceById,
+  validateServiceCoupon,
   createDirectPurchase,
   getUserServiceRequests,
   createServiceRequest,
@@ -40,14 +41,14 @@ router.get(
 );
 
 /**
- * @route   GET /api/app/services/:id
- * @desc    Get single service details by ID
+ * @route   POST /api/app/services/validate-coupon
+ * @desc    Validate coupon for service purchase (preview discount)
  * @access  Public/User
  */
-router.get(
-  "/:id",
-  validateParams(serviceSchemas.serviceId),
-  getUserServiceById
+router.post(
+  "/validate-coupon",
+  validateBody(serviceOrderSchemas.validateServiceCoupon),
+  validateServiceCoupon
 );
 
 /**
@@ -59,6 +60,17 @@ router.post(
   "/purchase",
   validateBody(serviceOrderSchemas.directPurchase),
   createDirectPurchase
+);
+
+/**
+ * @route   GET /api/app/services/:id
+ * @desc    Get single service details by ID
+ * @access  Public/User
+ */
+router.get(
+  "/:id",
+  validateParams(serviceSchemas.serviceId),
+  getUserServiceById
 );
 
 /**

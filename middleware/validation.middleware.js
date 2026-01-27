@@ -475,7 +475,7 @@ export const couponSchemas = {
     description: Joi.string().trim().max(500).optional(),
     isActive: Joi.boolean().default(true),
     applicableTo: Joi.array()
-      .items(Joi.string().valid("EVENT", "MEMBERSHIP", "SESSION", "ALL"))
+      .items(Joi.string().valid("EVENT", "MEMBERSHIP", "SESSION", "SERVICE", "ALL"))
       .default(["ALL"]),
   }),
 
@@ -494,7 +494,7 @@ export const couponSchemas = {
     description: Joi.string().trim().max(500).optional(),
     isActive: Joi.boolean().optional(),
     applicableTo: Joi.array()
-      .items(Joi.string().valid("EVENT", "MEMBERSHIP", "SESSION", "ALL"))
+      .items(Joi.string().valid("EVENT", "MEMBERSHIP", "SESSION", "SERVICE", "ALL"))
       .optional(),
   }),
 
@@ -2163,6 +2163,23 @@ export const serviceOrderSchemas = {
         "array.min": "At least one service is required",
         "any.required": "Service IDs are required",
       }),
+    couponCode: Joi.string().trim().uppercase().max(50).optional(),
+  }),
+
+  /**
+   * Validate coupon for service purchase
+   */
+  validateServiceCoupon: Joi.object({
+    couponCode: Joi.string().trim().uppercase().max(50).required(),
+    serviceIds: Joi.array()
+      .items(schemas.mongoId)
+      .min(1)
+      .required()
+      .messages({
+        "array.min": "At least one service is required",
+        "any.required": "Service IDs are required",
+      }),
+    phone: schemas.phone.optional(),
   }),
 
   /**

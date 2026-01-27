@@ -51,12 +51,45 @@ const serviceOrderSchema = new mongoose.Schema(
       },
     ],
     /**
-     * Total amount for all services
+     * Total amount for all services (original amount before discount)
      */
     totalAmount: {
       type: Number,
       required: true,
       min: 0,
+    },
+    /**
+     * Original amount before any discount (same as totalAmount, for consistency)
+     */
+    originalAmount: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+    /**
+     * Coupon code used (if any)
+     */
+    couponCode: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      default: null,
+    },
+    /**
+     * Discount amount applied
+     */
+    discountAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    /**
+     * Final amount after discount (amount actually charged)
+     */
+    finalAmount: {
+      type: Number,
+      min: 0,
+      default: null,
     },
     /**
      * Order status
