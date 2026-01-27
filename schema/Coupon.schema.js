@@ -85,16 +85,11 @@ const couponSchema = new mongoose.Schema({
 
   /**
    * Coupon validity end date
+   * Note: Date range validation is handled in the controller to properly support partial updates
    */
   validUntil: {
     type: Date,
-    required: [true, 'Valid until date is required'],
-    validate: {
-      validator: function(value) {
-        return value > this.validFrom;
-      },
-      message: 'Valid until date must be after valid from date'
-    }
+    required: [true, 'Valid until date is required']
   },
 
   /**

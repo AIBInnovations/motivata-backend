@@ -2335,6 +2335,9 @@ export const membershipRequestSchemas = {
     phone: schemas.phone.required(),
     name: schemas.name.required(),
     requestedPlanId: schemas.mongoId.optional(),
+    couponCode: Joi.string().trim().uppercase().max(50).optional().messages({
+      "string.max": "Coupon code cannot exceed 50 characters",
+    }),
   }),
 
   /**

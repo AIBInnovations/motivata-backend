@@ -449,11 +449,17 @@ export const updateCoupon = async (req, res) => {
   try {
     const { id } = req.params;
 
+    console.log('[COUPON-UPDATE] Starting update for coupon ID:', id);
+    console.log('[COUPON-UPDATE] Request body:', JSON.stringify(req.body, null, 2));
+
     // First fetch the existing coupon to merge values for cross-field validation
     const existingCoupon = await Coupon.findById(id);
     if (!existingCoupon) {
       return responseUtil.notFound(res, 'Coupon not found');
     }
+
+    console.log('[COUPON-UPDATE] Existing coupon validFrom:', existingCoupon.validFrom);
+    console.log('[COUPON-UPDATE] Existing coupon validUntil:', existingCoupon.validUntil);
 
     const updateData = {
       ...req.body,
@@ -462,15 +468,55 @@ export const updateCoupon = async (req, res) => {
 
     // Cross-field validation for partial updates
     // Use existing values when the field is not being updated
-    const finalValidFrom = updateData.validFrom ? new Date(updateData.validFrom) : existingCoupon.validFrom;
-    const finalValidUntil = updateData.validUntil ? new Date(updateData.validUntil) : existingCoupon.validUntil;
+    // Handle both Date objects and strings/numbers
+    let finalValidFrom, finalValidUntil;
 
-    // Validate validUntil > validFrom
-    if (finalValidUntil <= finalValidFrom) {
+    if (updateData.validFrom !== undefined && updateData.validFrom !== null) {
+      finalValidFrom = updateData.validFrom instanceof Date ? updateData.validFrom : new Date(updateData.validFrom);
+    } else {
+      finalValidFrom = existingCoupon.validFrom;
+    }
+
+    if (updateData.validUntil !== undefined && updateData.validUntil !== null) {
+      finalValidUntil = updateData.validUntil instanceof Date ? updateData.validUntil : new Date(updateData.validUntil);
+    } else {
+      finalValidUntil = existingCoupon.validUntil;
+    }
+
+    console.log('[COUPON-UPDATE] Update data validFrom:', updateData.validFrom);
+    console.log('[COUPON-UPDATE] Update data validUntil:', updateData.validUntil);
+    console.log('[COUPON-UPDATE] Final validFrom (for comparison):', finalValidFrom);
+    console.log('[COUPON-UPDATE] Final validUntil (for comparison):', finalValidUntil);
+    console.log('[COUPON-UPDATE] Final validFrom timestamp:', finalValidFrom?.getTime());
+    console.log('[COUPON-UPDATE] Final validUntil timestamp:', finalValidUntil?.getTime());
+    console.log('[COUPON-UPDATE] Comparison result (validUntil <= validFrom):', finalValidUntil <= finalValidFrom);
+
+    // Validate dates are valid Date objects
+    if (!(finalValidFrom instanceof Date) || isNaN(finalValidFrom.getTime())) {
+      console.log('[COUPON-UPDATE] Invalid validFrom date');
+      return responseUtil.validationError(res, 'Validation failed', [
+        { field: 'validFrom', message: 'Invalid date format for validFrom' }
+      ]);
+    }
+
+    if (!(finalValidUntil instanceof Date) || isNaN(finalValidUntil.getTime())) {
+      console.log('[COUPON-UPDATE] Invalid validUntil date');
+      return responseUtil.validationError(res, 'Validation failed', [
+        { field: 'validUntil', message: 'Invalid date format for validUntil' }
+      ]);
+    }
+
+    // Validate validUntil > validFrom using timestamps to avoid any comparison issues
+    if (finalValidUntil.getTime() <= finalValidFrom.getTime()) {
+      console.log('[COUPON-UPDATE] Validation failed: validUntil must be after validFrom');
+      console.log('[COUPON-UPDATE] validFrom timestamp:', finalValidFrom.getTime());
+      console.log('[COUPON-UPDATE] validUntil timestamp:', finalValidUntil.getTime());
       return responseUtil.validationError(res, 'Validation failed', [
         { field: 'validUntil', message: 'Valid until date must be after valid from date' }
       ]);
     }
+
+    console.log('[COUPON-UPDATE] Date validation passed, proceeding with update');
 
     const coupon = await Coupon.findByIdAndUpdate(
       id,
@@ -478,9 +524,11 @@ export const updateCoupon = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    console.log('[COUPON-UPDATE] Coupon updated successfully');
+
     return responseUtil.success(res, 'Coupon updated successfully', { coupon });
   } catch (error) {
-    console.error('Update coupon error:', error);
+    console.error('[COUPON-UPDATE] Error:', error);
 
     if (error.code === 11000) {
       return responseUtil.conflict(res, 'Coupon code already exists');
