@@ -116,7 +116,7 @@ const couponSchema = new mongoose.Schema({
   applicableTo: {
     type: [String],
     enum: {
-      values: ['EVENT', 'MEMBERSHIP', 'SESSION', 'ALL'],
+      values: ['EVENT', 'MEMBERSHIP', 'SESSION', 'SERVICE', 'ALL'],
       message: '{VALUE} is not a valid application type'
     },
     default: ['ALL']

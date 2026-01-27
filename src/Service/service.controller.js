@@ -13,6 +13,7 @@ import Payment from "../../schema/Payment.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { razorpayInstance } from "../../utils/razorpay.util.js";
 import { sendServicePaymentLinkWhatsApp } from "../../utils/whatsapp.util.js";
+import { validateCouponForType } from "../Enrollment/coupon.controller.js";
 
 // Helper function to normalize phone number
 const normalizePhone = (phone) => {
@@ -1337,15 +1338,121 @@ export const getUserServiceById = async (req, res) => {
 };
 
 /**
+ * Validate coupon for service purchase
+ * User access - allows users to preview discount before purchase
+ * @route POST /api/app/services/validate-coupon
+ */
+export const validateServiceCoupon = async (req, res) => {
+  const logPrefix = "[SERVICE-COUPON-PREVIEW]";
+  const startTime = Date.now();
+
+  console.log(`${logPrefix} ========== COUPON PREVIEW REQUEST START ==========`);
+
+  try {
+    const { couponCode, serviceIds, phone } = req.body;
+    const userPhone = req.user?.phone || phone;
+
+    console.log(`${logPrefix} Request details:`, {
+      couponCode: couponCode?.toUpperCase() || "N/A",
+      serviceIds: serviceIds?.length || 0,
+      phone: userPhone ? `***${userPhone.slice(-4)}` : "N/A",
+    });
+
+    // Validate input
+    if (!couponCode) {
+      console.log(`${logPrefix} [FAIL] Missing coupon code`);
+      return responseUtil.badRequest(res, "Coupon code is required");
+    }
+
+    if (!serviceIds || serviceIds.length === 0) {
+      console.log(`${logPrefix} [FAIL] Missing service IDs`);
+      return responseUtil.badRequest(res, "At least one service is required");
+    }
+
+    // Fetch services
+    const services = await Service.find({
+      _id: { $in: serviceIds },
+      isActive: true,
+    });
+
+    if (services.length !== serviceIds.length) {
+      console.log(`${logPrefix} [FAIL] One or more services not found or inactive`);
+      return responseUtil.badRequest(res, "One or more services not found or inactive");
+    }
+
+    // Calculate total amount
+    const totalAmount = services.reduce((sum, s) => sum + s.price, 0);
+
+    console.log(`${logPrefix} Total amount for ${services.length} service(s): Rs.${totalAmount}`);
+
+    const normalizedPhone = userPhone ? normalizePhone(userPhone) : null;
+
+    // Validate the coupon
+    console.log(`${logPrefix} Calling coupon validation service...`);
+    const validation = await validateCouponForType(
+      couponCode,
+      totalAmount,
+      normalizedPhone,
+      "SERVICE"
+    );
+
+    if (!validation.isValid) {
+      console.log(`${logPrefix} [RESULT] Coupon validation FAILED: ${validation.error}`);
+      console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+      return responseUtil.badRequest(res, validation.error);
+    }
+
+    // Success response
+    const responseData = {
+      isValid: true,
+      originalAmount: totalAmount,
+      discountPercent: validation.coupon.discountPercent,
+      discountAmount: validation.discountAmount,
+      finalAmount: validation.finalAmount,
+      coupon: {
+        code: validation.coupon.code,
+        description: validation.coupon.description,
+        validUntil: validation.coupon.validUntil,
+      },
+      services: services.map((s) => ({
+        _id: s._id,
+        name: s.name,
+        price: s.price,
+      })),
+    };
+
+    console.log(`${logPrefix} [RESULT] Coupon validation SUCCESSFUL`);
+    console.log(`${logPrefix} Preview summary:`, {
+      couponCode: validation.coupon.code,
+      originalPrice: `Rs.${totalAmount}`,
+      discount: `Rs.${validation.discountAmount} (${validation.coupon.discountPercent}%)`,
+      finalPrice: `Rs.${validation.finalAmount}`,
+    });
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    console.log(`${logPrefix} ========== COUPON PREVIEW REQUEST END (SUCCESS) ==========`);
+
+    return responseUtil.success(res, "Coupon is valid", responseData);
+  } catch (error) {
+    console.error(`${logPrefix} [ERROR] Exception occurred:`, error.message);
+    console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+    return responseUtil.internalError(res, "Failed to validate coupon", error.message);
+  }
+};
+
+/**
  * Create direct purchase (without admin approval)
  * @route POST /api/app/services/purchase
  */
 export const createDirectPurchase = async (req, res) => {
-  try {
-    console.log("[DIRECT-PURCHASE] Creating direct purchase");
-    console.log("[DIRECT-PURCHASE] Request body:", req.body);
+  const logPrefix = "[DIRECT-PURCHASE]";
+  const startTime = Date.now();
+  const requestId = `PURCHASE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    const { phone, customerName, serviceIds } = req.body;
+  console.log(`${logPrefix} ========== CREATE DIRECT PURCHASE START ==========`);
+  console.log(`${logPrefix} Request ID: ${requestId}`);
+
+  try {
+    const { phone, customerName, serviceIds, couponCode } = req.body;
     const userId = req.user?._id;
 
     const normalizedPhone = normalizePhone(phone);
@@ -1378,8 +1485,52 @@ export const createDirectPurchase = async (req, res) => {
     const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
     const userExists = !!user;
 
-    // Calculate total amount
-    const totalAmount = services.reduce((sum, s) => sum + s.price, 0);
+    // Calculate amounts
+    const originalAmount = services.reduce((sum, s) => sum + s.price, 0);
+    let discountAmount = 0;
+    let finalAmount = originalAmount;
+    let appliedCouponCode = null;
+    let couponDetails = null;
+
+    console.log(`${logPrefix} Request details:`, {
+      phone: normalizedPhone ? `***${normalizedPhone.slice(-4)}` : "N/A",
+      serviceIds: serviceIds?.length || 0,
+      couponCode: couponCode?.toUpperCase() || "None",
+      originalAmount: `Rs.${originalAmount}`,
+    });
+
+    // Process coupon (if provided)
+    if (couponCode) {
+      console.log(`${logPrefix} [COUPON] Processing coupon: ${couponCode.toUpperCase()}`);
+
+      const couponValidation = await validateCouponForType(
+        couponCode,
+        originalAmount,
+        normalizedPhone,
+        "SERVICE"
+      );
+
+      if (!couponValidation.isValid) {
+        console.log(`${logPrefix} [COUPON] Validation failed: ${couponValidation.error}`);
+        console.log(`${logPrefix} Duration: ${Date.now() - startTime}ms`);
+        return responseUtil.badRequest(res, couponValidation.error);
+      }
+
+      // Coupon is valid - apply discount
+      discountAmount = couponValidation.discountAmount;
+      finalAmount = couponValidation.finalAmount;
+      appliedCouponCode = couponValidation.coupon.code;
+      couponDetails = couponValidation.coupon;
+
+      console.log(`${logPrefix} [COUPON] Applied successfully:`, {
+        code: appliedCouponCode,
+        originalAmount: `Rs.${originalAmount}`,
+        discountAmount: `Rs.${discountAmount}`,
+        finalAmount: `Rs.${finalAmount}`,
+      });
+    } else {
+      console.log(`${logPrefix} No coupon code provided - proceeding with full price: Rs.${originalAmount}`);
+    }
 
     // Generate unique order ID
     const orderId = ServiceOrder.generateOrderId();
@@ -1387,9 +1538,9 @@ export const createDirectPurchase = async (req, res) => {
     // Create payment link expiry (24 hours from now)
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    // Create Razorpay payment link
+    // Create Razorpay payment link with FINAL AMOUNT (after discount)
     const paymentLinkOptions = {
-      amount: totalAmount * 100, // Amount in paise
+      amount: Math.round(finalAmount * 100), // Amount in paise - USE finalAmount
       currency: "INR",
       accept_partial: false,
       description: `Service: ${services.map((s) => s.name).join(", ")}`,
@@ -1407,6 +1558,7 @@ export const createDirectPurchase = async (req, res) => {
         orderId: orderId,
         type: "SERVICE",
         phone: normalizedPhone,
+        couponCode: appliedCouponCode || "", // ADD couponCode to notes
       },
       callback_url: `${process.env.BASE_URL || "https://motivata.in"}/payment-success`,
       callback_method: "get",
@@ -1414,13 +1566,13 @@ export const createDirectPurchase = async (req, res) => {
       reference_id: orderId,
     };
 
-    console.log("[DIRECT-PURCHASE] Creating Razorpay payment link");
+    console.log(`${logPrefix} Creating Razorpay payment link - Amount: Rs.${finalAmount}`);
 
     const paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
 
-    console.log("[DIRECT-PURCHASE] Payment link created:", paymentLink.id);
+    console.log(`${logPrefix} Payment link created: ${paymentLink.id}`);
 
-    // Create service order record
+    // Create service order record WITH COUPON DETAILS
     const serviceOrder = new ServiceOrder({
       phone: normalizedPhone,
       customerName: customerName || user?.name,
@@ -1430,7 +1582,11 @@ export const createDirectPurchase = async (req, res) => {
         price: s.price,
         durationInDays: s.durationInDays,
       })),
-      totalAmount,
+      totalAmount: originalAmount, // Keep for backward compatibility
+      originalAmount, // NEW: Original amount before discount
+      couponCode: appliedCouponCode, // NEW: Coupon code used
+      discountAmount, // NEW: Discount amount
+      finalAmount, // NEW: Final amount after discount
       source: "DIRECT_PURCHASE",
       adminId: null,
       orderId,
@@ -1444,17 +1600,19 @@ export const createDirectPurchase = async (req, res) => {
 
     await serviceOrder.save();
 
-    console.log("[DIRECT-PURCHASE] Service order created:", serviceOrder._id);
+    console.log(`${logPrefix} Service order created: ${serviceOrder._id}`);
 
-    // Create Payment record for webhook processing
+    // Create Payment record for webhook processing WITH COUPON DETAILS
     const payment = new Payment({
       orderId: orderId,
       type: "SERVICE",
       phone: normalizedPhone,
       userId: user?._id || null,
       serviceOrderId: serviceOrder._id,
-      amount: totalAmount,
-      finalAmount: totalAmount,
+      amount: originalAmount, // Original amount before discount
+      couponCode: appliedCouponCode, // NEW: Coupon code
+      discountAmount, // NEW: Discount amount
+      finalAmount, // Final amount (what user pays)
       status: "PENDING",
       metadata: {
         serviceOrderId: serviceOrder._id.toString(),
@@ -1462,24 +1620,30 @@ export const createDirectPurchase = async (req, res) => {
         serviceNames: services.map((s) => s.name),
         paymentLinkId: paymentLink.id,
         source: "DIRECT_PURCHASE",
+        couponDetails: couponDetails, // NEW: Store coupon details
       },
     });
 
     await payment.save();
-    console.log("[DIRECT-PURCHASE] Payment record created:", payment._id);
+    console.log(`${logPrefix} Payment record created: ${payment._id}`);
+
+    console.log(`${logPrefix} ========== CREATE DIRECT PURCHASE END (SUCCESS) ==========`);
 
     return responseUtil.created(res, "Payment link created successfully", {
       serviceOrder: {
         _id: serviceOrder._id,
         orderId: serviceOrder.orderId,
         services: serviceOrder.services,
-        totalAmount: serviceOrder.totalAmount,
+        originalAmount, // NEW: Return original amount
+        discountAmount, // NEW: Return discount amount
+        finalAmount, // NEW: Return final amount
+        couponApplied: appliedCouponCode, // NEW: Return coupon code
         expiresAt: serviceOrder.expiresAt,
       },
       paymentLink: paymentLink.short_url,
     });
   } catch (error) {
-    console.error("[DIRECT-PURCHASE] Error creating purchase:", error.message);
+    console.error(`${logPrefix} Error creating purchase:`, error.message);
     return responseUtil.internalError(
       res,
       "Failed to create purchase",
@@ -1674,6 +1838,7 @@ export default {
   // User-facing
   getUserServices,
   getUserServiceById,
+  validateServiceCoupon,
   createDirectPurchase,
   createServiceRequest,
   getUserServiceRequests,

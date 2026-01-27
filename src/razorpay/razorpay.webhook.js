@@ -2658,6 +2658,41 @@ const confirmServicePayment = async (payment) => {
       }
     }
 
+    // Increment coupon usage if coupon was used
+    if (payment.couponCode) {
+      console.log('[SERVICE-WEBHOOK] ========== COUPON USAGE INCREMENT START ==========');
+      console.log('[SERVICE-WEBHOOK] Coupon code used:', payment.couponCode);
+      console.log('[SERVICE-WEBHOOK] Payment ID:', payment._id);
+      console.log('[SERVICE-WEBHOOK] Order ID:', payment.orderId);
+      console.log('[SERVICE-WEBHOOK] Phone:', payment.phone ? `***${payment.phone.slice(-4)}` : 'N/A');
+      console.log('[SERVICE-WEBHOOK] Discount applied:', {
+        originalAmount: payment.amount,
+        discountAmount: payment.discountAmount,
+        finalAmount: payment.finalAmount
+      });
+
+      const updatedCoupon = await Coupon.findOneAndUpdate(
+        { code: payment.couponCode },
+        { $inc: { usageCount: 1 } },
+        { new: true }
+      );
+
+      if (updatedCoupon) {
+        console.log('[SERVICE-WEBHOOK] Coupon usage incremented successfully');
+        console.log('[SERVICE-WEBHOOK] Coupon stats after increment:', {
+          code: updatedCoupon.code,
+          usageCount: updatedCoupon.usageCount,
+          maxUsageLimit: updatedCoupon.maxUsageLimit || 'Unlimited',
+          remainingUses: updatedCoupon.maxUsageLimit ? updatedCoupon.maxUsageLimit - updatedCoupon.usageCount : 'Unlimited'
+        });
+      } else {
+        console.log('[SERVICE-WEBHOOK] [WARNING] Coupon not found for increment:', payment.couponCode);
+      }
+      console.log('[SERVICE-WEBHOOK] ========== COUPON USAGE INCREMENT END ==========');
+    } else {
+      console.log('[SERVICE-WEBHOOK] No coupon was used in this purchase');
+    }
+
     console.log('[SERVICE-WEBHOOK] ========== CONFIRM SERVICE PAYMENT END ==========');
 
   } catch (error) {
