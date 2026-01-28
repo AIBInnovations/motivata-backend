@@ -106,12 +106,14 @@ const couponSchema = new mongoose.Schema({
    * EVENT - For event ticket purchases
    * MEMBERSHIP - For membership plan purchases
    * SESSION - For session bookings
+   * SERVICE - For service purchases
+   * FEATURE - For individual feature/tab access purchases
    * ALL - Can be used anywhere (default for backward compatibility)
    */
   applicableTo: {
     type: [String],
     enum: {
-      values: ['EVENT', 'MEMBERSHIP', 'SESSION', 'SERVICE', 'ALL'],
+      values: ['EVENT', 'MEMBERSHIP', 'SESSION', 'SERVICE', 'FEATURE', 'ALL'],
       message: '{VALUE} is not a valid application type'
     },
     default: ['ALL']
