@@ -25,6 +25,8 @@ import adminClubRoutes from "../src/Club/club.admin.route.js";
 import seatArrangementAdminRoutes from "../src/SeatArrangement/seatArrangement.admin.route.js";
 import adminServiceRoutes from "../src/Service/service.admin.route.js";
 import featureAccessRoutes from "../src/FeatureAccess/featureAccess.route.js";
+import featureRequestRoutes from "../src/FeatureRequest/featureRequest.route.js";
+import featurePricingAdminRoutes from "../src/FeatureRequest/featurePricing.admin.route.js";
 
 const router = express.Router();
 
@@ -103,6 +105,13 @@ router.use("/membership-requests", membershipRequestRoutes);
 // Feature Access routes - /api/web/feature-access (includes public check endpoint)
 // IMPORTANT: Must come BEFORE root-mounted routes to avoid auth middleware
 router.use("/feature-access", featureAccessRoutes);
+
+// Feature Request routes - /api/web/feature-requests (public + admin)
+// IMPORTANT: Must come BEFORE root-mounted routes to avoid auth middleware
+router.use("/feature-requests", featureRequestRoutes);
+
+// Feature Pricing routes - /api/web/feature-pricing (admin only)
+router.use("/feature-pricing", featurePricingAdminRoutes);
 
 // Membership routes - /api/web/membership-plans and /api/web/user-memberships
 router.use("/", adminMembershipRoutes);

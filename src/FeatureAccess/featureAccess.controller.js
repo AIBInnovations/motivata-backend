@@ -6,6 +6,7 @@
 
 import FeatureAccess from '../../schema/FeatureAccess.schema.js';
 import UserMembership from '../../schema/UserMembership.schema.js';
+import UserFeatureAccess from '../../schema/UserFeatureAccess.schema.js';
 import responseUtil from '../../utils/response.util.js';
 
 /**
@@ -136,7 +137,7 @@ export const checkFeatureAccess = async (req, res) => {
       });
     }
 
-    // Step 5: Check user's membership status
+    // Step 5: Check user's FULL membership status (grants access to ALL features)
     // Query: ACTIVE status + (not expired OR lifetime)
     const membership = await UserMembership.findOne({
       phone: normalizedPhone,
@@ -148,38 +149,84 @@ export const checkFeatureAccess = async (req, res) => {
       ],
     }).populate('membershipPlanId');
 
-    // Step 6: Validate membership
-    if (!membership) {
-      console.log('[FEATURE-ACCESS] No active membership found');
+    // Step 6: If full membership exists, grant access
+    if (membership) {
+      const daysRemaining = membership.isLifetime
+        ? Infinity
+        : Math.ceil((membership.endDate - new Date()) / (1000 * 60 * 60 * 24));
+
+      console.log('[FEATURE-ACCESS] Access granted with FULL membership');
+      console.log('[FEATURE-ACCESS] Is lifetime:', membership.isLifetime);
+
       return res.json({
         success: true,
         data: {
-          hasAccess: false,
-          reason: 'NO_ACTIVE_MEMBERSHIP',
-          message: 'This feature requires an active membership',
+          hasAccess: true,
+          reason: 'MEMBERSHIP_VALID',
+          accessType: 'FULL_MEMBERSHIP',
+          message: 'Access granted via full membership',
+          membership: {
+            planName: membership.membershipPlanId?.name || 'Full Membership',
+            endDate: membership.isLifetime ? null : membership.endDate,
+            daysRemaining: daysRemaining,
+            isLifetime: membership.isLifetime,
+          },
         },
       });
     }
 
-    // All checks passed - grant access
-    const daysRemaining = membership.isLifetime
-      ? Infinity
-      : Math.ceil((membership.endDate - new Date()) / (1000 * 60 * 60 * 24));
+    // Step 7: Check for INDIVIDUAL feature access (purchased separately)
+    console.log('[FEATURE-ACCESS] No full membership, checking individual feature access');
+    const featureAccess = await UserFeatureAccess.findOne({
+      phone: normalizedPhone,
+      featureKey: featureKey.toUpperCase(),
+      isDeleted: false,
+      status: 'ACTIVE',
+      paymentStatus: 'SUCCESS',
+      startDate: { $lte: new Date() },
+      $or: [
+        { isLifetime: true },
+        { endDate: { $gt: new Date() } },
+      ],
+    });
 
-    console.log('[FEATURE-ACCESS] Access granted with membership');
-    console.log('[FEATURE-ACCESS] Is lifetime:', membership.isLifetime);
+    if (featureAccess) {
+      const daysRemaining = featureAccess.isLifetime
+        ? Infinity
+        : Math.ceil((featureAccess.endDate - new Date()) / (1000 * 60 * 60 * 24));
 
+      console.log('[FEATURE-ACCESS] Access granted with INDIVIDUAL feature purchase');
+      console.log('[FEATURE-ACCESS] Feature:', featureAccess.featureKey);
+      console.log('[FEATURE-ACCESS] Is lifetime:', featureAccess.isLifetime);
+
+      return res.json({
+        success: true,
+        data: {
+          hasAccess: true,
+          reason: 'FEATURE_ACCESS_VALID',
+          accessType: 'INDIVIDUAL_FEATURE',
+          message: 'Access granted via individual feature purchase',
+          featureAccess: {
+            featureKey: featureAccess.featureKey,
+            endDate: featureAccess.isLifetime ? null : featureAccess.endDate,
+            daysRemaining: daysRemaining,
+            isLifetime: featureAccess.isLifetime,
+          },
+        },
+      });
+    }
+
+    // Step 8: No access found - neither membership nor individual feature purchase
+    console.log('[FEATURE-ACCESS] No active membership or feature access found');
     return res.json({
       success: true,
       data: {
-        hasAccess: true,
-        reason: 'MEMBERSHIP_VALID',
-        message: 'Access granted',
-        membership: {
-          planName: membership.membershipPlanId?.name || 'Unknown Plan',
-          endDate: membership.isLifetime ? null : membership.endDate,
-          daysRemaining: daysRemaining,
-          isLifetime: membership.isLifetime,
+        hasAccess: false,
+        reason: 'NO_ACCESS',
+        message: 'This feature requires a membership or individual purchase',
+        purchaseOptions: {
+          fullMembership: true,
+          individualFeature: true,
         },
       },
     });

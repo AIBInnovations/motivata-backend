@@ -19,6 +19,9 @@ import MembershipRequest from '../../schema/MembershipRequest.schema.js';
 import Service from '../../schema/Service.schema.js';
 import ServiceOrder from '../../schema/ServiceOrder.schema.js';
 import UserServiceSubscription from '../../schema/UserServiceSubscription.schema.js';
+import FeatureRequest from '../../schema/FeatureRequest.schema.js';
+import UserFeatureAccess from '../../schema/UserFeatureAccess.schema.js';
+import FeaturePricing from '../../schema/FeaturePricing.schema.js';
 import bcrypt from 'bcryptjs';
 import responseUtil from '../../utils/response.util.js';
 import { sendBulkEmails } from '../../utils/email.util.js';
@@ -2498,6 +2501,163 @@ const confirmMembershipRequestPayment = async (payment) => {
 };
 
 /**
+ * Confirm feature request payment and create UserFeatureAccess records
+ *
+ * @param {Object} payment - Payment document from database
+ *
+ * @returns {Promise<void>}
+ * @private
+ */
+const confirmFeatureRequestPayment = async (payment) => {
+  try {
+    console.log('[FEATURE-REQUEST-WEBHOOK] ========== CONFIRM FEATURE REQUEST PAYMENT START ==========');
+    console.log('[FEATURE-REQUEST-WEBHOOK] Payment orderId:', payment.orderId);
+    console.log('[FEATURE-REQUEST-WEBHOOK] Payment metadata:', JSON.stringify(payment.metadata, null, 2));
+
+    const { featureRequestId, features, phone, durationInDays } = payment.metadata || {};
+
+    // Try to find FeatureRequest by requestId in metadata or by orderId
+    let request = null;
+
+    if (featureRequestId) {
+      request = await FeatureRequest.findById(featureRequestId);
+    }
+
+    if (!request) {
+      // Try to find by orderId
+      request = await FeatureRequest.findByOrderId(payment.orderId);
+    }
+
+    if (!request) {
+      console.error('[FEATURE-REQUEST-WEBHOOK] FeatureRequest not found');
+      console.error('[FEATURE-REQUEST-WEBHOOK] Tried requestId:', featureRequestId, 'and orderId:', payment.orderId);
+      return;
+    }
+
+    console.log('[FEATURE-REQUEST-WEBHOOK] Found request:', {
+      _id: request._id,
+      phone: request.phone,
+      status: request.status
+    });
+
+    if (request.status === 'COMPLETED') {
+      console.log('[FEATURE-REQUEST-WEBHOOK] Request already completed, skipping');
+      return;
+    }
+
+    if (request.status !== 'PAYMENT_SENT') {
+      console.log('[FEATURE-REQUEST-WEBHOOK] Request not in PAYMENT_SENT status, current:', request.status);
+      return;
+    }
+
+    // Determine features to grant (from metadata or from request)
+    const featuresToGrant = features
+      ? (typeof features === 'string' ? features.split(',') : features)
+      : request.approvedFeatures;
+
+    if (!featuresToGrant || featuresToGrant.length === 0) {
+      console.error('[FEATURE-REQUEST-WEBHOOK] No features to grant');
+      return;
+    }
+
+    console.log('[FEATURE-REQUEST-WEBHOOK] Features to grant:', featuresToGrant);
+
+    // Calculate dates
+    const startDate = new Date();
+    const duration = request.durationInDays !== null ? request.durationInDays : (parseInt(durationInDays) || 30);
+    const isLifetime = duration === null || duration === 0;
+    let endDate = null;
+
+    if (!isLifetime) {
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + duration);
+    }
+
+    console.log('[FEATURE-REQUEST-WEBHOOK] Access dates:', {
+      startDate,
+      endDate,
+      isLifetime,
+      durationInDays: duration
+    });
+
+    // Check for existing user
+    const normalizedPhone = (phone || request.phone).slice(-10);
+    const user = await User.findOne({ phone: normalizedPhone, isDeleted: false });
+
+    // Create UserFeatureAccess records for each feature
+    const userFeatureAccessIds = [];
+    const amountPerFeature = (payment.finalAmount || payment.amount) / featuresToGrant.length;
+
+    for (const featureKey of featuresToGrant) {
+      // Generate unique order ID for each feature access record
+      const featureOrderId = `FRA_${featureKey}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // Get pricing info if available
+      const pricing = await FeaturePricing.findByFeatureKey(featureKey);
+
+      const userFeatureAccess = new UserFeatureAccess({
+        phone: normalizedPhone,
+        userId: user?._id || request.existingUserId,
+        featureKey: featureKey.toUpperCase(),
+        source: 'FEATURE_REQUEST',
+        featureRequestId: request._id,
+        featurePricingId: pricing?._id || null,
+        orderId: featureOrderId,
+        paymentId: payment.paymentId,
+        amountPaid: Math.round(amountPerFeature * 100) / 100,
+        startDate,
+        endDate,
+        isLifetime,
+        status: 'ACTIVE',
+        paymentStatus: 'SUCCESS',
+        pricingSnapshot: pricing ? {
+          name: pricing.name,
+          description: pricing.description,
+          durationInDays: pricing.durationInDays,
+          originalPrice: pricing.price,
+          perks: pricing.perks,
+        } : null,
+        adminNotes: `Created from feature request ${request._id}`,
+        createdBy: request.reviewedBy,
+      });
+
+      await userFeatureAccess.save();
+      userFeatureAccessIds.push(userFeatureAccess._id);
+
+      console.log('[FEATURE-REQUEST-WEBHOOK] UserFeatureAccess created:', {
+        _id: userFeatureAccess._id,
+        featureKey: userFeatureAccess.featureKey,
+        orderId: userFeatureAccess.orderId
+      });
+
+      // Increment pricing purchase count if available
+      if (pricing) {
+        await pricing.incrementPurchaseCount();
+        console.log('[FEATURE-REQUEST-WEBHOOK] Pricing purchase count incremented for:', featureKey);
+      }
+    }
+
+    // Update FeatureRequest to COMPLETED
+    await request.markCompleted(payment.paymentId, userFeatureAccessIds);
+    console.log('[FEATURE-REQUEST-WEBHOOK] FeatureRequest marked as COMPLETED');
+
+    // Increment coupon usage if coupon was used
+    if (payment.couponCode) {
+      await Coupon.findOneAndUpdate(
+        { code: payment.couponCode },
+        { $inc: { usageCount: 1 } }
+      );
+      console.log('[FEATURE-REQUEST-WEBHOOK] Coupon usage incremented:', payment.couponCode);
+    }
+
+    console.log('[FEATURE-REQUEST-WEBHOOK] ========== CONFIRM FEATURE REQUEST PAYMENT END ==========');
+  } catch (error) {
+    console.error('[FEATURE-REQUEST-WEBHOOK] Error confirming feature request payment:', error.message);
+    console.error('[FEATURE-REQUEST-WEBHOOK] Stack:', error.stack);
+  }
+};
+
+/**
  * Handle membership request payment failure
  *
  * @param {Object} payment - Payment document from database
@@ -2847,6 +3007,14 @@ const updateRelatedEntities = async (payment) => {
     console.log('[UPDATE-ENTITIES] Detected MEMBERSHIP_REQUEST type payment, calling confirmMembershipRequestPayment...');
     await confirmMembershipRequestPayment(payment);
     console.log('[UPDATE-ENTITIES] Membership request payment processed');
+    console.log('[UPDATE-ENTITIES] ========== END ==========');
+    return;
+  }
+
+  if (payment.type === 'FEATURE_REQUEST') {
+    console.log('[UPDATE-ENTITIES] Detected FEATURE_REQUEST type payment, calling confirmFeatureRequestPayment...');
+    await confirmFeatureRequestPayment(payment);
+    console.log('[UPDATE-ENTITIES] Feature request payment processed');
     console.log('[UPDATE-ENTITIES] ========== END ==========');
     return;
   }
