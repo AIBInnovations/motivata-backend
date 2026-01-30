@@ -787,7 +787,7 @@ export const getServiceRequestById = async (req, res) => {
 export const approveServiceRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const { adminNotes, sendWhatsApp = true } = req.body;
+    const { adminNotes, sendWhatsApp = true, alternativePhone, alternativeEmail, contactPreference } = req.body;
     const adminId = req.user?._id;
 
     console.log("[SERVICE-REQUEST] Approving request:", id);
@@ -877,6 +877,9 @@ export const approveServiceRequest = async (req, res) => {
       userExists: request.userExists,
       userId: request.userId,
       adminNotes,
+      alternativePhone: alternativePhone || null,
+      alternativeEmail: alternativeEmail || null,
+      contactPreference: contactPreference || ['REGISTERED'],
     });
 
     await serviceOrder.save();
@@ -910,22 +913,35 @@ export const approveServiceRequest = async (req, res) => {
       await request.save();
     }
 
-    // Send WhatsApp
+    // Send payment link notifications
+    let notificationResults = null;
     if (sendWhatsApp) {
       try {
-        await sendServicePaymentLinkWhatsApp({
-          phone: request.phone,
+        const { sendPaymentLinkNotifications } = await import('../../utils/notification.util.js');
+
+        notificationResults = await sendPaymentLinkNotifications({
+          registeredPhone: request.phone,
+          registeredEmail: request.email,
+          alternativePhone,
+          alternativeEmail,
+          contactPreference: contactPreference || ['REGISTERED'],
           serviceName: request.getServiceNamesString(),
           paymentLink: paymentLink.short_url,
           amount: request.totalAmount,
-          serviceOrderId: serviceOrder._id.toString(),
+          customerName: request.name,
+          orderId: serviceOrder._id.toString(),
         });
 
-        serviceOrder.whatsappSent = true;
-        serviceOrder.whatsappSentAt = new Date();
-        await serviceOrder.save();
-      } catch (whatsappError) {
-        console.error("[SERVICE-REQUEST] WhatsApp error:", whatsappError.message);
+        // Mark WhatsApp as sent if any notifications succeeded
+        if (notificationResults.whatsapp.sent.length > 0) {
+          serviceOrder.whatsappSent = true;
+          serviceOrder.whatsappSentAt = new Date();
+          await serviceOrder.save();
+        }
+
+        console.log("[SERVICE-REQUEST] Notifications sent:", notificationResults);
+      } catch (notificationError) {
+        console.error("[SERVICE-REQUEST] Notification error:", notificationError.message);
       }
     }
 
@@ -933,6 +949,7 @@ export const approveServiceRequest = async (req, res) => {
       request,
       serviceOrder,
       paymentLink: paymentLink.short_url,
+      notifications: notificationResults,
     });
   } catch (error) {
     console.error("[SERVICE-REQUEST] Error approving request:", error.message);
@@ -1452,7 +1469,7 @@ export const createDirectPurchase = async (req, res) => {
   console.log(`${logPrefix} Request ID: ${requestId}`);
 
   try {
-    const { phone, customerName, serviceIds, couponCode } = req.body;
+    const { phone, customerName, serviceIds, couponCode, alternativePhone, alternativeEmail, contactPreference } = req.body;
     const userId = req.user?._id;
 
     const normalizedPhone = normalizePhone(phone);
@@ -1596,6 +1613,9 @@ export const createDirectPurchase = async (req, res) => {
       expiresAt,
       userExists,
       userId: user?._id || null,
+      alternativePhone: alternativePhone || null,
+      alternativeEmail: alternativeEmail || null,
+      contactPreference: contactPreference || ['REGISTERED'],
     });
 
     await serviceOrder.save();
@@ -1627,6 +1647,31 @@ export const createDirectPurchase = async (req, res) => {
     await payment.save();
     console.log(`${logPrefix} Payment record created: ${payment._id}`);
 
+    // Send payment link notifications
+    let notificationResults = null;
+    try {
+      console.log(`${logPrefix} Sending payment link notifications...`);
+      const { sendPaymentLinkNotifications } = await import('../../utils/notification.util.js');
+
+      notificationResults = await sendPaymentLinkNotifications({
+        registeredPhone: normalizedPhone,
+        registeredEmail: user?.email,
+        alternativePhone,
+        alternativeEmail,
+        contactPreference: contactPreference || ['REGISTERED'],
+        serviceName: services.map(s => s.name).join(', '),
+        paymentLink: paymentLink.short_url,
+        amount: finalAmount,
+        customerName: customerName || user?.name,
+        orderId
+      });
+
+      console.log(`${logPrefix} Notifications sent:`, notificationResults);
+    } catch (error) {
+      console.error(`${logPrefix} Notification error:`, error.message);
+      // Don't fail the purchase if notifications fail
+    }
+
     console.log(`${logPrefix} ========== CREATE DIRECT PURCHASE END (SUCCESS) ==========`);
 
     return responseUtil.created(res, "Payment link created successfully", {
@@ -1641,6 +1686,7 @@ export const createDirectPurchase = async (req, res) => {
         expiresAt: serviceOrder.expiresAt,
       },
       paymentLink: paymentLink.short_url,
+      notifications: notificationResults,
     });
   } catch (error) {
     console.error(`${logPrefix} Error creating purchase:`, error.message);
