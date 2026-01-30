@@ -2164,6 +2164,32 @@ export const serviceOrderSchemas = {
         "any.required": "Service IDs are required",
       }),
     couponCode: Joi.string().trim().uppercase().max(50).optional(),
+    alternativePhone: Joi.string()
+      .trim()
+      .pattern(/^\d{10}$/)
+      .optional()
+      .messages({
+        "string.pattern.base": "Alternative phone must be exactly 10 digits",
+      }),
+    alternativeEmail: Joi.string()
+      .trim()
+      .lowercase()
+      .email()
+      .optional()
+      .messages({
+        "string.email": "Alternative email must be valid",
+      }),
+    contactPreference: Joi.array()
+      .items(Joi.string().valid("REGISTERED", "ALTERNATIVE"))
+      .min(1)
+      .max(2)
+      .default(["REGISTERED"])
+      .optional()
+      .messages({
+        "array.min": "At least one contact preference must be selected",
+        "array.max": "Maximum 2 contact preferences allowed",
+        "any.only": 'Contact preference must be "REGISTERED" or "ALTERNATIVE"',
+      }),
   }),
 
   /**
@@ -2251,6 +2277,32 @@ export const serviceRequestSchemas = {
   approve: Joi.object({
     adminNotes: Joi.string().trim().max(1000).optional(),
     sendWhatsApp: Joi.boolean().default(true),
+    alternativePhone: Joi.string()
+      .trim()
+      .pattern(/^\d{10}$/)
+      .optional()
+      .messages({
+        "string.pattern.base": "Alternative phone must be exactly 10 digits",
+      }),
+    alternativeEmail: Joi.string()
+      .trim()
+      .lowercase()
+      .email()
+      .optional()
+      .messages({
+        "string.email": "Alternative email must be valid",
+      }),
+    contactPreference: Joi.array()
+      .items(Joi.string().valid("REGISTERED", "ALTERNATIVE"))
+      .min(1)
+      .max(2)
+      .default(["REGISTERED"])
+      .optional()
+      .messages({
+        "array.min": "At least one contact preference must be selected",
+        "array.max": "Maximum 2 contact preferences allowed",
+        "any.only": 'Contact preference must be "REGISTERED" or "ALTERNATIVE"',
+      }),
   }),
 
   /**
@@ -2380,6 +2432,32 @@ export const membershipRequestSchemas = {
     }),
     adminNotes: Joi.string().trim().max(500).optional(),
     sendWhatsApp: Joi.boolean().optional().default(true),
+    alternativePhone: Joi.string()
+      .trim()
+      .pattern(/^\d{10}$/)
+      .optional()
+      .messages({
+        "string.pattern.base": "Alternative phone must be exactly 10 digits",
+      }),
+    alternativeEmail: Joi.string()
+      .trim()
+      .lowercase()
+      .email()
+      .optional()
+      .messages({
+        "string.email": "Alternative email must be valid",
+      }),
+    contactPreference: Joi.array()
+      .items(Joi.string().valid("REGISTERED", "ALTERNATIVE"))
+      .min(1)
+      .max(2)
+      .default(["REGISTERED"])
+      .optional()
+      .messages({
+        "array.min": "At least one contact preference must be selected",
+        "array.max": "Maximum 2 contact preferences allowed",
+        "any.only": 'Contact preference must be "REGISTERED" or "ALTERNATIVE"',
+      }),
   }),
 
   /**
