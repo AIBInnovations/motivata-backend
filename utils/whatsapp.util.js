@@ -788,6 +788,72 @@ export const sendServicePaymentLinkWhatsApp = async ({
   }
 };
 
+/**
+ * Send WhatsApp service payment link messages to multiple recipients
+ *
+ * @param {Array<Object>} recipients - Array of recipient message parameters
+ * @param {string} recipients[].phone - Recipient phone number
+ * @param {string} recipients[].serviceName - Service name for template
+ * @param {string} recipients[].paymentLink - Payment link URL
+ * @param {number} recipients[].amount - Payment amount
+ * @param {string} [recipients[].serviceOrderId] - Service order ID for logging
+ *
+ * @returns {Promise<Array<Object>>} Array of results for each recipient
+ * @example
+ * const results = await sendBulkServicePaymentLinkWhatsApp([
+ *   { phone: '9123456789', serviceName: 'Yoga', paymentLink: 'https://rzp.io/l/abc', amount: 5000 },
+ *   { phone: '9876543210', serviceName: 'Gym', paymentLink: 'https://rzp.io/l/xyz', amount: 3000 }
+ * ]);
+ */
+export const sendBulkServicePaymentLinkWhatsApp = async (recipients) => {
+  try {
+    console.log(
+      `[WHATSAPP] ========== BULK SERVICE PAYMENT LINK SEND ==========`
+    );
+    console.log(`[WHATSAPP] Starting bulk payment link send: ${recipients.length} recipient(s) queued`);
+
+    // Send all messages using Promise.allSettled (non-blocking failures)
+    const results = await Promise.allSettled(
+      recipients.map((recipientData) => sendServicePaymentLinkWhatsApp(recipientData))
+    );
+
+    // Count successes and failures
+    const successful = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+
+    if (failed === 0) {
+      console.log(
+        `[WHATSAPP] ✓ Bulk payment link send complete: All ${successful} message(s) sent successfully`
+      );
+    } else {
+      console.log(
+        `[WHATSAPP] ⚠ Bulk payment link send complete: ${successful} succeeded, ${failed} failed`
+      );
+
+      // Log failed recipients
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error(
+            `[WHATSAPP]   ✗ ${recipients[index].phone}: ${result.reason.message}`
+          );
+        }
+      });
+    }
+
+    return results.map((result, index) => ({
+      recipient: recipients[index].phone,
+      status: result.status,
+      data: result.status === "fulfilled" ? result.value : null,
+      error: result.status === "rejected" ? result.reason.message : null,
+    }));
+  } catch (error) {
+    console.error(
+      `[WHATSAPP] ✗ Critical error in bulk payment link WhatsApp sending: ${error.message}`
+    );
+    throw error;
+  }
+};
+
 export default {
   sendTicketWhatsApp,
   sendBulkTicketWhatsApp,
@@ -795,4 +861,5 @@ export default {
   sendVoucherWhatsApp,
   sendBulkVoucherWhatsApp,
   sendServicePaymentLinkWhatsApp,
+  sendBulkServicePaymentLinkWhatsApp,
 };

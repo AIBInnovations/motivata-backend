@@ -12,7 +12,7 @@ import Payment from '../../schema/Payment.schema.js';
 import User from '../../schema/User.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { razorpayInstance } from '../../utils/razorpay.util.js';
-import { sendServicePaymentLinkWhatsApp } from '../../utils/whatsapp.util.js';
+import { sendPaymentLinkNotifications } from '../../utils/notification.util.js';
 import { validateCouponForType } from '../Enrollment/coupon.controller.js';
 
 // Helper function to normalize phone number
@@ -423,7 +423,7 @@ export const getMembershipRequestById = async (req, res) => {
 export const approveMembershipRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const { planId, paymentAmount, adminNotes, sendWhatsApp = true, couponCode } = req.body;
+    const { planId, paymentAmount, adminNotes, sendWhatsApp = true, couponCode, alternativePhone, alternativeEmail, contactPreference } = req.body;
     const adminId = req.user?._id;
 
     console.log('═══════════════════════════════════════════════════════════');
@@ -672,6 +672,9 @@ export const approveMembershipRequest = async (req, res) => {
     request.discountPercent = discountPercent;
     request.discountAmount = discountAmount;
     request.adminNotes = adminNotes || null;
+    request.alternativePhone = alternativePhone || null;
+    request.alternativeEmail = alternativeEmail || null;
+    request.contactPreference = contactPreference || ['REGISTERED'];
     request.paymentLinkId = paymentLink.id;
     request.paymentUrl = paymentLink.short_url;
     request.orderId = orderId;
@@ -687,47 +690,46 @@ export const approveMembershipRequest = async (req, res) => {
     console.log('  - Payment URL:', request.paymentUrl);
     console.log('  - Payment Link ID:', request.paymentLinkId);
 
-    // Send WhatsApp with payment link
-    let whatsappSent = false;
-    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 8: Sending WhatsApp notification...');
-    console.log('[WHATSAPP] Send WhatsApp flag:', sendWhatsApp);
+    // Send payment link notifications based on contact preference
+    let notificationResults = null;
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 8: Sending payment link notifications...');
+    console.log('[NOTIFICATION] Send notifications flag:', sendWhatsApp);
+    console.log('[NOTIFICATION] Contact preference:', request.contactPreference);
+    console.log('[NOTIFICATION] Registered phone:', request.phone);
+    console.log('[NOTIFICATION] Alternative phone:', request.alternativePhone || 'None');
+    console.log('[NOTIFICATION] Alternative email:', request.alternativeEmail || 'None');
 
     if (sendWhatsApp) {
-      console.log('[WHATSAPP] Preparing WhatsApp message...');
-      console.log('[WHATSAPP] WhatsApp parameters:');
-      console.log('  - Phone:', request.phone);
-      console.log('  - Service Name:', `${plan.name} Membership`);
-      console.log('  - Payment Link:', paymentLink.short_url);
-      console.log('  - Amount:', amount);
-      console.log('  - Order ID:', request._id.toString());
-
       try {
-        console.log('[WHATSAPP] Calling sendServicePaymentLinkWhatsApp function...');
+        console.log('[NOTIFICATION] Calling sendPaymentLinkNotifications function...');
 
-        const whatsappResult = await sendServicePaymentLinkWhatsApp({
-          phone: request.phone,
+        notificationResults = await sendPaymentLinkNotifications({
+          registeredPhone: request.phone,
+          registeredEmail: null, // MembershipRequest doesn't have email field
+          alternativePhone: request.alternativePhone,
+          alternativeEmail: request.alternativeEmail,
+          contactPreference: request.contactPreference,
           serviceName: `${plan.name} Membership`,
           paymentLink: paymentLink.short_url,
           amount: amount,
-          serviceOrderId: request._id.toString(),
+          customerName: request.name,
+          orderId: request._id.toString(),
         });
 
-        whatsappSent = true;
-        console.log('[WHATSAPP] ✓ WhatsApp sent successfully!');
-        console.log('[WHATSAPP] Result:', JSON.stringify(whatsappResult, null, 2));
+        console.log('[NOTIFICATION] ✓ Notifications sent!');
+        console.log('[NOTIFICATION] Results:', JSON.stringify(notificationResults, null, 2));
 
-      } catch (whatsappError) {
-        console.error('[WHATSAPP] ❌ Failed to send WhatsApp');
-        console.error('[WHATSAPP] Error Name:', whatsappError.name);
-        console.error('[WHATSAPP] Error Message:', whatsappError.message);
-        console.error('[WHATSAPP] Error Stack:', whatsappError.stack);
-        console.error('[WHATSAPP] Full Error:', JSON.stringify(whatsappError, null, 2));
+      } catch (notificationError) {
+        console.error('[NOTIFICATION] ❌ Failed to send notifications');
+        console.error('[NOTIFICATION] Error Name:', notificationError.name);
+        console.error('[NOTIFICATION] Error Message:', notificationError.message);
+        console.error('[NOTIFICATION] Error Stack:', notificationError.stack);
 
-        // Don't fail the request if WhatsApp fails
-        console.log('[WHATSAPP] Continuing despite WhatsApp error (payment link is still valid)');
+        // Don't fail the request if notifications fail
+        console.log('[NOTIFICATION] Continuing despite notification error (payment link is still valid)');
       }
     } else {
-      console.log('[WHATSAPP] Skipping WhatsApp (sendWhatsApp = false)');
+      console.log('[NOTIFICATION] Skipping notifications (sendWhatsApp = false)');
     }
 
     // Populate response
@@ -748,14 +750,14 @@ export const approveMembershipRequest = async (req, res) => {
     console.log('  - Discount:', discountAmount, `(${discountPercent}%)`);
     console.log('  - Final Amount:', amount);
     console.log('  - Payment Link:', paymentLink.short_url);
-    console.log('  - WhatsApp Sent:', whatsappSent);
+    console.log('  - Notifications:', notificationResults ? JSON.stringify(notificationResults) : 'None');
     console.log('═══════════════════════════════════════════════════════════');
 
     return responseUtil.success(res, 'Membership request approved. Payment link sent.', {
       request: populatedRequest,
       paymentLink: paymentLink.short_url,
       paymentLinkId: paymentLink.id,
-      whatsappSent,
+      notifications: notificationResults,
       pricing: {
         originalAmount,
         couponCode: appliedCouponCode,

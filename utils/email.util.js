@@ -203,7 +203,153 @@ export const sendBulkEmails = async (emails) => {
   }
 };
 
+/**
+ * Send payment link email
+ * @param {Object} options - Email options
+ * @param {string} options.to - Recipient email address
+ * @param {string} options.serviceName - Service or membership name
+ * @param {string} options.paymentLink - Payment link URL
+ * @param {number} options.amount - Payment amount
+ * @param {string} [options.customerName] - Customer name for personalization
+ * @param {string} [options.orderId] - Order ID for logging
+ * @returns {Promise<Object>} Send result
+ * @throws {Error} If email sending fails
+ */
+export const sendPaymentLinkEmail = async ({
+  to,
+  serviceName,
+  paymentLink,
+  amount,
+  customerName,
+  orderId
+}) => {
+  const subject = `Payment Link for ${serviceName}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border: 1px solid #ddd; }
+        .details-box { background: #fff; padding: 20px; margin: 20px 0; border-radius: 5px; border-left: 4px solid #4CAF50; }
+        .button { display: inline-block; background: #4CAF50; color: white !important; padding: 14px 28px; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 20px 0; }
+        .button:hover { background: #45a049; }
+        .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; }
+        .link { word-break: break-all; color: #4CAF50; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h2 style="margin: 0;">Payment Link Ready</h2>
+        </div>
+        <div class="content">
+          <p>Hello ${customerName || 'Customer'},</p>
+          <p>Your payment link for <strong>${serviceName}</strong> is ready.</p>
+
+          <div class="details-box">
+            <p style="margin: 5px 0;"><strong>Service:</strong> ${serviceName}</p>
+            <p style="margin: 5px 0;"><strong>Amount:</strong> ₹${amount.toLocaleString('en-IN')}</p>
+          </div>
+
+          <p style="text-align: center;">
+            <a href="${paymentLink}" class="button">Pay Now</a>
+          </p>
+
+          <p>Or copy and paste this link in your browser:</p>
+          <p class="link"><a href="${paymentLink}">${paymentLink}</a></p>
+
+          <div class="footer">
+            <p>This link will expire in 24 hours.</p>
+            <p>If you have any questions, please contact our support team.</p>
+            <p style="margin-top: 15px;">&copy; ${new Date().getFullYear()} Motivata. All rights reserved.</p>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `
+Hello ${customerName || 'Customer'},
+
+Your payment link for ${serviceName} is ready.
+
+Service: ${serviceName}
+Amount: ₹${amount}
+
+Payment Link: ${paymentLink}
+
+This link will expire in 24 hours. If you have any questions, please contact our support team.
+
+© ${new Date().getFullYear()} Motivata. All rights reserved.
+  `.trim();
+
+  return await sendEmail({
+    to,
+    subject,
+    html,
+    text,
+    category: 'PAYMENT_LINK',
+    orderId
+  });
+};
+
+/**
+ * Send payment link emails to multiple recipients
+ * @param {Array<Object>} emails - Array of email options
+ * @param {string} emails[].to - Recipient email address
+ * @param {string} emails[].serviceName - Service or membership name
+ * @param {string} emails[].paymentLink - Payment link URL
+ * @param {number} emails[].amount - Payment amount
+ * @param {string} [emails[].customerName] - Customer name
+ * @param {string} [emails[].orderId] - Order ID for logging
+ * @returns {Promise<Array<Object>>} Array of send results
+ */
+export const sendBulkPaymentLinkEmails = async (emails) => {
+  try {
+    console.log(`[EMAIL] Starting bulk payment link send: ${emails.length} email(s) queued`);
+
+    const results = await Promise.allSettled(
+      emails.map(emailOptions => sendPaymentLinkEmail(emailOptions))
+    );
+
+    const successful = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results.filter(r => r.status === 'rejected').length;
+
+    if (failed === 0) {
+      console.log(`[EMAIL] ✓ Bulk payment link send complete: All ${successful} email(s) sent successfully`);
+    } else {
+      console.log(`[EMAIL] ⚠ Bulk payment link send complete: ${successful} succeeded, ${failed} failed`);
+
+      // Log failed recipients
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`[EMAIL]   ✗ ${emails[index].to}: ${result.reason.message}`);
+        }
+      });
+    }
+
+    return results.map((result, index) => ({
+      recipient: emails[index].to,
+      status: result.status,
+      data: result.status === 'fulfilled' ? result.value : null,
+      error: result.status === 'rejected' ? result.reason.message : null
+    }));
+  } catch (error) {
+    console.error(`[EMAIL] ✗ Critical error in bulk payment link email sending: ${error.message}`);
+    throw error;
+  }
+};
+
 export default {
   sendEmail,
-  sendBulkEmails
+  sendBulkEmails,
+  sendPaymentLinkEmail,
+  sendBulkPaymentLinkEmails
 };

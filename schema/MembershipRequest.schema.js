@@ -107,6 +107,55 @@ const membershipRequestSchema = new mongoose.Schema(
     },
 
     /**
+     * Alternative phone number for payment link notifications (transaction-specific)
+     */
+    alternativePhone: {
+      type: String,
+      trim: true,
+      default: null,
+      validate: {
+        validator: function (v) {
+          if (!v) return true; // Allow null
+          return /^\d{10}$/.test(v);
+        },
+        message: 'Alternative phone must be exactly 10 digits'
+      }
+    },
+
+    /**
+     * Alternative email for payment link notifications (transaction-specific)
+     */
+    alternativeEmail: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null,
+      validate: {
+        validator: function (v) {
+          if (!v) return true; // Allow null
+          return /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/.test(v);
+        },
+        message: 'Alternative email must be valid'
+      }
+    },
+
+    /**
+     * Contact preference for payment link notifications
+     * Valid: ['REGISTERED'], ['ALTERNATIVE'], or ['REGISTERED', 'ALTERNATIVE']
+     */
+    contactPreference: {
+      type: [String],
+      enum: ['REGISTERED', 'ALTERNATIVE'],
+      default: ['REGISTERED'],
+      validate: {
+        validator: function (arr) {
+          return arr && arr.length > 0 && arr.length <= 2;
+        },
+        message: 'Must select at least one contact preference'
+      }
+    },
+
+    /**
      * Original plan price before any discount
      */
     originalAmount: {
