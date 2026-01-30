@@ -790,7 +790,14 @@ export const approveServiceRequest = async (req, res) => {
     const { adminNotes, sendWhatsApp = true, alternativePhone, alternativeEmail, contactPreference } = req.body;
     const adminId = req.user?._id;
 
+    // Normalize and validate contactPreference
+    let normalizedContactPreference = contactPreference;
+    if (!normalizedContactPreference || !Array.isArray(normalizedContactPreference) || normalizedContactPreference.length === 0) {
+      normalizedContactPreference = ['REGISTERED']; // Default to registered contact
+    }
+
     console.log("[SERVICE-REQUEST] Approving request:", id);
+    console.log("[SERVICE-REQUEST] Contact preference:", normalizedContactPreference);
 
     const request = await ServiceRequest.findById(id).populate("services.serviceId");
 
@@ -879,7 +886,7 @@ export const approveServiceRequest = async (req, res) => {
       adminNotes,
       alternativePhone: alternativePhone || null,
       alternativeEmail: alternativeEmail || null,
-      contactPreference: contactPreference || ['REGISTERED'],
+      contactPreference: normalizedContactPreference,
     });
 
     await serviceOrder.save();
@@ -924,7 +931,7 @@ export const approveServiceRequest = async (req, res) => {
           registeredEmail: request.email,
           alternativePhone,
           alternativeEmail,
-          contactPreference: contactPreference || ['REGISTERED'],
+          contactPreference: normalizedContactPreference,
           serviceName: request.getServiceNamesString(),
           paymentLink: paymentLink.short_url,
           amount: request.totalAmount,
@@ -1472,7 +1479,14 @@ export const createDirectPurchase = async (req, res) => {
     const { phone, customerName, serviceIds, couponCode, alternativePhone, alternativeEmail, contactPreference } = req.body;
     const userId = req.user?._id;
 
+    // Normalize and validate contactPreference
+    let normalizedContactPreference = contactPreference;
+    if (!normalizedContactPreference || !Array.isArray(normalizedContactPreference) || normalizedContactPreference.length === 0) {
+      normalizedContactPreference = ['REGISTERED']; // Default to registered contact
+    }
+
     const normalizedPhone = normalizePhone(phone);
+    console.log(`${logPrefix} Contact preference:`, normalizedContactPreference);
 
     // Fetch services
     const services = await Service.find({
@@ -1615,7 +1629,7 @@ export const createDirectPurchase = async (req, res) => {
       userId: user?._id || null,
       alternativePhone: alternativePhone || null,
       alternativeEmail: alternativeEmail || null,
-      contactPreference: contactPreference || ['REGISTERED'],
+      contactPreference: normalizedContactPreference,
     });
 
     await serviceOrder.save();
@@ -1658,7 +1672,7 @@ export const createDirectPurchase = async (req, res) => {
         registeredEmail: user?.email,
         alternativePhone,
         alternativeEmail,
-        contactPreference: contactPreference || ['REGISTERED'],
+        contactPreference: normalizedContactPreference,
         serviceName: services.map(s => s.name).join(', '),
         paymentLink: paymentLink.short_url,
         amount: finalAmount,

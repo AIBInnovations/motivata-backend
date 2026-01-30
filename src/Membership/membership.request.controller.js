@@ -426,8 +426,15 @@ export const approveMembershipRequest = async (req, res) => {
     const { planId, paymentAmount, adminNotes, sendWhatsApp = true, couponCode, alternativePhone, alternativeEmail, contactPreference } = req.body;
     const adminId = req.user?._id;
 
+    // Normalize and validate contactPreference
+    let normalizedContactPreference = contactPreference;
+    if (!normalizedContactPreference || !Array.isArray(normalizedContactPreference) || normalizedContactPreference.length === 0) {
+      normalizedContactPreference = ['REGISTERED']; // Default to registered contact
+    }
+
     console.log('═══════════════════════════════════════════════════════════');
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Starting approval process');
+    console.log('[MEMBERSHIP-REQUEST-APPROVE] Contact preference:', normalizedContactPreference);
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Request ID:', id);
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Plan ID:', planId);
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Payment Amount (override):', paymentAmount);
@@ -674,7 +681,7 @@ export const approveMembershipRequest = async (req, res) => {
     request.adminNotes = adminNotes || null;
     request.alternativePhone = alternativePhone || null;
     request.alternativeEmail = alternativeEmail || null;
-    request.contactPreference = contactPreference || ['REGISTERED'];
+    request.contactPreference = normalizedContactPreference;
     request.paymentLinkId = paymentLink.id;
     request.paymentUrl = paymentLink.short_url;
     request.orderId = orderId;
