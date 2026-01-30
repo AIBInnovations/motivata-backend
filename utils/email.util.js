@@ -295,7 +295,7 @@ This link will expire in 24 hours. If you have any questions, please contact our
     subject,
     html,
     text,
-    category: 'PAYMENT_LINK',
+    category: 'SERVICE_PAYMENT_LINK',
     orderId
   });
 };

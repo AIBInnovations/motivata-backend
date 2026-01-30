@@ -840,6 +840,8 @@ export const rejectMembershipRequest = async (req, res) => {
  * @route POST /api/web/membership-requests/:id/resend-link
  */
 export const resendPaymentLink = async (req, res) => {
+  console.log('\n\n🔥🔥🔥 RESEND PAYMENT LINK FUNCTION CALLED 🔥🔥🔥\n');
+
   try {
     const { id } = req.params;
 
@@ -877,37 +879,53 @@ export const resendPaymentLink = async (req, res) => {
       return responseUtil.badRequest(res, 'No payment link available for this request');
     }
 
-    // Send WhatsApp
-    console.log('[MEMBERSHIP-REQUEST-RESEND] Sending WhatsApp...');
-    console.log('[WHATSAPP] Parameters:');
-    console.log('  - Phone:', request.phone);
+    // Normalize contact preference for old database records
+    let normalizedContactPreference = request.contactPreference;
+    if (!normalizedContactPreference || !Array.isArray(normalizedContactPreference) || normalizedContactPreference.length === 0) {
+      normalizedContactPreference = ['REGISTERED'];
+      console.log('[MEMBERSHIP-REQUEST-RESEND] Using default contact preference: [REGISTERED]');
+    }
+
+    // Send notifications via WhatsApp and/or Email based on contact preference
+    console.log('[MEMBERSHIP-REQUEST-RESEND] Sending payment link notifications...');
+    console.log('[NOTIFICATION] Parameters:');
+    console.log('  - Registered Phone:', request.phone);
+    console.log('  - Alternative Phone:', request.alternativePhone || 'None');
+    console.log('  - Alternative Email:', request.alternativeEmail || 'None');
+    console.log('  - Contact Preference:', normalizedContactPreference);
     console.log('  - Service Name:', `${request.approvedPlanId?.name || 'Membership'} Membership`);
     console.log('  - Payment Link:', request.paymentUrl);
     console.log('  - Amount:', request.paymentAmount);
 
     try {
-      const whatsappResult = await sendServicePaymentLinkWhatsApp({
-        phone: request.phone,
+      const notificationResults = await sendPaymentLinkNotifications({
+        registeredPhone: request.phone,
+        registeredEmail: null, // Membership requests don't have registered email
+        alternativePhone: request.alternativePhone || null,
+        alternativeEmail: request.alternativeEmail || null,
+        contactPreference: normalizedContactPreference,
         serviceName: `${request.approvedPlanId?.name || 'Membership'} Membership`,
         paymentLink: request.paymentUrl,
         amount: request.paymentAmount,
-        serviceOrderId: request._id.toString(),
+        customerName: request.name,
+        orderId: request._id.toString(),
       });
 
-      console.log('[WHATSAPP] ✓ WhatsApp sent successfully!');
-      console.log('[WHATSAPP] Result:', JSON.stringify(whatsappResult, null, 2));
+      console.log('[NOTIFICATION] ✓ Notifications sent!');
+      console.log('[NOTIFICATION] Results:', JSON.stringify(notificationResults, null, 2));
       console.log('═══════════════════════════════════════════════════════════');
 
       return responseUtil.success(res, 'Payment link resent successfully', {
         paymentLink: request.paymentUrl,
+        notifications: notificationResults,
       });
-    } catch (whatsappError) {
-      console.error('[WHATSAPP] ❌ Failed to send WhatsApp');
-      console.error('[WHATSAPP] Error Name:', whatsappError.name);
-      console.error('[WHATSAPP] Error Message:', whatsappError.message);
-      console.error('[WHATSAPP] Error Stack:', whatsappError.stack);
+    } catch (notificationError) {
+      console.error('[NOTIFICATION] ❌ Failed to send notifications');
+      console.error('[NOTIFICATION] Error Name:', notificationError.name);
+      console.error('[NOTIFICATION] Error Message:', notificationError.message);
+      console.error('[NOTIFICATION] Error Stack:', notificationError.stack);
       console.error('═══════════════════════════════════════════════════════════');
-      return responseUtil.internalError(res, 'Failed to send WhatsApp message', whatsappError.message);
+      return responseUtil.internalError(res, 'Failed to send notifications', notificationError.message);
     }
   } catch (error) {
     console.error('═══════════════════════════════════════════════════════════');
