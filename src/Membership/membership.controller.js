@@ -1487,6 +1487,56 @@ export const validateMembershipCoupon = async (req, res) => {
   }
 };
 
+/**
+ * Get membership statistics
+ * Public endpoint - provides overview of membership availability
+ * @route GET /api/web/membership-requests/stats
+ */
+export const getMembershipStats = async (req, res) => {
+  try {
+    console.log("[MEMBERSHIP-STATS] Fetching membership statistics");
+
+    const now = new Date();
+    const TOTAL_LIMIT = 3000;
+
+    // Count active memberships (currently valid)
+    const activeMemberships = await UserMembership.countDocuments({
+      isDeleted: false,
+      status: "ACTIVE",
+      paymentStatus: "SUCCESS",
+      startDate: { $lte: now },
+      $or: [
+        { endDate: { $gt: now } }, // Not expired yet
+        { isLifetime: true } // Or is lifetime
+      ]
+    });
+
+    const remainingSlots = TOTAL_LIMIT - activeMemberships;
+
+    const stats = {
+      totalLimit: TOTAL_LIMIT,
+      activeMemberships,
+      remainingSlots: Math.max(0, remainingSlots), // Ensure non-negative
+      lastUpdated: now.toISOString()
+    };
+
+    console.log("[MEMBERSHIP-STATS] Stats calculated:", stats);
+
+    return responseUtil.success(
+      res,
+      "Membership statistics fetched successfully",
+      stats
+    );
+  } catch (error) {
+    console.error("[MEMBERSHIP-STATS] Error fetching stats:", error.message);
+    return responseUtil.internalError(
+      res,
+      "Failed to fetch membership statistics",
+      error.message
+    );
+  }
+};
+
 export default {
   createMembershipPlan,
   getAllMembershipPlans,
@@ -1506,4 +1556,5 @@ export default {
   updateMembershipNotes,
   deleteUserMembership,
   validateMembershipCoupon,
+  getMembershipStats,
 };

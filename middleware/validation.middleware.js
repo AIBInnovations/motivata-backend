@@ -2473,6 +2473,108 @@ export const membershipRequestSchemas = {
   }),
 };
 
+/**
+ * Motivata Blend validation schemas
+ */
+export const motivataBlendSchemas = {
+  /**
+   * Submit Motivata Blend request (public form)
+   */
+  submit: Joi.object({
+    phone: schemas.phone.required(),
+    name: schemas.name.required(),
+    email: schemas.email.required(),
+  }),
+
+  /**
+   * Query parameters for listing requests
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string().valid('submittedAt', 'status', 'name').default('submittedAt'),
+    sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+    status: Joi.string().valid('PENDING', 'APPROVED', 'REJECTED').optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Request ID parameter validation
+   */
+  requestId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Approve request
+   */
+  approve: Joi.object({
+    notes: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Reject request
+   */
+  reject: Joi.object({
+    notes: Joi.string().trim().min(1).max(1000).required().messages({
+      'string.empty': 'Rejection notes are required',
+      'any.required': 'Rejection notes are required',
+      'string.max': 'Rejection notes cannot exceed 1000 characters',
+    }),
+  }),
+};
+
+/**
+ * Round Table validation schemas
+ */
+export const roundTableSchemas = {
+  /**
+   * Submit Round Table request (public form)
+   */
+  submit: Joi.object({
+    phone: schemas.phone.required(),
+    name: schemas.name.required(),
+    email: schemas.email.required(),
+  }),
+
+  /**
+   * Query parameters for listing requests
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string().valid('submittedAt', 'status', 'name').default('submittedAt'),
+    sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+    status: Joi.string().valid('PENDING', 'APPROVED', 'REJECTED').optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  /**
+   * Request ID parameter validation
+   */
+  requestId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Approve request
+   */
+  approve: Joi.object({
+    notes: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Reject request
+   */
+  reject: Joi.object({
+    notes: Joi.string().trim().min(1).max(1000).required().messages({
+      'string.empty': 'Rejection notes are required',
+      'any.required': 'Rejection notes are required',
+      'string.max': 'Rejection notes cannot exceed 1000 characters',
+    }),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -2499,4 +2601,6 @@ export default {
   serviceOrderSchemas,
   serviceRequestSchemas,
   userServiceSubscriptionSchemas,
+  motivataBlendSchemas,
+  roundTableSchemas,
 };

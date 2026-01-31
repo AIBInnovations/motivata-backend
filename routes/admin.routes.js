@@ -27,6 +27,10 @@ import adminServiceRoutes from "../src/Service/service.admin.route.js";
 import featureAccessRoutes from "../src/FeatureAccess/featureAccess.route.js";
 import featureRequestRoutes from "../src/FeatureRequest/featureRequest.route.js";
 import featurePricingAdminRoutes from "../src/FeatureRequest/featurePricing.admin.route.js";
+import motivataBlendRoutes from "../src/MotivataBlend/motivataBlend.route.js";
+import roundTableRoutes from "../src/RoundTable/roundTable.route.js";
+import motivataBlendAdminRoutes from "../src/MotivataBlend/motivataBlend.admin.route.js";
+import roundTableAdminRoutes from "../src/RoundTable/roundTable.admin.route.js";
 
 const router = express.Router();
 
@@ -112,6 +116,20 @@ router.use("/feature-requests", featureRequestRoutes);
 
 // Feature Pricing routes - /api/web/feature-pricing (admin only)
 router.use("/feature-pricing", featurePricingAdminRoutes);
+
+// Motivata Blend routes - /api/web/motivata-blend (public)
+// IMPORTANT: Public endpoint - no auth middleware
+router.use("/motivata-blend", motivataBlendRoutes);
+
+// Motivata Blend admin routes - /api/web/motivata-blend/admin (admin only)
+router.use("/motivata-blend/admin", motivataBlendAdminRoutes);
+
+// Round Table routes - /api/web/round-table (public)
+// IMPORTANT: Public endpoint - no auth middleware
+router.use("/round-table", roundTableRoutes);
+
+// Round Table admin routes - /api/web/round-table/admin (admin only)
+router.use("/round-table/admin", roundTableAdminRoutes);
 
 // Membership routes - /api/web/membership-plans and /api/web/user-memberships
 router.use("/", adminMembershipRoutes);
