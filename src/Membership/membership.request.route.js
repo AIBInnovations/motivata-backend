@@ -23,6 +23,7 @@ import {
   getPendingCount,
   withdrawMembershipRequest,
 } from './membership.request.controller.js';
+import { getMembershipStats } from './membership.controller.js';
 
 const router = express.Router();
 
@@ -37,6 +38,13 @@ const router = express.Router();
  * @access  Public
  */
 router.get('/plans', getPlansForRequestForm);
+
+/**
+ * @route   GET /api/web/membership-requests/stats
+ * @desc    Get membership availability statistics
+ * @access  Public
+ */
+router.get('/stats', getMembershipStats);
 
 /**
  * @route   POST /api/web/membership-requests
