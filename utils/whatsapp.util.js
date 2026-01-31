@@ -639,7 +639,7 @@ export const sendBulkVoucherWhatsApp = async (messages) => {
 
 /**
  * Send WhatsApp message with service payment link
- * Uses template: srvc_temp_1
+ * Uses template: srvc_temp_pay
  *
  * @param {Object} params - Message parameters
  * @param {string} params.phone - Recipient phone number
@@ -661,16 +661,40 @@ export const sendServicePaymentLinkWhatsApp = async ({
   let communicationLog = null;
 
   try {
-    console.log(`[WHATSAPP] ========== SENDING SERVICE PAYMENT LINK ==========`);
+    console.log(`\n[WHATSAPP] ========== SENDING SERVICE PAYMENT LINK ==========`);
+    const startTime = Date.now();
 
-    // Create communication log entry (PENDING status)
+    // ===== STEP 1: VALIDATE INPUT PARAMETERS =====
+    console.log(`[WHATSAPP-DEBUG] Step 1: Validating input parameters`);
+    console.log(`[WHATSAPP-DEBUG]   - Phone provided: ${phone ? 'Yes' : 'No'}`);
+    console.log(`[WHATSAPP-DEBUG]   - Phone value: "${phone}"`);
+    console.log(`[WHATSAPP-DEBUG]   - Phone length: ${phone?.length || 0} characters`);
+    console.log(`[WHATSAPP-DEBUG]   - Service name: "${serviceName}"`);
+    console.log(`[WHATSAPP-DEBUG]   - Payment link: "${paymentLink}"`);
+    console.log(`[WHATSAPP-DEBUG]   - Amount: ${amount} (type: ${typeof amount})`);
+
+    if (!phone || phone.length < 10) {
+      console.error(`[WHATSAPP-DEBUG] ❌ Invalid phone number: too short or empty`);
+      throw new Error('Invalid phone number: must be at least 10 digits');
+    }
+
+    // ===== STEP 2: FORMAT PHONE NUMBER =====
+    console.log(`[WHATSAPP-DEBUG] Step 2: Formatting phone number`);
     const formattedPhoneForLog = formatPhoneNumber(phone);
+    const formattedPhone = formatPhoneNumber(phone);
+    console.log(`[WHATSAPP-DEBUG]   - Original: ${phone}`);
+    console.log(`[WHATSAPP-DEBUG]   - Formatted: ${formattedPhone}`);
+    console.log(`[WHATSAPP-DEBUG]   - Has country code: ${formattedPhone.startsWith('91') ? 'Yes' : 'No'}`);
+    console.log(`[WHATSAPP-DEBUG]   - Final format: ${formattedPhone.startsWith('+') ? 'International' : 'National'}`);
+
+    // ===== STEP 3: CREATE COMMUNICATION LOG =====
+    console.log(`[WHATSAPP-DEBUG] Step 3: Creating communication log`);
     communicationLog = new CommunicationLog({
       type: 'WHATSAPP',
       category: 'SERVICE_PAYMENT_LINK',
       recipient: formattedPhoneForLog,
       status: 'PENDING',
-      templateName: 'srvc_temp_1',
+      templateName: 'srvc_temp_pay',
       metadata: {
         serviceName,
         paymentLink,
@@ -679,32 +703,27 @@ export const sendServicePaymentLinkWhatsApp = async ({
       }
     });
     await communicationLog.save();
+    console.log(`[WHATSAPP-DEBUG]   ✓ Communication log created: ${communicationLog._id}`);
 
-    console.log(`[WHATSAPP] Communication log created: ${communicationLog._id}`);
-
-    // Validate config
+    // ===== STEP 4: VALIDATE WHATSAPP CONFIG =====
+    console.log(`[WHATSAPP-DEBUG] Step 4: Validating WhatsApp configuration`);
     validateWhatsAppConfig();
-    console.log(`[WHATSAPP] Config validated`);
+    console.log(`[WHATSAPP-DEBUG]   ✓ API Base URL: ${WHATSAPP_API_BASE_URL}`);
+    console.log(`[WHATSAPP-DEBUG]   ✓ Vendor UID: ${process.env.WHATSAPP_VENDOR_UID ? 'Configured' : 'MISSING'}`);
+    console.log(`[WHATSAPP-DEBUG]   ✓ API Key: ${process.env.WHATSAPP_API_KEY ? 'Configured (' + process.env.WHATSAPP_API_KEY.substring(0, 8) + '...)' : 'MISSING'}`);
 
-    const formattedPhone = formatPhoneNumber(phone);
-
-    console.log(`[WHATSAPP] Service payment link details:`);
-    console.log(`[WHATSAPP]   - Original phone: ${phone}`);
-    console.log(`[WHATSAPP]   - Formatted phone: ${formattedPhone}`);
-    console.log(`[WHATSAPP]   - Service Name: ${serviceName}`);
-    console.log(`[WHATSAPP]   - Payment Link: ${paymentLink}`);
-    console.log(`[WHATSAPP]   - Amount: ${amount}`);
-
+    // ===== STEP 5: PREPARE API REQUEST =====
+    console.log(`[WHATSAPP-DEBUG] Step 5: Preparing API request`);
     const apiUrl = `${WHATSAPP_API_BASE_URL}/${process.env.WHATSAPP_VENDOR_UID}/contact/send-template-message`;
 
     const requestBody = {
       phone_number: formattedPhone,
-      template_name: "srvc_temp_1",
+      template_name: "srvc_temp_pay",
       template_language: "en_US",
       templateArgs: {
         field_1: serviceName,
-        field_2: paymentLink,
-        field_3: String(amount),
+        field_2: String(amount),
+        field_3: paymentLink,
       },
       contact: {
         first_name: "Customer",
@@ -713,8 +732,17 @@ export const sendServicePaymentLinkWhatsApp = async ({
       },
     };
 
-    console.log(`[WHATSAPP] API URL: ${apiUrl}`);
-    console.log(`[WHATSAPP] Request body:`, JSON.stringify(requestBody, null, 2));
+    console.log(`[WHATSAPP-DEBUG]   - Template: srvc_temp_pay`);
+    console.log(`[WHATSAPP-DEBUG]   - Template Language: en_US`);
+    console.log(`[WHATSAPP-DEBUG]   - Template Arg 1 (Service): "${requestBody.templateArgs.field_1}"`);
+    console.log(`[WHATSAPP-DEBUG]   - Template Arg 2 (Amount): "${requestBody.templateArgs.field_2}"`);
+    console.log(`[WHATSAPP-DEBUG]   - Template Arg 3 (Link): "${requestBody.templateArgs.field_3}"`);
+    console.log(`[WHATSAPP-DEBUG]   - Contact Country: India`);
+    console.log(`[WHATSAPP-DEBUG]   - API Endpoint: ${apiUrl}`);
+
+    // ===== STEP 6: SEND API REQUEST =====
+    console.log(`[WHATSAPP-DEBUG] Step 6: Sending API request to WhatsApp provider`);
+    const requestStartTime = Date.now();
 
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -725,40 +753,91 @@ export const sendServicePaymentLinkWhatsApp = async ({
       body: JSON.stringify(requestBody),
     });
 
-    console.log(`[WHATSAPP] Response status: ${response.status} ${response.statusText}`);
+    const requestDuration = Date.now() - requestStartTime;
+    console.log(`[WHATSAPP-DEBUG]   - Request completed in ${requestDuration}ms`);
+    console.log(`[WHATSAPP-DEBUG]   - Response Status: ${response.status} ${response.statusText}`);
+    console.log(`[WHATSAPP-DEBUG]   - Response Headers:`, Object.fromEntries(response.headers.entries()));
 
+    // ===== STEP 7: PARSE API RESPONSE =====
+    console.log(`[WHATSAPP-DEBUG] Step 7: Parsing API response`);
     const responseText = await response.text();
-    console.log(`[WHATSAPP] Raw response: ${responseText}`);
+    console.log(`[WHATSAPP-DEBUG]   - Raw response: ${responseText}`);
+    console.log(`[WHATSAPP-DEBUG]   - Response length: ${responseText.length} characters`);
 
     let responseData;
     try {
       responseData = JSON.parse(responseText);
+      console.log(`[WHATSAPP-DEBUG]   ✓ JSON parse successful`);
     } catch (parseError) {
-      console.error(`[WHATSAPP] Failed to parse response as JSON`);
+      console.error(`[WHATSAPP-DEBUG]   ✗ JSON parse FAILED`);
+      console.error(`[WHATSAPP-DEBUG]   - Parse error: ${parseError.message}`);
       throw new Error(`Invalid JSON response: ${responseText}`);
     }
 
-    console.log(`[WHATSAPP] Parsed response:`, JSON.stringify(responseData, null, 2));
+    console.log(`[WHATSAPP-DEBUG]   - Parsed response:`, JSON.stringify(responseData, null, 2));
+
+    // ===== STEP 8: ANALYZE RESPONSE =====
+    console.log(`[WHATSAPP-DEBUG] Step 8: Analyzing response`);
+    console.log(`[WHATSAPP-DEBUG]   - Response keys:`, Object.keys(responseData).join(', '));
+    console.log(`[WHATSAPP-DEBUG]   - Has 'success' field: ${responseData.hasOwnProperty('success') ? responseData.success : 'N/A'}`);
+    console.log(`[WHATSAPP-DEBUG]   - Has 'message_id' field: ${responseData.hasOwnProperty('message_id') ? 'Yes' : 'No'}`);
+    console.log(`[WHATSAPP-DEBUG]   - Has 'error' field: ${responseData.hasOwnProperty('error') ? 'Yes' : 'No'}`);
+    console.log(`[WHATSAPP-DEBUG]   - Has 'message' field: ${responseData.hasOwnProperty('message') ? 'Yes' : 'No'}`);
+
+    // Check for warnings or delivery indicators
+    if (responseData.warning) {
+      console.warn(`[WHATSAPP-DEBUG]   ⚠ WARNING in response: ${responseData.warning}`);
+    }
+    if (responseData.delivery_status) {
+      console.log(`[WHATSAPP-DEBUG]   - Delivery status: ${responseData.delivery_status}`);
+    }
+    if (responseData.queue_status) {
+      console.log(`[WHATSAPP-DEBUG]   - Queue status: ${responseData.queue_status}`);
+    }
 
     if (!response.ok) {
-      console.error(`[WHATSAPP] ✗ API Error - Status: ${response.status}`);
-      console.error(`[WHATSAPP] ✗ Error details:`, responseData);
+      console.error(`[WHATSAPP-DEBUG] ✗ API returned error status`);
+      console.error(`[WHATSAPP-DEBUG]   - HTTP Status: ${response.status}`);
+      console.error(`[WHATSAPP-DEBUG]   - Error details:`, responseData);
       throw new Error(
         responseData.message || responseData.error || `HTTP ${response.status}: WhatsApp API error`
       );
     }
 
-    console.log(`[WHATSAPP] ✓ Service payment link sent successfully!`);
-    console.log(`[WHATSAPP]   - Message ID: ${responseData.message_id}`);
-    console.log(`[WHATSAPP]   - Recipient: ${formattedPhone}`);
-    console.log(`[WHATSAPP] ========== SERVICE PAYMENT LINK SEND COMPLETE ==========`);
+    // ===== STEP 9: VALIDATE SUCCESS RESPONSE =====
+    console.log(`[WHATSAPP-DEBUG] Step 9: Validating success response`);
+    if (!responseData.message_id) {
+      console.warn(`[WHATSAPP-DEBUG]   ⚠ WARNING: No message_id in response!`);
+      console.warn(`[WHATSAPP-DEBUG]   ⚠ This may indicate the message was not queued for delivery`);
+    } else {
+      console.log(`[WHATSAPP-DEBUG]   ✓ Message ID received: ${responseData.message_id}`);
+    }
+
+    const totalDuration = Date.now() - startTime;
+    console.log(`[WHATSAPP-DEBUG] ========== SEND SUMMARY ==========`);
+    console.log(`[WHATSAPP-DEBUG] ✓ API request successful`);
+    console.log(`[WHATSAPP-DEBUG] ✓ Message ID: ${responseData.message_id}`);
+    console.log(`[WHATSAPP-DEBUG] ✓ Recipient: ${formattedPhone}`);
+    console.log(`[WHATSAPP-DEBUG] ✓ Total processing time: ${totalDuration}ms`);
+    console.log(`[WHATSAPP-DEBUG] ========================================`);
+    console.log(`\n[WHATSAPP-DEBUG] 📱 DELIVERY NOTES:`);
+    console.log(`[WHATSAPP-DEBUG]   - Message has been accepted by WhatsApp API`);
+    console.log(`[WHATSAPP-DEBUG]   - Delivery to user's device depends on:`);
+    console.log(`[WHATSAPP-DEBUG]     1. User has WhatsApp installed on ${formattedPhone}`);
+    console.log(`[WHATSAPP-DEBUG]     2. User's WhatsApp is connected to internet`);
+    console.log(`[WHATSAPP-DEBUG]     3. User has not blocked business messages`);
+    console.log(`[WHATSAPP-DEBUG]     4. Template 'srvc_temp_pay' is approved and active`);
+    console.log(`[WHATSAPP-DEBUG]     5. WhatsApp provider (WappService) processes the queue`);
+    console.log(`[WHATSAPP-DEBUG]   - Typical delivery time: 1-30 seconds`);
+    console.log(`[WHATSAPP-DEBUG]   - If not received after 2 minutes, check above factors`);
+    console.log(`[WHATSAPP-DEBUG] ========================================\n`);
 
     // Update communication log to SUCCESS
     if (communicationLog) {
       communicationLog.status = 'SUCCESS';
       communicationLog.messageId = responseData.message_id;
       await communicationLog.save();
-      console.log(`[WHATSAPP] Communication log updated to SUCCESS: ${communicationLog._id}`);
+      console.log(`[WHATSAPP-DEBUG] Communication log updated to SUCCESS: ${communicationLog._id}`);
     }
 
     return {
@@ -767,7 +846,41 @@ export const sendServicePaymentLinkWhatsApp = async ({
       recipient: formattedPhone,
     };
   } catch (error) {
-    console.error(`[WHATSAPP] ✗ FAILED to send service payment link to ${phone}`);
+    console.error(`\n[WHATSAPP-DEBUG] ========== ERROR OCCURRED ==========`);
+    console.error(`[WHATSAPP-DEBUG] ✗ FAILED to send service payment link`);
+    console.error(`[WHATSAPP-DEBUG] Error Details:`);
+    console.error(`[WHATSAPP-DEBUG]   - Error Type: ${error.constructor.name}`);
+    console.error(`[WHATSAPP-DEBUG]   - Error Message: ${error.message}`);
+    console.error(`[WHATSAPP-DEBUG]   - Error Code: ${error.code || 'N/A'}`);
+    console.error(`[WHATSAPP-DEBUG]   - Phone Number: ${phone}`);
+    console.error(`[WHATSAPP-DEBUG]   - Service Name: ${serviceName}`);
+    console.error(`[WHATSAPP-DEBUG]   - Stack Trace:`, error.stack);
+
+    console.error(`\n[WHATSAPP-DEBUG] 🔍 TROUBLESHOOTING STEPS:`);
+    if (error.message.includes('Invalid phone')) {
+      console.error(`[WHATSAPP-DEBUG]   ❌ Phone number validation failed`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: Phone number format (must be 10 digits)`);
+      console.error(`[WHATSAPP-DEBUG]   → Provided: "${phone}"`);
+    } else if (error.message.includes('JSON')) {
+      console.error(`[WHATSAPP-DEBUG]   ❌ API returned invalid JSON`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: WhatsApp API is responding correctly`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: API endpoint is accessible`);
+    } else if (error.message.includes('fetch') || error.code === 'ECONNREFUSED') {
+      console.error(`[WHATSAPP-DEBUG]   ❌ Network/Connection error`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: Internet connectivity`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: WhatsApp API endpoint is up`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: Firewall settings`);
+    } else if (error.message.includes('API error') || error.message.includes('HTTP')) {
+      console.error(`[WHATSAPP-DEBUG]   ❌ WhatsApp API rejected the request`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: API key is valid`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: Vendor UID is correct`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: Template 'srvc_temp_pay' exists and is approved`);
+      console.error(`[WHATSAPP-DEBUG]   → Check: Account has sufficient credits`);
+    } else {
+      console.error(`[WHATSAPP-DEBUG]   ❌ Unknown error occurred`);
+      console.error(`[WHATSAPP-DEBUG]   → Check logs above for more details`);
+    }
+    console.error(`[WHATSAPP-DEBUG] ========================================\n`);
 
     // Update communication log to FAILED
     if (communicationLog) {
@@ -775,15 +888,12 @@ export const sendServicePaymentLinkWhatsApp = async ({
         communicationLog.status = 'FAILED';
         communicationLog.errorMessage = error.message;
         await communicationLog.save();
-        console.log(`[WHATSAPP] Communication log updated to FAILED: ${communicationLog._id}`);
+        console.error(`[WHATSAPP-DEBUG] Communication log updated to FAILED: ${communicationLog._id}`);
       } catch (logError) {
-        console.error(`[WHATSAPP] Failed to update communication log:`, logError.message);
+        console.error(`[WHATSAPP-DEBUG] Failed to update communication log:`, logError.message);
       }
     }
-    console.error(`[WHATSAPP] Error type: ${error.name}`);
-    console.error(`[WHATSAPP] Error message: ${error.message}`);
-    console.error(`[WHATSAPP] Error stack:`, error.stack);
-    console.error(`[WHATSAPP] ========== SERVICE PAYMENT LINK SEND FAILED ==========`);
+
     throw new Error(`Failed to send service payment link to ${phone}: ${error.message}`);
   }
 };
