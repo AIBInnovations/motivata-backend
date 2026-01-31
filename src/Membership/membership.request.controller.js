@@ -449,7 +449,7 @@ export const approveMembershipRequest = async (req, res) => {
     const request = await MembershipRequest.findOne({
       _id: id,
       isDeleted: false,
-    });
+    }).populate('existingUserId', 'name email phone');
 
     if (!request) {
       console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Request not found');
@@ -703,6 +703,7 @@ export const approveMembershipRequest = async (req, res) => {
     console.log('[NOTIFICATION] Send notifications flag:', sendWhatsApp);
     console.log('[NOTIFICATION] Contact preference:', request.contactPreference);
     console.log('[NOTIFICATION] Registered phone:', request.phone);
+    console.log('[NOTIFICATION] Registered email:', request.existingUserId?.email || 'None (user not registered)');
     console.log('[NOTIFICATION] Alternative phone:', request.alternativePhone || 'None');
     console.log('[NOTIFICATION] Alternative email:', request.alternativeEmail || 'None');
 
@@ -712,11 +713,11 @@ export const approveMembershipRequest = async (req, res) => {
 
         notificationResults = await sendPaymentLinkNotifications({
           registeredPhone: request.phone,
-          registeredEmail: null, // MembershipRequest doesn't have email field
+          registeredEmail: request.existingUserId?.email || null,
           alternativePhone: request.alternativePhone,
           alternativeEmail: request.alternativeEmail,
           contactPreference: request.contactPreference,
-          serviceName: `${plan.name} Membership`,
+          serviceName: plan.name,
           paymentLink: paymentLink.short_url,
           amount: amount,
           customerName: request.name,
@@ -853,7 +854,9 @@ export const resendPaymentLink = async (req, res) => {
     const request = await MembershipRequest.findOne({
       _id: id,
       isDeleted: false,
-    }).populate('approvedPlanId');
+    })
+      .populate('approvedPlanId')
+      .populate('existingUserId', 'name email phone');
 
     if (!request) {
       console.log('[MEMBERSHIP-REQUEST-RESEND] ❌ Request not found');
@@ -890,21 +893,22 @@ export const resendPaymentLink = async (req, res) => {
     console.log('[MEMBERSHIP-REQUEST-RESEND] Sending payment link notifications...');
     console.log('[NOTIFICATION] Parameters:');
     console.log('  - Registered Phone:', request.phone);
+    console.log('  - Registered Email:', request.existingUserId?.email || 'None (user not registered)');
     console.log('  - Alternative Phone:', request.alternativePhone || 'None');
     console.log('  - Alternative Email:', request.alternativeEmail || 'None');
     console.log('  - Contact Preference:', normalizedContactPreference);
-    console.log('  - Service Name:', `${request.approvedPlanId?.name || 'Membership'} Membership`);
+    console.log('  - Service Name:', request.approvedPlanId?.name || 'Membership');
     console.log('  - Payment Link:', request.paymentUrl);
     console.log('  - Amount:', request.paymentAmount);
 
     try {
       const notificationResults = await sendPaymentLinkNotifications({
         registeredPhone: request.phone,
-        registeredEmail: null, // Membership requests don't have registered email
+        registeredEmail: request.existingUserId?.email || null,
         alternativePhone: request.alternativePhone || null,
         alternativeEmail: request.alternativeEmail || null,
         contactPreference: normalizedContactPreference,
-        serviceName: `${request.approvedPlanId?.name || 'Membership'} Membership`,
+        serviceName: request.approvedPlanId?.name || 'Membership',
         paymentLink: request.paymentUrl,
         amount: request.paymentAmount,
         customerName: request.name,
