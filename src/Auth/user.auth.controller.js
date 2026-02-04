@@ -810,24 +810,52 @@ export const deleteUserById = async (req, res) => {
       return responseUtil.badRequest(res, 'User already deleted');
     }
 
-    // Soft delete all Connect-related data in parallel
-    await Promise.all([
+    // Soft delete all related data sequentially with detailed error logging
+    try {
       // Soft delete the user
-      user.softDelete(),
+      await user.softDelete();
+      console.log(`[Delete User] Soft deleted user: ${userId}`);
+    } catch (error) {
+      console.error(`[Delete User] Failed to soft delete user ${userId}:`, error);
+      throw new Error(`Failed to soft delete user: ${error.message}`);
+    }
+
+    try {
       // Soft delete all follow relationships (both followers and following)
-      Connect.softDeleteByUser(userId),
+      await Connect.softDeleteByUser(userId);
+      console.log(`[Delete User] Soft deleted Connect relationships for: ${userId}`);
+    } catch (error) {
+      console.error(`[Delete User] Failed to soft delete Connect relationships for ${userId}:`, error);
+      // Continue even if this fails - Connect might not exist for all users
+      console.log('[Delete User] Continuing despite Connect deletion failure');
+    }
+
+    try {
       // Soft delete all likes by this user
-      Like.softDeleteByUser(userId),
+      await Like.softDeleteByUser(userId);
+      console.log(`[Delete User] Soft deleted Likes for: ${userId}`);
+    } catch (error) {
+      console.error(`[Delete User] Failed to soft delete Likes for ${userId}:`, error);
+      // Continue even if this fails - Likes might not exist for all users
+      console.log('[Delete User] Continuing despite Like deletion failure');
+    }
+
+    try {
       // Soft delete all posts by this user
-      Post.updateMany(
+      await Post.updateMany(
         { author: userId },
         { isDeleted: true, deletedAt: new Date() }
-      ),
-    ]);
+      );
+      console.log(`[Delete User] Soft deleted Posts for: ${userId}`);
+    } catch (error) {
+      console.error(`[Delete User] Failed to soft delete Posts for ${userId}:`, error);
+      // Continue even if this fails - Posts might not exist for all users
+      console.log('[Delete User] Continuing despite Post deletion failure');
+    }
 
     return responseUtil.success(res, 'User deleted successfully');
   } catch (error) {
-    console.error('Delete user error:', error);
+    console.error('[Delete User] Overall error:', error);
     return responseUtil.internalError(res, 'Failed to delete user', error.message);
   }
 };
