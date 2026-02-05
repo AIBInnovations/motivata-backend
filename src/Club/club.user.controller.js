@@ -419,8 +419,8 @@ export const getClubMembers = async (req, res) => {
     }
 
     // Get members
-    const [memberships, totalCount] = await Promise.all([
-      ClubMember.find({ club: clubId })
+    const [memberships, allMemberships] = await Promise.all([
+      ClubMember.find({ club: clubId, status: 'APPROVED' })
         .populate({
           path: "user",
           select: "name email phone followerCount followingCount postCount",
@@ -429,8 +429,17 @@ export const getClubMembers = async (req, res) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      ClubMember.countDocuments({ club: clubId }),
+      ClubMember.find({ club: clubId, status: 'APPROVED' })
+        .populate({
+          path: "user",
+          select: "_id",
+          match: { isDeleted: false },
+        })
+        .lean(),
     ]);
+
+    // Count only members with active users
+    const totalCount = allMemberships.filter(m => m.user).length;
 
     // Filter out null users (deleted accounts)
     const validMemberships = memberships.filter((m) => m.user);

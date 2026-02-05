@@ -16,6 +16,9 @@ import {
   getAllJoinRequests,
   approveJoinRequest,
   rejectJoinRequest,
+  getClubPosts,
+  getPostById,
+  deletePost,
 } from "./club.admin.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 import {
@@ -100,6 +103,41 @@ router.put(
   validateParams(clubSchemas.clubId),
   validateBody(clubSchemas.updatePostPermission),
   updateClubPostPermission
+);
+
+/**
+ * @route   GET /api/web/clubs/:clubId/posts
+ * @desc    Get all posts in a club with filters
+ * @access  Admin only
+ */
+router.get(
+  "/:clubId/posts",
+  validateParams(clubSchemas.clubId),
+  validateQuery(clubSchemas.clubPostsQuery),
+  getClubPosts
+);
+
+/**
+ * @route   GET /api/web/clubs/posts/:postId
+ * @desc    Get single post by ID with details
+ * @access  Admin only
+ */
+router.get(
+  "/posts/:postId",
+  validateParams(clubSchemas.postId),
+  validateQuery(clubSchemas.postByIdQuery),
+  getPostById
+);
+
+/**
+ * @route   DELETE /api/web/clubs/posts/:postId
+ * @desc    Delete a post (soft delete)
+ * @access  Admin only
+ */
+router.delete(
+  "/posts/:postId",
+  validateParams(clubSchemas.postId),
+  deletePost
 );
 
 /**

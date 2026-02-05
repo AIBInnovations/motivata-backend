@@ -7,6 +7,9 @@ import Club from "../../schema/Club.schema.js";
 import ClubMember from "../../schema/ClubMember.schema.js";
 import ClubJoinRequest from "../../schema/ClubJoinRequest.schema.js";
 import Post from "../../schema/Post.schema.js";
+import Like from "../../schema/Like.schema.js";
+import Connect from "../../schema/Connect.schema.js";
+import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
@@ -538,5 +541,249 @@ export const rejectJoinRequest = async (req, res) => {
   } catch (error) {
     console.error('[CLUB-ADMIN] Reject join request error:', error);
     return responseUtil.internalError(res, 'Failed to reject join request', error.message);
+  }
+};
+
+/**
+ * Helper function to format post response for admin
+ * @param {Object} post - Post document
+ * @param {Object} options - Formatting options
+ * @returns {Object} Formatted post object
+ */
+const formatAdminPostResponse = (post, options = {}) => {
+  const { includeDeleted = false } = options;
+
+  return {
+    id: post._id,
+    content: post.content,
+    media: post.media || [],
+    author: post.author ? {
+      id: post.author._id,
+      name: post.author.name,
+      email: post.author.email,
+      type: post.authorType,
+    } : null,
+    club: post.club ? {
+      id: post.club._id,
+      name: post.club.name,
+      thumbnail: post.club.thumbnail,
+    } : null,
+    likeCount: post.likeCount || 0,
+    commentCount: post.commentCount || 0,
+    shareCount: post.shareCount || 0,
+    isDeleted: includeDeleted ? post.isDeleted : undefined,
+    deletedAt: includeDeleted ? post.deletedAt : undefined,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+  };
+};
+
+/**
+ * Get all posts in a club (Admin only)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with paginated posts
+ */
+export const getClubPosts = async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      includeDeleted = false,
+      mediaType, // 'image', 'video', 'all', or undefined for all types
+      authorType, // 'User', 'Admin', or undefined for all types
+    } = req.query;
+
+    const skip = (page - 1) * limit;
+
+    // Verify club exists
+    const club = await Club.findById(clubId);
+    if (!club) {
+      return responseUtil.notFound(res, 'Club not found');
+    }
+
+    // Build query
+    const query = { club: clubId };
+
+    // Filter by deletion status
+    if (includeDeleted === 'true' || includeDeleted === true) {
+      // Include all posts regardless of deletion status
+      query.$or = [{ isDeleted: false }, { isDeleted: true }];
+    } else {
+      query.isDeleted = false;
+    }
+
+    // Filter by media type
+    if (mediaType && mediaType !== 'all') {
+      if (mediaType === 'image') {
+        query['media.type'] = 'image';
+      } else if (mediaType === 'video') {
+        query['media.type'] = 'video';
+      }
+    }
+
+    // Filter by author type
+    if (authorType && ['User', 'Admin'].includes(authorType)) {
+      query.authorType = authorType;
+    }
+
+    // Build sort object
+    const sort = {};
+    sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Fetch posts with populated data
+    const [posts, totalCount] = await Promise.all([
+      Post.find(query)
+        .populate({
+          path: 'author',
+          select: 'name email phone',
+        })
+        .populate({
+          path: 'club',
+          select: 'name thumbnail',
+        })
+        .select(includeDeleted === 'true' || includeDeleted === true ? '+isDeleted +deletedAt' : '')
+        .sort(sort)
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      Post.countDocuments(query),
+    ]);
+
+    // Format posts
+    const formattedPosts = posts.map((post) =>
+      formatAdminPostResponse(post, { includeDeleted: includeDeleted === 'true' || includeDeleted === true })
+    );
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return responseUtil.success(res, 'Club posts fetched successfully', {
+      club: {
+        id: club._id,
+        name: club.name,
+        memberCount: club.memberCount,
+        postCount: club.postCount,
+      },
+      posts: formattedPosts,
+      pagination: {
+        currentPage: Number(page),
+        totalPages,
+        totalCount,
+        limit: Number(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error('[CLUB-ADMIN] Get club posts error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch club posts', error.message);
+  }
+};
+
+/**
+ * Get single post by ID (Admin only)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with post details
+ */
+export const getPostById = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { includeDeleted = false } = req.query;
+
+    // Build query to optionally include deleted posts
+    // Note: Post schema has pre-query middleware that filters deleted posts
+    // We need to explicitly set isDeleted in query to bypass it
+    const query = { _id: postId };
+    if (includeDeleted === 'true' || includeDeleted === true) {
+      // Include both deleted and non-deleted posts
+      query.isDeleted = { $in: [true, false] };
+    } else {
+      query.isDeleted = false;
+    }
+
+    const post = await Post.findOne(query)
+      .populate({
+        path: 'author',
+        select: 'name email phone followerCount followingCount postCount',
+      })
+      .populate({
+        path: 'club',
+        select: 'name description thumbnail memberCount postCount',
+      })
+      .select(includeDeleted === 'true' || includeDeleted === true ? '+isDeleted +deletedAt' : '')
+      .lean();
+
+    if (!post) {
+      return responseUtil.notFound(res, 'Post not found');
+    }
+
+    // Get additional statistics
+    const [likeCount, commentCount] = await Promise.all([
+      Like.countDocuments({ post: postId }),
+      Post.countDocuments({ parentPost: postId, isDeleted: false }), // Comments are posts with parentPost
+    ]);
+
+    // Format response
+    const formattedPost = {
+      ...formatAdminPostResponse(post, { includeDeleted: includeDeleted === 'true' || includeDeleted === true }),
+      likeCount,
+      commentCount,
+    };
+
+    return responseUtil.success(res, 'Post fetched successfully', {
+      post: formattedPost,
+    });
+  } catch (error) {
+    console.error('[CLUB-ADMIN] Get post by ID error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch post', error.message);
+  }
+};
+
+/**
+ * Delete post (Admin only - soft delete)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with success message
+ */
+export const deletePost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      return responseUtil.notFound(res, 'Post not found');
+    }
+
+    if (post.isDeleted) {
+      return responseUtil.conflict(res, 'Post is already deleted');
+    }
+
+    // Soft delete the post
+    post.isDeleted = true;
+    post.deletedAt = new Date();
+    await post.save();
+
+    // Decrement club post count
+    if (post.club) {
+      await Club.findByIdAndUpdate(post.club, {
+        $inc: { postCount: -1 },
+      });
+    }
+
+    console.log(`[CLUB-ADMIN] Post ${postId} soft deleted by admin`);
+
+    return responseUtil.success(res, 'Post deleted successfully', {
+      postId: post._id,
+      clubId: post.club,
+      deletedAt: post.deletedAt,
+    });
+  } catch (error) {
+    console.error('[CLUB-ADMIN] Delete post error:', error);
+    return responseUtil.internalError(res, 'Failed to delete post', error.message);
   }
 };
