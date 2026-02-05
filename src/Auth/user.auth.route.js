@@ -4,6 +4,7 @@
  */
 
 import express from 'express';
+import Joi from 'joi';
 import * as userAuthController from './user.auth.controller.js';
 import { authenticate, isAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, userSchemas, schemas } from '../../middleware/validation.middleware.js';
@@ -170,7 +171,7 @@ router.get('/users',
 router.get('/users/:id',
   authenticate,
   isAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   userAuthController.getUserById
 );
 
@@ -187,7 +188,7 @@ router.get('/users/:id',
 router.put('/users/:id',
   authenticate,
   isAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   validateBody(userSchemas.update),
   userAuthController.updateUserById
 );
@@ -202,7 +203,7 @@ router.put('/users/:id',
 router.delete('/users/:id',
   authenticate,
   isAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   userAuthController.deleteUserById
 );
 
@@ -216,7 +217,7 @@ router.delete('/users/:id',
 router.post('/users/:id/restore',
   authenticate,
   isAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   userAuthController.restoreUser
 );
 
@@ -230,7 +231,7 @@ router.post('/users/:id/restore',
 router.delete('/users/:id/permanent',
   authenticate,
   isAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   userAuthController.permanentDeleteUser
 );
 

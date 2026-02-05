@@ -4,6 +4,7 @@
  */
 
 import express from 'express';
+import Joi from 'joi';
 import * as adminAuthController from './admin.auth.controller.js';
 import { authenticate, isAdmin, isSuperAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, adminSchemas, schemas } from '../../middleware/validation.middleware.js';
@@ -163,7 +164,7 @@ router.get('/admins',
 router.get('/admins/:id',
   authenticate,
   isSuperAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   adminAuthController.getAdminById
 );
 
@@ -184,7 +185,7 @@ router.get('/admins/:id',
 router.put('/admins/:id',
   authenticate,
   isSuperAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   validateBody(adminSchemas.update),
   adminAuthController.updateAdminById
 );
@@ -199,7 +200,7 @@ router.put('/admins/:id',
 router.delete('/admins/:id',
   authenticate,
   isSuperAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   adminAuthController.deleteAdminById
 );
 
@@ -217,7 +218,7 @@ router.delete('/admins/:id',
 router.get('/admins/:id/allowed-events',
   authenticate,
   isSuperAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   adminAuthController.getAllowedEvents
 );
 
@@ -232,7 +233,7 @@ router.get('/admins/:id/allowed-events',
 router.put('/admins/:id/allowed-events',
   authenticate,
   isSuperAdmin,
-  validateParams({ id: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required() })),
   validateBody(adminSchemas.updateAllowedEvents),
   adminAuthController.updateAllowedEvents
 );
@@ -248,7 +249,7 @@ router.put('/admins/:id/allowed-events',
 router.post('/admins/:id/allowed-events/:eventId',
   authenticate,
   isSuperAdmin,
-  validateParams({ id: schemas.mongoId.required(), eventId: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required(), eventId: schemas.mongoId.required() })),
   adminAuthController.addAllowedEvent
 );
 
@@ -263,7 +264,7 @@ router.post('/admins/:id/allowed-events/:eventId',
 router.delete('/admins/:id/allowed-events/:eventId',
   authenticate,
   isSuperAdmin,
-  validateParams({ id: schemas.mongoId.required(), eventId: schemas.mongoId.required() }),
+  validateParams(Joi.object({ id: schemas.mongoId.required(), eventId: schemas.mongoId.required() })),
   adminAuthController.removeAllowedEvent
 );
 

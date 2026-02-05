@@ -1633,6 +1633,35 @@ export const clubSchemas = {
         "any.only": "Post permissions must be one of: ANYONE, MEMBERS, ADMIN",
       }),
   }),
+
+  /**
+   * Query parameters for listing club posts (admin)
+   */
+  clubPostsQuery: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string()
+      .valid("createdAt", "likeCount", "commentCount")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    includeDeleted: Joi.boolean().optional().default(false),
+    mediaType: Joi.string().valid("image", "video", "all").optional(),
+    authorType: Joi.string().valid("User", "Admin").optional(),
+  }),
+
+  /**
+   * Post ID parameter validation
+   */
+  postId: Joi.object({
+    postId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Query parameters for getting post by ID (admin)
+   */
+  postByIdQuery: Joi.object({
+    includeDeleted: Joi.boolean().optional().default(false),
+  }),
 };
 
 /**

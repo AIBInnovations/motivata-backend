@@ -11,6 +11,8 @@ import Like from '../../schema/Like.schema.js';
 import Post from '../../schema/Post.schema.js';
 import UserMembership from '../../schema/UserMembership.schema.js';
 import UserServiceSubscription from '../../schema/UserServiceSubscription.schema.js';
+import ClubMember from '../../schema/ClubMember.schema.js';
+import Club from '../../schema/Club.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
 
@@ -853,6 +855,36 @@ export const deleteUserById = async (req, res) => {
       console.log('[Delete User] Continuing despite Post deletion failure');
     }
 
+    try {
+      // Get all approved club memberships before soft-deleting
+      const clubMemberships = await ClubMember.find({
+        user: userId,
+        status: 'APPROVED',
+        isDeleted: false
+      }).select('club');
+
+      if (clubMemberships.length > 0) {
+        const clubIds = clubMemberships.map(m => m.club);
+
+        // Soft delete all club memberships
+        await ClubMember.softDeleteByUser(userId);
+        console.log(`[Delete User] Soft deleted ${clubMemberships.length} club memberships for: ${userId}`);
+
+        // Decrement memberCount for each affected club
+        await Club.updateMany(
+          { _id: { $in: clubIds } },
+          { $inc: { memberCount: -1 } }
+        );
+        console.log(`[Delete User] Decremented memberCount for ${clubIds.length} clubs`);
+      } else {
+        console.log(`[Delete User] No club memberships found for: ${userId}`);
+      }
+    } catch (error) {
+      console.error(`[Delete User] Failed to handle club memberships for ${userId}:`, error);
+      // Continue even if this fails
+      console.log('[Delete User] Continuing despite ClubMember handling failure');
+    }
+
     return responseUtil.success(res, 'User deleted successfully');
   } catch (error) {
     console.error('[Delete User] Overall error:', error);
@@ -871,10 +903,46 @@ export const deleteUserById = async (req, res) => {
  */
 export const restoreUser = async (req, res) => {
   try {
-    const user = await User.restore(req.params.id);
+    const userId = req.params.id;
+    const user = await User.restore(userId);
 
     if (!user) {
       return responseUtil.notFound(res, 'User not found or not deleted');
+    }
+
+    console.log(`[Restore User] Restored user: ${userId}`);
+
+    // Restore club memberships and update member counts
+    try {
+      // Find all soft-deleted approved club memberships for this user
+      const clubMemberships = await ClubMember.find({
+        user: userId,
+        status: 'APPROVED',
+        isDeleted: true
+      }).setOptions({ includeDeleted: true }).select('club');
+
+      if (clubMemberships.length > 0) {
+        const clubIds = clubMemberships.map(m => m.club);
+
+        // Restore club memberships
+        await ClubMember.updateMany(
+          { user: userId, isDeleted: true },
+          { $set: { isDeleted: false, deletedAt: null } }
+        ).setOptions({ includeDeleted: true });
+        console.log(`[Restore User] Restored ${clubMemberships.length} club memberships for: ${userId}`);
+
+        // Increment memberCount for each affected club
+        await Club.updateMany(
+          { _id: { $in: clubIds } },
+          { $inc: { memberCount: 1 } }
+        );
+        console.log(`[Restore User] Incremented memberCount for ${clubIds.length} clubs`);
+      } else {
+        console.log(`[Restore User] No club memberships to restore for: ${userId}`);
+      }
+    } catch (error) {
+      console.error(`[Restore User] Failed to restore club memberships for ${userId}:`, error);
+      console.log('[Restore User] Continuing despite ClubMember restoration failure');
     }
 
     const userData = user.toObject();
@@ -883,7 +951,7 @@ export const restoreUser = async (req, res) => {
 
     return responseUtil.success(res, 'User restored successfully', { user: userData });
   } catch (error) {
-    console.error('Restore user error:', error);
+    console.error('[Restore User] Overall error:', error);
     return responseUtil.internalError(res, 'Failed to restore user', error.message);
   }
 };
