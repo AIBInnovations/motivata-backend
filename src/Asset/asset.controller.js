@@ -63,10 +63,11 @@ export const uploadAssets = async (req, res) => {
           height: result.height,
         });
       } catch (uploadError) {
-        console.error(`[ASSET] Failed to upload ${file.originalname}:`, uploadError.message);
+        const errMsg = uploadError?.message || uploadError?.error?.message || JSON.stringify(uploadError);
+        console.error(`[ASSET] Failed to upload ${file.originalname}:`, errMsg, uploadError);
         errors.push({
           originalName: file.originalname,
-          error: uploadError.message,
+          error: errMsg,
         });
       }
     }

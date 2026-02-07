@@ -19,12 +19,12 @@ import fs from 'fs/promises';
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-dotenv.config({ path: join(__dirname, '.env') });
+dotenv.config({ path: join(__dirname, '..', '..', '.env') });
 
 // Import schemas
-import './schema/MembershipRequest.schema.js';
-import './schema/Payment.schema.js';
-import './schema/UserMembership.schema.js';
+import '../../schema/MembershipRequest.schema.js';
+import '../../schema/Payment.schema.js';
+import '../../schema/UserMembership.schema.js';
 
 const MembershipRequest = mongoose.model('MembershipRequest');
 const Payment = mongoose.model('Payment');
@@ -59,7 +59,7 @@ async function restoreMembershipRequests() {
     }
 
     // Read backup file
-    const backupPath = join(__dirname, 'backups', backupFilename);
+    const backupPath = join(__dirname, '..', '..', 'backups', backupFilename);
     console.log(`📂 Reading backup file: ${backupFilename}`);
 
     let backupData;

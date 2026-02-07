@@ -1,10 +1,10 @@
 /**
- * @fileoverview Script to recalculate and fix club post counts
- * This syncs the postCount field with actual active (non-deleted) posts
+ * @fileoverview Script to recalculate and fix club member counts
+ * This syncs the memberCount field with actual active approved members
  *
  * Usage:
- *   node fixClubPostCounts.js              # Dry run (preview changes)
- *   node fixClubPostCounts.js --execute    # Actually update the counts
+ *   node fixClubMemberCounts.js              # Dry run (preview changes)
+ *   node fixClubMemberCounts.js --execute    # Actually update the counts
  */
 
 import mongoose from 'mongoose';
@@ -15,25 +15,27 @@ import { dirname, join } from 'path';
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-dotenv.config({ path: join(__dirname, '.env') });
+dotenv.config({ path: join(__dirname, '..', '..', '.env') });
 
 // Import schemas
-import './schema/Club.schema.js';
-import './schema/Post.schema.js';
+import '../../schema/Club.schema.js';
+import '../../schema/ClubMember.schema.js';
+import '../../schema/User.schema.js';
 
 const Club = mongoose.model('Club');
-const Post = mongoose.model('Post');
+const ClubMember = mongoose.model('ClubMember');
+const User = mongoose.model('User');
 
 // Check if we should actually execute (not just dry run)
 const EXECUTE = process.argv.includes('--execute');
 
 /**
- * Main function to fix club post counts
+ * Main function to fix club member counts
  */
-async function fixClubPostCounts() {
+async function fixClubMemberCounts() {
   try {
-    console.log('🔧 Club Post Count Fix Script');
-    console.log('='.repeat(80));
+    console.log('🔧 Club Member Count Fix Script');
+    console.log('=' .repeat(80));
     console.log(`Mode: ${EXECUTE ? '⚠️  EXECUTE (WILL MODIFY DATABASE)' : '👁️  DRY RUN (preview only)'}`);
     console.log('=' .repeat(80));
     console.log();
@@ -59,36 +61,51 @@ async function fixClubPostCounts() {
     let totalIncorrect = 0;
     let totalCorrect = 0;
 
-    console.log('🔍 Analyzing club post counts...\n');
+    console.log('🔍 Analyzing club member counts...\n');
 
     for (const club of clubs) {
-      // Count actual active (non-deleted) posts
-      // We need to check that posts are not soft-deleted
-      const actualCount = await Post.countDocuments({
+      // Count actual active approved members
+      // We need to check that:
+      // 1. ClubMember status is APPROVED
+      // 2. ClubMember is not deleted
+      // 3. User is not deleted
+      const actualCount = await ClubMember.countDocuments({
         club: club._id,
-        $or: [
-          { isDeleted: { $exists: false } },
-          { isDeleted: false }
-        ]
+        status: 'APPROVED',
+        isDeleted: false
       });
 
-      const currentCount = club.postCount || 0;
-      const difference = currentCount - actualCount;
+      // Additional check: verify users are not deleted
+      const membersWithActiveUsers = await ClubMember.find({
+        club: club._id,
+        status: 'APPROVED',
+        isDeleted: false
+      }).populate({
+        path: 'user',
+        match: { isDeleted: false },
+        select: '_id'
+      }).lean();
 
-      if (currentCount !== actualCount) {
+      // Filter out memberships where user is deleted
+      const activeCount = membersWithActiveUsers.filter(m => m.user !== null).length;
+
+      const currentCount = club.memberCount;
+      const difference = currentCount - activeCount;
+
+      if (currentCount !== activeCount) {
         totalIncorrect++;
         fixes.push({
           clubId: club._id,
           clubName: club.name,
           currentCount,
-          actualCount,
+          actualCount: activeCount,
           difference,
           needsUpdate: true
         });
         console.log(`❌ ${club.name}`);
         console.log(`   Club ID: ${club._id}`);
         console.log(`   Current Count: ${currentCount}`);
-        console.log(`   Actual Count: ${actualCount}`);
+        console.log(`   Actual Count: ${activeCount}`);
         console.log(`   Difference: ${difference > 0 ? '+' : ''}${difference}`);
         console.log();
       } else {
@@ -97,7 +114,7 @@ async function fixClubPostCounts() {
           clubId: club._id,
           clubName: club.name,
           currentCount,
-          actualCount,
+          actualCount: activeCount,
           difference: 0,
           needsUpdate: false
         });
@@ -113,7 +130,7 @@ async function fixClubPostCounts() {
     console.log();
 
     if (totalIncorrect === 0) {
-      console.log('🎉 All club post counts are correct! No fixes needed.');
+      console.log('🎉 All club member counts are correct! No fixes needed.');
       await mongoose.disconnect();
       return;
     }
@@ -136,7 +153,7 @@ async function fixClubPostCounts() {
       let updatedCount = 0;
       for (const fix of fixes.filter(f => f.needsUpdate)) {
         await Club.findByIdAndUpdate(fix.clubId, {
-          postCount: fix.actualCount
+          memberCount: fix.actualCount
         });
         updatedCount++;
         console.log(`✅ Updated ${fix.clubName}: ${fix.currentCount} → ${fix.actualCount}`);
@@ -158,8 +175,8 @@ async function fixClubPostCounts() {
       let allCorrect = true;
       for (const club of verifyClubs) {
         const fix = fixes.find(f => f.clubId.toString() === club._id.toString());
-        if (club.postCount !== fix.actualCount) {
-          console.log(`❌ Verification failed for ${club.name}: expected ${fix.actualCount}, got ${club.postCount}`);
+        if (club.memberCount !== fix.actualCount) {
+          console.log(`❌ Verification failed for ${club.name}: expected ${fix.actualCount}, got ${club.memberCount}`);
           allCorrect = false;
         }
       }
@@ -181,7 +198,7 @@ async function fixClubPostCounts() {
         });
       console.log();
       console.log('⚠️  To actually perform the fixes, run:');
-      console.log('   node fixClubPostCounts.js --execute');
+      console.log('   node fixClubMemberCounts.js --execute');
     }
 
   } catch (error) {
@@ -195,4 +212,4 @@ async function fixClubPostCounts() {
 }
 
 // Run the script
-fixClubPostCounts();
+fixClubMemberCounts();

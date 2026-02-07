@@ -17,12 +17,12 @@ import path from 'path';
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-dotenv.config({ path: join(__dirname, '.env') });
+dotenv.config({ path: join(__dirname, '..', '..', '.env') });
 
 // Import schemas
-import './schema/MembershipRequest.schema.js';
-import './schema/Payment.schema.js';
-import './schema/UserMembership.schema.js';
+import '../../schema/MembershipRequest.schema.js';
+import '../../schema/Payment.schema.js';
+import '../../schema/UserMembership.schema.js';
 
 const MembershipRequest = mongoose.model('MembershipRequest');
 const Payment = mongoose.model('Payment');
@@ -35,7 +35,7 @@ const FULL_BACKUP = process.argv.includes('--full');
  * Create backups directory if it doesn't exist
  */
 async function ensureBackupDirectory() {
-  const backupDir = join(__dirname, 'backups');
+  const backupDir = join(__dirname, '..', '..', 'backups');
   try {
     await fs.access(backupDir);
   } catch {

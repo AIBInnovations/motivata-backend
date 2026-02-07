@@ -25,7 +25,7 @@ const SHOW_JSON = process.argv.includes('--json');
  * Get the latest backup file
  */
 async function getLatestBackup() {
-  const backupDir = join(__dirname, 'backups');
+  const backupDir = join(__dirname, '..', '..', 'backups');
   try {
     const files = await fs.readdir(backupDir);
     const backupFiles = files

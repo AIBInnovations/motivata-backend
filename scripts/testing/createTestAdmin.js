@@ -11,10 +11,10 @@ import bcrypt from 'bcryptjs';
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-dotenv.config({ path: join(__dirname, '.env') });
+dotenv.config({ path: join(__dirname, '..', '..', '.env') });
 
 // Import Admin schema
-import './schema/Admin.schema.js';
+import '../../schema/Admin.schema.js';
 const Admin = mongoose.model('Admin');
 
 async function createTestAdmin() {

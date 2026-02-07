@@ -5,6 +5,7 @@
  */
 
 import express from 'express';
+import multer from 'multer';
 import { authenticate, isAdmin } from '../../middleware/auth.middleware.js';
 import {
   validateBody,
@@ -20,11 +21,38 @@ import {
   getMotivataBlendStats,
   getPendingCount
 } from './motivataBlend.admin.controller.js';
+import { upsertBanner, deleteBanner } from './motivataBlendBanner.admin.controller.js';
+import { getActiveBanner } from './motivataBlendBanner.controller.js';
+
+// Multer config for banner image upload
+const bannerUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowed.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Invalid file type: ${file.mimetype}. Only JPEG, PNG, GIF, and WebP are allowed.`), false);
+    }
+  },
+});
 
 const router = express.Router();
 
 /**
- * All routes require authentication + admin role
+ * PUBLIC ROUTES (no auth required)
+ */
+
+/**
+ * @route   GET /api/web/motivata-blend/admin/banner
+ * @desc    Get the current Motivata Blend banner
+ * @access  Public
+ */
+router.get('/banner', getActiveBanner);
+
+/**
+ * All routes below require authentication + admin role
  */
 router.use(authenticate);
 router.use(isAdmin);
@@ -88,5 +116,19 @@ router.post(
   validateBody(motivataBlendSchemas.reject),
   rejectMotivataBlendRequest
 );
+
+/**
+ * @route   POST /api/web/motivata-blend/admin/banner
+ * @desc    Upload or update the Motivata Blend banner image
+ * @access  Admin
+ */
+router.post('/banner', bannerUpload.single('image'), upsertBanner);
+
+/**
+ * @route   DELETE /api/web/motivata-blend/admin/banner
+ * @desc    Delete the Motivata Blend banner
+ * @access  Admin
+ */
+router.delete('/banner', deleteBanner);
 
 export default router;
