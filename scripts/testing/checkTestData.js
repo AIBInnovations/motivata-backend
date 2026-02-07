@@ -10,14 +10,14 @@ import { dirname, join } from 'path';
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-dotenv.config({ path: join(__dirname, '.env') });
+dotenv.config({ path: join(__dirname, '..', '..', '.env') });
 
 // Import schemas
-import './schema/Club.schema.js';
-import './schema/Post.schema.js';
-import './schema/ClubMember.schema.js';
-import './schema/User.schema.js';
-import './schema/Admin.schema.js';
+import '../../schema/Club.schema.js';
+import '../../schema/Post.schema.js';
+import '../../schema/ClubMember.schema.js';
+import '../../schema/User.schema.js';
+import '../../schema/Admin.schema.js';
 
 const Club = mongoose.model('Club');
 const Post = mongoose.model('Post');

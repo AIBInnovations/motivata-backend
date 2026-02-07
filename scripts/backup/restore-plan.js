@@ -4,7 +4,7 @@
  */
 
 import mongoose from 'mongoose';
-import MembershipPlan from './schema/MembershipPlan.schema.js';
+import MembershipPlan from '../../schema/MembershipPlan.schema.js';
 
 // Configuration
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/motivata';

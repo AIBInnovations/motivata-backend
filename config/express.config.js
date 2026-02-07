@@ -52,6 +52,8 @@ const corsOptions = {
           "https://motivata.in/",
           "https://lightslategrey-baboon-874891.hostingersite.com/",
           "https://lightslategrey-baboon-874891.hostingersite.com",
+          "http://localhost:3000",
+          "http://localhost:3000/",
           "http://localhost:5173",
           "http://localhost:5173/",
           "https://motivata.synquic.com/",

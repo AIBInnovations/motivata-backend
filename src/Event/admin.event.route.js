@@ -25,7 +25,25 @@ import Joi from 'joi';
 const router = express.Router();
 
 /**
- * All routes require authentication and admin access
+ * PUBLIC ROUTES (no auth required)
+ */
+
+/**
+ * @route   GET /api/web/events/website/featured
+ * @desc    Get upcoming featured events for the website
+ * @access  Public
+ * @query   {number} [limit=10] - Maximum number of events to return
+ */
+router.get(
+  '/website/featured',
+  validateQuery(Joi.object({
+    limit: Joi.number().integer().min(1).max(50).default(10)
+  })),
+  getFeaturedEvents
+);
+
+/**
+ * All routes below require authentication and admin access
  */
 router.use(authenticate);
 router.use(isAdmin);
