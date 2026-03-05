@@ -572,6 +572,39 @@ export const getFeaturedEvents = async (req, res) => {
   }
 };
 
+/**
+ * Get single event by ID for public website (no auth required)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Object} Response with event details
+ */
+export const getWebEventById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const event = await Event.findOne({
+      _id: id,
+      isLive: true,
+    }).select(
+      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode city category availableSeats ticketsSold featured'
+    );
+
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found or not available');
+    }
+
+    return responseUtil.success(res, 'Event fetched successfully', { event });
+  } catch (error) {
+    console.error('Get web event by ID error:', error);
+
+    if (error.name === 'CastError') {
+      return responseUtil.badRequest(res, 'Invalid event ID');
+    }
+
+    return responseUtil.internalError(res, 'Failed to fetch event', error.message);
+  }
+};
+
 export default {
   createEvent,
   getAllEvents,
@@ -586,5 +619,6 @@ export default {
   getEventsByCategory,
   getEventTicketStats,
   getEventsForDropdown,
-  getFeaturedEvents
+  getFeaturedEvents,
+  getWebEventById
 };

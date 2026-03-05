@@ -16,7 +16,8 @@ import {
   updateExpiredEvents,
   getEventTicketStats,
   getEventsForDropdown,
-  getFeaturedEvents
+  getFeaturedEvents,
+  getWebEventById
 } from './event.controller.js';
 import { authenticate, isAdmin, isSuperAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, eventSchemas } from '../../middleware/validation.middleware.js';
@@ -40,6 +41,17 @@ router.get(
     limit: Joi.number().integer().min(1).max(50).default(10)
   })),
   getFeaturedEvents
+);
+
+/**
+ * @route   GET /api/web/events/website/:id
+ * @desc    Get single live event by ID for public website (no auth required)
+ * @access  Public
+ */
+router.get(
+  '/website/:id',
+  validateParams(eventSchemas.eventId),
+  getWebEventById
 );
 
 /**
