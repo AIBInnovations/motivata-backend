@@ -42,7 +42,7 @@ export const challengeSchemas = {
     }),
     category: Joi.string()
       .required()
-      .valid("health", "fitness", "mindfulness", "productivity", "social", "creativity", "learning", "wellness", "habit", "other")
+      .valid("personal", "professional", "relational")
       .messages({
         "any.only": "Invalid category",
       }),
@@ -72,7 +72,7 @@ export const challengeSchemas = {
       "string.max": "Description cannot exceed 2000 characters",
     }),
     category: Joi.string()
-      .valid("health", "fitness", "mindfulness", "productivity", "social", "creativity", "learning", "wellness", "habit", "other")
+      .valid("personal", "professional", "relational")
       .messages({
         "any.only": "Invalid category",
       }),
@@ -95,7 +95,7 @@ export const challengeSchemas = {
     sortBy: Joi.string().valid("createdAt", "title", "category", "difficulty", "order").default("createdAt"),
     sortOrder: Joi.string().valid("asc", "desc").default("desc"),
     category: Joi.string()
-      .valid("health", "fitness", "mindfulness", "productivity", "social", "creativity", "learning", "wellness", "habit", "other")
+      .valid("personal", "professional", "relational")
       .optional(),
     difficulty: Joi.string().valid("easy", "medium", "hard").optional(),
     isActive: Joi.boolean().optional(),

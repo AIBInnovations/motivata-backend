@@ -25,6 +25,7 @@ import responseUtil from "../utils/response.util.js";
 import services from "../src/Other/app/showDelete.js";
 import publicAssetRoutes from "../src/Asset/asset.public.route.js";
 import userStoryRoutes from "../src/Story/story.user.route.js";
+import challengeStoryRoutes from "../src/ChallengeStory/challengeStory.user.route.js";
 import userMembershipRoutes from "../src/Membership/user.membership.route.js";
 import seatArrangementUserRoutes from "../src/SeatArrangement/seatArrangement.user.route.js";
 import userServiceRoutes from "../src/Service/service.user.route.js";
@@ -76,6 +77,9 @@ router.use("/sos", userSOSRoutes);
 
 // Challenge routes - /api/app/challenges
 router.use("/challenges", userChallengeRoutes);
+
+// Challenge Story routes - /api/app/challenge-stories (user-generated stories for challenges)
+router.use("/challenge-stories", challengeStoryRoutes);
 
 // Poll routes - /api/app/polls
 router.use("/polls", userPollRoutes);

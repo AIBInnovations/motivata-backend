@@ -269,16 +269,9 @@ export const getChallengeCategories = async (req, res) => {
     ]);
 
     const categoryLabels = {
-      health: "Health",
-      fitness: "Fitness",
-      mindfulness: "Mindfulness",
-      productivity: "Productivity",
-      social: "Social",
-      creativity: "Creativity",
-      learning: "Learning",
-      wellness: "Wellness",
-      habit: "Habit Building",
-      other: "Other",
+      personal: "Personal",
+      professional: "Professional",
+      relational: "Relational",
     };
 
     const result = categories.map((c) => ({
@@ -331,7 +324,7 @@ export const getAvailableChallenges = async (req, res) => {
     }
 
     const [challenges, totalCount] = await Promise.all([
-      Challenge.find(query).sort(sortOptions).skip(skip).limit(limitNum).select("-isDeleted -deletedAt -deletedBy"),
+      Challenge.find(query).sort(sortOptions).skip(skip).limit(limitNum).select("-isDeleted -deletedAt -deletedBy").populate("createdBy", "name"),
       Challenge.countDocuments(query),
     ]);
 
@@ -474,7 +467,11 @@ export const getMyChallenges = async (req, res) => {
     }
 
     const challenges = await UserChallenge.find(query)
-      .populate("challengeId", "title description category difficulty tasks imageUrl durationDays")
+      .populate({
+        path: "challengeId",
+        select: "title description category difficulty tasks imageUrl durationDays createdBy",
+        populate: { path: "createdBy", select: "name" },
+      })
       .sort({ lastActivityAt: -1 });
 
     // Get today's progress for each active challenge
