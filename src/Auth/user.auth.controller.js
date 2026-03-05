@@ -32,7 +32,109 @@ export const register = async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
 
-    // Check if user already exists
+    // Check for soft-deleted user with same email or phone (grace period reactivation)
+    const softDeletedUser = await User.findOne({
+      $or: [
+        ...(email ? [{ email }] : []),
+        { phone }
+      ],
+      isDeleted: true
+    }).setOptions({ includeDeleted: true });
+
+    if (softDeletedUser) {
+      const deletedAt = new Date(softDeletedUser.deletedAt);
+      const daysSinceDeletion = (Date.now() - deletedAt.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (daysSinceDeletion <= 30) {
+        // WITHIN 30-DAY GRACE PERIOD: Reactivate with all data preserved
+        console.log('[REGISTER] Reactivating soft-deleted user within grace period', {
+          userId: softDeletedUser._id,
+          daysSinceDeletion: Math.floor(daysSinceDeletion),
+          email: softDeletedUser.email
+        });
+
+        softDeletedUser.isDeleted = false;
+        softDeletedUser.deletedAt = null;
+        softDeletedUser.name = name;
+        softDeletedUser.phone = phone;
+        if (email) softDeletedUser.email = email;
+        softDeletedUser.lastLogin = new Date();
+        softDeletedUser.fcmTokens = [];
+
+        const salt = await bcrypt.genSalt(10);
+        softDeletedUser.password = await bcrypt.hash(password, salt);
+
+        const tokens = generateTokens({
+          id: softDeletedUser._id.toString(),
+          email: softDeletedUser.email,
+          phone: softDeletedUser.phone,
+          userType: 'user'
+        });
+        softDeletedUser.refreshToken = tokens.refreshToken;
+        await softDeletedUser.save();
+
+        // Restore related soft-deleted data (Connect, Likes, Posts, ClubMembers)
+        const userId = softDeletedUser._id;
+        try {
+          await Promise.all([
+            Connect.updateMany(
+              { $or: [{ follower: userId }, { following: userId }], isDeleted: true },
+              { $set: { isDeleted: false, deletedAt: null } }
+            ).setOptions({ includeDeleted: true }),
+            Like.updateMany(
+              { user: userId, isDeleted: true },
+              { $set: { isDeleted: false, deletedAt: null } }
+            ).setOptions({ includeDeleted: true }),
+            Post.updateMany(
+              { author: userId, isDeleted: true },
+              { $set: { isDeleted: false, deletedAt: null } }
+            ),
+          ]);
+
+          const clubMemberships = await ClubMember.find({
+            user: userId,
+            status: 'APPROVED',
+            isDeleted: true
+          }).setOptions({ includeDeleted: true }).select('club');
+
+          if (clubMemberships.length > 0) {
+            const clubIds = clubMemberships.map(m => m.club);
+            await ClubMember.updateMany(
+              { user: userId, isDeleted: true },
+              { $set: { isDeleted: false, deletedAt: null } }
+            ).setOptions({ includeDeleted: true });
+            await Club.updateMany(
+              { _id: { $in: clubIds } },
+              { $inc: { memberCount: 1 } }
+            );
+          }
+
+          console.log('[REGISTER] Restored all related data for reactivated user:', userId);
+        } catch (restoreError) {
+          console.error('[REGISTER] Error restoring related data:', restoreError);
+        }
+
+        const userData = softDeletedUser.toObject();
+        delete userData.password;
+        delete userData.refreshToken;
+        delete userData.isDeleted;
+        delete userData.deletedAt;
+
+        return responseUtil.created(res, 'Account reactivated successfully', {
+          user: userData,
+          tokens
+        });
+      } else {
+        // PAST 30 DAYS: Hard-delete old record, then create fresh account
+        console.log('[REGISTER] Hard-deleting expired soft-deleted user', {
+          userId: softDeletedUser._id,
+          daysSinceDeletion: Math.floor(daysSinceDeletion)
+        });
+        await User.findByIdAndDelete(softDeletedUser._id).setOptions({ includeDeleted: true });
+      }
+    }
+
+    // Check if user already exists (active users)
     const existingUser = await User.findOne({
       $or: [{ email }, { phone }]
     });
@@ -167,17 +269,39 @@ export const loginWithPhone = async (req, res) => {
       userAgent: req.get('user-agent')
     });
 
-    // Find user (excluding soft deleted)
+    // Find user (including soft-deleted for grace period check)
     console.log('[LOGIN-PHONE] Querying database for user with phone:', phone);
-    const user = await User.findOne({ phone, isDeleted: false });
+    const user = await User.findOne({ phone }).setOptions({ includeDeleted: true });
 
     if (!user) {
       console.log('[LOGIN-PHONE] User not found', {
         phone,
-        reason: 'No matching user or user is soft deleted',
+        reason: 'No matching user',
         duration: `${Date.now() - startTime}ms`
       });
       return responseUtil.unauthorized(res, 'Invalid phone number or password');
+    }
+
+    // Check if soft-deleted user is within grace period (reject if past 30 days)
+    let needsReactivation = false;
+    if (user.isDeleted) {
+      const deletedAt = new Date(user.deletedAt);
+      const daysSinceDeletion = (Date.now() - deletedAt.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (daysSinceDeletion > 30) {
+        console.log('[LOGIN-PHONE] Soft-deleted user past grace period', {
+          phone,
+          userId: user._id,
+          daysSinceDeletion: Math.floor(daysSinceDeletion)
+        });
+        return responseUtil.unauthorized(res, 'Invalid phone number or password');
+      }
+
+      needsReactivation = true;
+      console.log('[LOGIN-PHONE] Soft-deleted user within grace period, will reactivate after password check', {
+        userId: user._id,
+        daysSinceDeletion: Math.floor(daysSinceDeletion)
+      });
     }
 
     console.log('[LOGIN-PHONE] User found successfully', {
@@ -190,7 +314,7 @@ export const loginWithPhone = async (req, res) => {
       createdAt: user.createdAt
     });
 
-    // Verify password
+    // Verify password BEFORE reactivation to avoid restoring data on wrong password
     console.log('[LOGIN-PHONE] Starting password verification for user:', user._id);
     const passwordStartTime = Date.now();
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -209,6 +333,52 @@ export const loginWithPhone = async (req, res) => {
         totalDuration: `${Date.now() - startTime}ms`
       });
       return responseUtil.unauthorized(res, 'Invalid phone number or password');
+    }
+
+    // Reactivate soft-deleted user AFTER password verification succeeds
+    if (needsReactivation) {
+      console.log('[LOGIN-PHONE] Reactivating soft-deleted user', { userId: user._id });
+      user.isDeleted = false;
+      user.deletedAt = null;
+      user.fcmTokens = [];
+
+      // Restore related soft-deleted data
+      try {
+        await Promise.all([
+          Connect.updateMany(
+            { $or: [{ follower: user._id }, { following: user._id }], isDeleted: true },
+            { $set: { isDeleted: false, deletedAt: null } }
+          ).setOptions({ includeDeleted: true }),
+          Like.updateMany(
+            { user: user._id, isDeleted: true },
+            { $set: { isDeleted: false, deletedAt: null } }
+          ).setOptions({ includeDeleted: true }),
+          Post.updateMany(
+            { author: user._id, isDeleted: true },
+            { $set: { isDeleted: false, deletedAt: null } }
+          ),
+        ]);
+
+        const clubMemberships = await ClubMember.find({
+          user: user._id, status: 'APPROVED', isDeleted: true
+        }).setOptions({ includeDeleted: true }).select('club');
+
+        if (clubMemberships.length > 0) {
+          const clubIds = clubMemberships.map(m => m.club);
+          await ClubMember.updateMany(
+            { user: user._id, isDeleted: true },
+            { $set: { isDeleted: false, deletedAt: null } }
+          ).setOptions({ includeDeleted: true });
+          await Club.updateMany(
+            { _id: { $in: clubIds } },
+            { $inc: { memberCount: 1 } }
+          );
+        }
+
+        console.log('[LOGIN-PHONE] Restored all related data for reactivated user:', user._id);
+      } catch (restoreError) {
+        console.error('[LOGIN-PHONE] Error restoring related data:', restoreError);
+      }
     }
 
     // Generate tokens
@@ -289,42 +459,68 @@ export const checkPhoneExists = async (req, res) => {
       userAgent: req.get('user-agent')
     });
 
-    // Check if phone exists (excluding soft deleted users)
+    // Check for active user first
     console.log('[CHECK-PHONE] Querying database for phone:', phone);
     const queryStartTime = Date.now();
-    const user = await User.findOne({ phone, isDeleted: false });
+    const activeUser = await User.findOne({ phone, isDeleted: false });
     const queryDuration = Date.now() - queryStartTime;
 
-    const exists = !!user;
+    if (activeUser) {
+      console.log('[CHECK-PHONE] Active user found', {
+        phone,
+        userId: activeUser._id,
+        email: activeUser.email,
+        name: activeUser.name,
+        registeredAt: activeUser.createdAt,
+        queryDuration: `${queryDuration}ms`
+      });
 
-    if (user) {
-      console.log('[CHECK-PHONE] Phone number found in database', {
-        phone,
-        userId: user._id,
-        email: user.email,
-        name: user.name,
-        registeredAt: user.createdAt,
-        queryDuration: `${queryDuration}ms`
+      const totalDuration = Date.now() - startTime;
+      console.log('[CHECK-PHONE] Phone check completed', {
+        phone, exists: true, totalDuration: `${totalDuration}ms`
       });
-    } else {
-      console.log('[CHECK-PHONE] Phone number not found in database', {
-        phone,
-        queryDuration: `${queryDuration}ms`
-      });
+
+      return responseUtil.success(res, 'Phone check completed', { exists: true, phone });
     }
+
+    // Check for soft-deleted user within 30-day grace period
+    const softDeletedUser = await User.findOne({
+      phone,
+      isDeleted: true
+    }).setOptions({ includeDeleted: true });
+
+    if (softDeletedUser) {
+      const deletedAt = new Date(softDeletedUser.deletedAt);
+      const daysSinceDeletion = (Date.now() - deletedAt.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (daysSinceDeletion <= 30) {
+        console.log('[CHECK-PHONE] Soft-deleted user found within grace period', {
+          phone,
+          userId: softDeletedUser._id,
+          daysSinceDeletion: Math.floor(daysSinceDeletion)
+        });
+
+        const totalDuration = Date.now() - startTime;
+        console.log('[CHECK-PHONE] Phone check completed (grace period)', {
+          phone, exists: true, totalDuration: `${totalDuration}ms`
+        });
+
+        return responseUtil.success(res, 'Phone check completed', { exists: true, phone });
+      }
+    }
+
+    console.log('[CHECK-PHONE] Phone number not found in database', {
+      phone,
+      queryDuration: `${queryDuration}ms`
+    });
 
     const totalDuration = Date.now() - startTime;
     console.log('[CHECK-PHONE] Phone check completed', {
-      phone,
-      exists,
-      totalDuration: `${totalDuration}ms`,
+      phone, exists: false, totalDuration: `${totalDuration}ms`,
       timestamp: new Date().toISOString()
     });
 
-    return responseUtil.success(res, 'Phone check completed', {
-      exists,
-      phone
-    });
+    return responseUtil.success(res, 'Phone check completed', { exists: false, phone });
   } catch (error) {
     const totalDuration = Date.now() - startTime;
     console.error('[CHECK-PHONE] Phone check failed with error', {

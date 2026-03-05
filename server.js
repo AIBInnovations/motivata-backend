@@ -7,6 +7,7 @@ import app from "./config/express.config.js";
 import connectDB from "./config/database.config.js";
 import { runCashTicketAudit } from "./scripts/cashTicketAudit.js";
 import seedFeatureAccess from "./seeds/featureAccessSeed.js";
+import { cleanupDeletedUsers } from "./scripts/cleanupDeletedUsers.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -47,6 +48,11 @@ const startServer = async () => {
     // Run cash ticket audit on startup (non-blocking)
     runCashTicketAudit().catch((err) => {
       console.error("> Cash ticket audit failed:", err.message);
+    });
+
+    // Cleanup soft-deleted users past 30-day grace period (non-blocking)
+    cleanupDeletedUsers().catch((err) => {
+      console.error("> Deleted users cleanup failed:", err.message);
     });
 
     app.listen(PORT, () => {
