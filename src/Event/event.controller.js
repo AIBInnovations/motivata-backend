@@ -4,8 +4,20 @@
  */
 
 import Event from '../../schema/Event.schema.js';
+import User from '../../schema/User.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { sendNewEventNotification } from '../../utils/fcm.util.js';
+
+/**
+ * Returns a Set of saved event ID strings for the given user.
+ * Returns empty Set if userId is falsy.
+ */
+const getSavedSet = async (userId) => {
+  if (!userId) return new Set();
+  const user = await User.findById(userId).select('savedEvents').lean();
+  if (!user) return new Set();
+  return new Set(user.savedEvents.map((id) => id.toString()));
+};
 
 /**
  * Create a new event
@@ -113,14 +125,20 @@ export const getAllEvents = async (req, res) => {
     const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
     // Execute query with pagination
-    const [events, totalCount] = await Promise.all([
+    const [events, totalCount, savedSet] = await Promise.all([
       Event.find(query)
         .sort(sortOptions)
         .skip(skip)
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
-      Event.countDocuments(query)
+      Event.countDocuments(query),
+      getSavedSet(req.user?.id)
     ]);
+
+    const eventsWithSaved = events.map((e) => ({
+      ...e.toObject(),
+      isSaved: savedSet.has(e._id.toString())
+    }));
 
     // Calculate pagination info
     const totalPages = Math.ceil(totalCount / limit);
@@ -128,7 +146,7 @@ export const getAllEvents = async (req, res) => {
     const hasPrevPage = page > 1;
 
     return responseUtil.success(res, 'Events fetched successfully', {
-      events,
+      events: eventsWithSaved,
       pagination: {
         currentPage: Number(page),
         totalPages,
@@ -165,7 +183,10 @@ export const getEventById = async (req, res) => {
     // Update event status if expired
     await event.updateEventStatus();
 
-    return responseUtil.success(res, 'Event fetched successfully', { event });
+    const savedSet = await getSavedSet(req.user?.id);
+    const eventObj = { ...event.toObject(), isSaved: savedSet.has(event._id.toString()) };
+
+    return responseUtil.success(res, 'Event fetched successfully', { event: eventObj });
   } catch (error) {
     console.error('Get event by ID error:', error);
 
@@ -400,15 +421,23 @@ export const getUpcomingEvents = async (req, res) => {
 
     const { limit = 10 } = req.query;
 
-    const events = await Event.find({
-      startDate: { $gt: new Date() },
-      isLive: true
-    })
-      .sort({ startDate: 1 })
-      .limit(Number(limit))
-      .populate('createdBy', 'name email');
+    const [events, savedSet] = await Promise.all([
+      Event.find({
+        startDate: { $gt: new Date() },
+        isLive: true
+      })
+        .sort({ startDate: 1 })
+        .limit(Number(limit))
+        .populate('createdBy', 'name email'),
+      getSavedSet(req.user?.id)
+    ]);
 
-    return responseUtil.success(res, 'Upcoming events fetched successfully', { events });
+    const eventsWithSaved = events.map((e) => ({
+      ...e.toObject(),
+      isSaved: savedSet.has(e._id.toString())
+    }));
+
+    return responseUtil.success(res, 'Upcoming events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
     console.error('Get upcoming events error:', error);
     return responseUtil.internalError(res, 'Failed to fetch upcoming events', error.message);
@@ -430,19 +459,25 @@ export const getEventsByCategory = async (req, res) => {
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
-    const [events, totalCount] = await Promise.all([
+    const [events, totalCount, savedSet] = await Promise.all([
       Event.find({ category, isLive: true })
         .sort({ startDate: 1 })
         .skip(skip)
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
-      Event.countDocuments({ category, isLive: true })
+      Event.countDocuments({ category, isLive: true }),
+      getSavedSet(req.user?.id)
     ]);
+
+    const eventsWithSaved = events.map((e) => ({
+      ...e.toObject(),
+      isSaved: savedSet.has(e._id.toString())
+    }));
 
     const totalPages = Math.ceil(totalCount / limit);
 
     return responseUtil.success(res, 'Events fetched successfully', {
-      events,
+      events: eventsWithSaved,
       pagination: {
         currentPage: Number(page),
         totalPages,
@@ -557,15 +592,23 @@ export const getFeaturedEvents = async (req, res) => {
 
     const { limit = 10 } = req.query;
 
-    const events = await Event.find({
-      featured: true,
-      isLive: true
-    })
-      .sort({ startDate: 1 })
-      .limit(Number(limit))
-      .populate('createdBy', 'name email');
+    const [events, savedSet] = await Promise.all([
+      Event.find({
+        featured: true,
+        isLive: true
+      })
+        .sort({ startDate: 1 })
+        .limit(Number(limit))
+        .populate('createdBy', 'name email'),
+      getSavedSet(req.user?.id)
+    ]);
 
-    return responseUtil.success(res, 'Featured events fetched successfully', { events });
+    const eventsWithSaved = events.map((e) => ({
+      ...e.toObject(),
+      isSaved: savedSet.has(e._id.toString())
+    }));
+
+    return responseUtil.success(res, 'Featured events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
     console.error('Get featured events error:', error);
     return responseUtil.internalError(res, 'Failed to fetch featured events', error.message);
@@ -605,6 +648,109 @@ export const getWebEventById = async (req, res) => {
   }
 };
 
+/**
+ * Save an event for the logged-in user
+ */
+export const saveEvent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const event = await Event.findById(id);
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found');
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return responseUtil.notFound(res, 'User not found');
+    }
+
+    const alreadySaved = user.savedEvents.some(
+      (savedId) => savedId.toString() === id
+    );
+
+    if (alreadySaved) {
+      return responseUtil.badRequest(res, 'Event already saved');
+    }
+
+    user.savedEvents.push(id);
+    await user.save();
+
+    return responseUtil.success(res, 'Event saved successfully');
+  } catch (error) {
+    console.error('Save event error:', error);
+
+    if (error.name === 'CastError') {
+      return responseUtil.badRequest(res, 'Invalid event ID');
+    }
+
+    return responseUtil.internalError(res, 'Failed to save event', error.message);
+  }
+};
+
+/**
+ * Remove a saved event for the logged-in user
+ */
+export const unsaveEvent = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return responseUtil.notFound(res, 'User not found');
+    }
+
+    const savedIndex = user.savedEvents.findIndex(
+      (savedId) => savedId.toString() === id
+    );
+
+    if (savedIndex === -1) {
+      return responseUtil.badRequest(res, 'Event not in saved list');
+    }
+
+    user.savedEvents.splice(savedIndex, 1);
+    await user.save();
+
+    return responseUtil.success(res, 'Event removed from saved list');
+  } catch (error) {
+    console.error('Unsave event error:', error);
+
+    if (error.name === 'CastError') {
+      return responseUtil.badRequest(res, 'Invalid event ID');
+    }
+
+    return responseUtil.internalError(res, 'Failed to unsave event', error.message);
+  }
+};
+
+/**
+ * Get all saved events for the logged-in user
+ */
+export const getSavedEvents = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const user = await User.findById(userId).populate({
+      path: 'savedEvents',
+      match: { isDeleted: false },
+      options: { sort: { createdAt: -1 } }
+    });
+
+    if (!user) {
+      return responseUtil.notFound(res, 'User not found');
+    }
+
+    return responseUtil.success(res, 'Saved events fetched successfully', {
+      events: user.savedEvents
+    });
+  } catch (error) {
+    console.error('Get saved events error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch saved events', error.message);
+  }
+};
+
 export default {
   createEvent,
   getAllEvents,
@@ -620,5 +766,8 @@ export default {
   getEventTicketStats,
   getEventsForDropdown,
   getFeaturedEvents,
-  getWebEventById
+  getWebEventById,
+  saveEvent,
+  unsaveEvent,
+  getSavedEvents
 };
