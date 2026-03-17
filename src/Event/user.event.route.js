@@ -10,18 +10,37 @@ import {
   getUpcomingEvents,
   getEventsByCategory,
   getEventTicketStats,
-  getFeaturedEvents
+  getFeaturedEvents,
+  saveEvent,
+  unsaveEvent,
+  getSavedEvents
 } from './event.controller.js';
-import { optionalAuth } from '../../middleware/auth.middleware.js';
+import { optionalAuth, authenticate } from '../../middleware/auth.middleware.js';
 import { validateParams, validateQuery, eventSchemas, schemas } from '../../middleware/validation.middleware.js';
 import Joi from 'joi';
 
 const router = express.Router();
 
 /**
- * Optional authentication to get user-specific data if logged in
+ * @route   GET /api/app/events/saved
+ * @desc    Get all saved events for the logged-in user
+ * @access  Private (user auth required)
  */
-router.use(optionalAuth);
+router.get('/saved', authenticate, getSavedEvents);
+
+/**
+ * @route   POST /api/app/events/:id/save
+ * @desc    Save an event
+ * @access  Private (user auth required)
+ */
+router.post('/:id/save', authenticate, validateParams(eventSchemas.eventId), saveEvent);
+
+/**
+ * @route   DELETE /api/app/events/:id/save
+ * @desc    Remove an event from saved list
+ * @access  Private (user auth required)
+ */
+router.delete('/:id/save', authenticate, validateParams(eventSchemas.eventId), unsaveEvent);
 
 /**
  * @route   GET /api/app/events
@@ -30,6 +49,7 @@ router.use(optionalAuth);
  */
 router.get(
   '/',
+  optionalAuth,
   validateQuery(eventSchemas.list),
   async (req, res, next) => {
     // Force isLive to be true for public access
@@ -46,6 +66,7 @@ router.get(
  */
 router.get(
   '/upcoming',
+  optionalAuth,
   validateQuery(Joi.object({
     limit: Joi.number().integer().min(1).max(50).default(10)
   })),
@@ -59,6 +80,7 @@ router.get(
  */
 router.get(
   '/featured',
+  optionalAuth,
   validateQuery(Joi.object({
     limit: Joi.number().integer().min(1).max(50).default(10)
   })),
@@ -72,6 +94,7 @@ router.get(
  */
 router.get(
   '/category/:category',
+  optionalAuth,
   validateParams(Joi.object({
     category: Joi.string().valid(
       'TECHNOLOGY', 'EDUCATION', 'MEDICAL', 'COMEDY', 'ENTERTAINMENT',
@@ -103,21 +126,9 @@ router.get(
  */
 router.get(
   '/:id',
+  optionalAuth,
   validateParams(eventSchemas.eventId),
-  async (req, res, next) => {
-    // Store the original getEventById function
-    const originalGetEventById = getEventById;
-
-    // Wrap it to ensure only live events are returned
-    const wrappedGetEventById = async (req, res) => {
-      const result = await originalGetEventById(req, res);
-
-      // Check if event is live (this is handled in the controller response)
-      return result;
-    };
-
-    return wrappedGetEventById(req, res, next);
-  }
+  getEventById
 );
 
 export default router;

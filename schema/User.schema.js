@@ -46,6 +46,12 @@ const userSchema = new mongoose.Schema(
         certificate: [String],
       },
     ],
+    savedEvents: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Event",
+      },
+    ],
     refreshToken: {
       type: String,
       default: null,
