@@ -5,6 +5,7 @@
 
 import Event from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
+import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { sendNewEventNotification } from '../../utils/fcm.util.js';
 
@@ -184,7 +185,27 @@ export const getEventById = async (req, res) => {
     await event.updateEventStatus();
 
     const savedSet = await getSavedSet(req.user?.id);
-    const eventObj = { ...event.toObject(), isSaved: savedSet.has(event._id.toString()) };
+
+    const [buyerEnrollments, totalBuyers] = await Promise.all([
+      EventEnrollment.find({ eventId: id })
+        .populate('userId', 'name')
+        .select('userId')
+        .sort({ createdAt: 1 })
+        .limit(3)
+        .lean(),
+      EventEnrollment.countDocuments({ eventId: id }),
+    ]);
+
+    const ticketBuyers = buyerEnrollments
+      .filter((e) => e.userId)
+      .map((e) => ({ name: e.userId.name }));
+
+    const eventObj = {
+      ...event.toObject(),
+      isSaved: savedSet.has(event._id.toString()),
+      ticketBuyers,
+      totalBuyers,
+    };
 
     return responseUtil.success(res, 'Event fetched successfully', { event: eventObj });
   } catch (error) {
@@ -636,7 +657,23 @@ export const getWebEventById = async (req, res) => {
       return responseUtil.notFound(res, 'Event not found or not available');
     }
 
-    return responseUtil.success(res, 'Event fetched successfully', { event });
+    const [buyerEnrollments, totalBuyers] = await Promise.all([
+      EventEnrollment.find({ eventId: id })
+        .populate('userId', 'name')
+        .select('userId')
+        .sort({ createdAt: 1 })
+        .limit(3)
+        .lean(),
+      EventEnrollment.countDocuments({ eventId: id }),
+    ]);
+
+    const ticketBuyers = buyerEnrollments
+      .filter((e) => e.userId)
+      .map((e) => ({ name: e.userId.name }));
+
+    return responseUtil.success(res, 'Event fetched successfully', {
+      event: { ...event.toObject(), ticketBuyers, totalBuyers },
+    });
   } catch (error) {
     console.error('Get web event by ID error:', error);
 
