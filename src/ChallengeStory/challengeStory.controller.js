@@ -31,7 +31,7 @@ export const createStory = async (req, res) => {
     const userChallenge = await UserChallenge.findOne({
       userId,
       challengeId,
-      status: "active",
+      status: { $in: ["active", "completed"] },
     });
 
     if (!userChallenge) {
