@@ -14,6 +14,7 @@ import {
   getDayQuiz,
   submitDayQuiz,
   getLeaderboard,
+  downloadCertificate,
 } from "./sos.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
@@ -152,5 +153,13 @@ router.post(
   validateBody(progressSchemas.submitQuiz),
   submitDayQuiz
 );
+
+/**
+ * @route   GET /api/app/sos/programs/:programId/certificate
+ * @desc    Download certificate for a completed SOS program
+ * @access  User (authenticated)
+ * @param   {string} programId - Program ID
+ */
+router.get("/programs/:programId/certificate", validateParams(programIdParam), downloadCertificate);
 
 export default router;

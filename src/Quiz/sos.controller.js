@@ -1064,6 +1064,62 @@ export const getProgramStats = async (req, res) => {
   }
 };
 
+/**
+ * Download certificate for a completed SOS program
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const downloadCertificate = async (req, res) => {
+  try {
+    const { programId } = req.params;
+    const userId = req.user.id;
+
+    const progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+
+    if (!progress) {
+      return responseUtil.notFound(res, "You have not started this program");
+    }
+
+    if (progress.status !== "completed") {
+      return responseUtil.badRequest(res, "Certificate is only available after completing the program");
+    }
+
+    const program = progress.programId;
+
+    const User = (await import("../../schema/User.schema.js")).default;
+    const user = await User.findById(userId).select("name email phone");
+
+    const scorePercentage =
+      progress.maxPossibleScore > 0 ? Math.round((progress.totalScore / progress.maxPossibleScore) * 100) : 0;
+
+    return responseUtil.success(res, "Certificate data fetched successfully", {
+      certificate: {
+        recipientName: user.name,
+        recipientEmail: user.email,
+        programTitle: program.title,
+        programType: program.type,
+        durationDays: program.durationDays,
+        startedAt: progress.startedAt,
+        completedAt: progress.completedAt,
+        totalScore: progress.totalScore,
+        maxPossibleScore: progress.maxPossibleScore,
+        scorePercentage,
+        daysCompleted: progress.daysCompleted,
+        longestStreak: progress.longestStreak,
+        issuedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.error("Download certificate error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid program ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to fetch certificate", error.message);
+  }
+};
+
 export default {
   // Program controllers
   createProgram,
@@ -1088,6 +1144,7 @@ export default {
   getDayQuiz,
   submitDayQuiz,
   getLeaderboard,
+  downloadCertificate,
   // Admin progress controllers
   getAllUserProgress,
   getProgramStats,
