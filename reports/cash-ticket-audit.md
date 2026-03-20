@@ -1,6 +1,6 @@
 # Cash Ticket Audit Report
 
-Generated: 2026-03-05T14:15:48.834Z
+Generated: 2026-03-20T13:21:53.458Z
 
 ## Summary
 
@@ -649,7 +649,7 @@ Suggestion: These records may need their redeemed status reset to false, or enro
   - 8269505510 (Vedant soni) - Scanned: No
 
 **tsfs66** (9179621765) - 1 ticket(s), 1 enrollment(s) OK
-  - 9179621765 (Gojo) - Scanned: No
+  - 9179621765 (Gojo) - Scanned: Yes
 
 **5d4oot** (8085816197) - 1 ticket(s), 1 enrollment(s) OK
   - 8269868808 (Parv) - Scanned: No
