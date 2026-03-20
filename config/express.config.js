@@ -108,4 +108,52 @@ app.get("/health", (_req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
+// 404 handler — catches requests to undefined routes
+app.use((_req, res) => {
+  res.status(404).json({
+    status: 404,
+    message: "Route not found",
+    error: "The requested endpoint does not exist",
+    data: null,
+  });
+});
+
+// Global error handler — must have 4 params (err, req, res, next)
+// Catches errors thrown by body-parser (malformed JSON), multer, and any unhandled next(err) calls
+// Without this, Express sends HTML error pages which the mobile app cannot parse as JSON
+app.use((err, _req, res, _next) => {
+  console.error("[GLOBAL ERROR]", err.message);
+
+  // Body-parser / JSON parse errors
+  if (err.type === "entity.parse.failed" || err.status === 400) {
+    return res.status(400).json({
+      status: 400,
+      message: "Invalid JSON in request body",
+      error: err.message,
+      data: null,
+    });
+  }
+
+  // Multer file upload errors
+  if (err.code && err.code.startsWith("LIMIT_")) {
+    return res.status(400).json({
+      status: 400,
+      message:
+        err.code === "LIMIT_FILE_SIZE"
+          ? "File size too large. Maximum size is 50MB."
+          : "File upload error",
+      error: err.message,
+      data: null,
+    });
+  }
+
+  // Generic fallback
+  return res.status(err.status || 500).json({
+    status: err.status || 500,
+    message: err.message || "Internal server error",
+    error: err.message || "An unexpected error occurred",
+    data: null,
+  });
+});
+
 export default app;
