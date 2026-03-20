@@ -13,11 +13,13 @@
  */
 
 import express from "express";
+import multer from "multer";
 import {
   createStory,
   getStoriesByChallengeGrouped,
   markStoryViewed,
   deleteStory,
+  uploadStoryMedia,
 } from "./challengeStory.controller.js";
 import {
   authenticate,
@@ -31,6 +33,33 @@ import { challengeStorySchemas } from "./challengeStory.validation.js";
 
 /** @type {express.Router} */
 const router = express.Router();
+
+// ============================================
+// MEDIA UPLOAD SETUP
+// ============================================
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimeTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "video/mp4",
+      "video/quicktime",
+      "video/x-msvideo",
+      "video/webm",
+      "video/3gpp",
+    ];
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Invalid file type: ${file.mimetype}. Only images and videos are allowed.`), false);
+    }
+  },
+});
 
 /**
  * @route   GET /api/app/challenge-stories/:challengeId
@@ -48,6 +77,13 @@ router.get(
 // AUTHENTICATED ROUTES
 // ============================================
 router.use(authenticate);
+
+/**
+ * @route   POST /api/app/challenge-stories/media/upload
+ * @desc    Upload image or video for a challenge story
+ * @access  User (authenticated)
+ */
+router.post("/media/upload", upload.single("file"), uploadStoryMedia);
 
 /**
  * @route   POST /api/app/challenge-stories/view/:storyId

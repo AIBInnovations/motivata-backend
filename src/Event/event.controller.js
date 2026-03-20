@@ -200,12 +200,20 @@ export const getEventById = async (req, res) => {
       .filter((e) => e.userId)
       .map((e) => ({ name: e.userId.name }));
 
+    const now = new Date();
+    const isCurrentlyLive = event.startDate <= now && event.endDate >= now;
+    const isAdminUser = req.user?.userType === 'admin';
+
     const eventObj = {
       ...event.toObject(),
       isSaved: savedSet.has(event._id.toString()),
       ticketBuyers,
       totalBuyers,
     };
+
+    if (!isAdminUser && !isCurrentlyLive) {
+      delete eventObj.joinLink;
+    }
 
     return responseUtil.success(res, 'Event fetched successfully', { event: eventObj });
   } catch (error) {
@@ -650,7 +658,7 @@ export const getWebEventById = async (req, res) => {
       _id: id,
       isLive: true,
     }).select(
-      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode city category availableSeats ticketsSold featured'
+      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode city category availableSeats ticketsSold featured joinLink'
     );
 
     if (!event) {
@@ -671,8 +679,15 @@ export const getWebEventById = async (req, res) => {
       .filter((e) => e.userId)
       .map((e) => ({ name: e.userId.name }));
 
+    const now = new Date();
+    const isCurrentlyLive = event.startDate <= now && event.endDate >= now;
+    const eventObj = { ...event.toObject(), ticketBuyers, totalBuyers };
+    if (!isCurrentlyLive) {
+      delete eventObj.joinLink;
+    }
+
     return responseUtil.success(res, 'Event fetched successfully', {
-      event: { ...event.toObject(), ticketBuyers, totalBuyers },
+      event: eventObj,
     });
   } catch (error) {
     console.error('Get web event by ID error:', error);

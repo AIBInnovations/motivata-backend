@@ -19,6 +19,7 @@ export const challengeStorySchemas = {
    */
   create: Joi.object({
     mediaType: Joi.string()
+      .lowercase()
       .valid("image", "video", "text")
       .required()
       .messages({

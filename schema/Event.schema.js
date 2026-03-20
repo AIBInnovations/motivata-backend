@@ -97,6 +97,16 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
+     * Joining link for online/live events (e.g. Zoom/Meet URL)
+     * Visible to users only when the event is currently happening (startDate <= now <= endDate)
+     */
+    joinLink: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    /**
      * Featured event flag - featured events are highlighted in the app
      */
     featured: {

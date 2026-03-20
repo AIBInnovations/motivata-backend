@@ -300,6 +300,7 @@ export const eventSchemas = {
       .messages({
         "string.pattern.base": "Please provide a valid Google Maps link",
       }),
+    joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional().default(false),
     category: Joi.string()
       .valid(
@@ -367,6 +368,7 @@ export const eventSchemas = {
       .messages({
         "string.pattern.base": "Please provide a valid Google Maps link",
       }),
+    joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional(),
     category: Joi.string()
       .valid(

@@ -8,10 +8,76 @@ import ChallengeStory from "../../schema/ChallengeStory.schema.js";
 import ChallengeStoryView from "../../schema/ChallengeStoryView.schema.js";
 import UserChallenge from "../Challenge/userChallenge.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import cloudinary from "../../config/cloudinary.config.js";
 
 // ============================================
 // USER CONTROLLERS
 // ============================================
+
+/**
+ * Upload media (image or video) for a challenge story.
+ * Returns the Cloudinary URL and publicId for use in createStory.
+ *
+ * @route POST /api/app/challenge-stories/media/upload
+ * @access Authenticated
+ */
+export const uploadStoryMedia = async (req, res) => {
+  try {
+    const file = req.file;
+    const userId = req.user.id;
+
+    if (!file) {
+      return responseUtil.badRequest(res, "No file provided");
+    }
+
+    const isVideo = file.mimetype.startsWith("video/");
+    const isImage = file.mimetype.startsWith("image/");
+
+    if (!isVideo && !isImage) {
+      return responseUtil.badRequest(
+        res,
+        "Invalid file type. Only images and videos are allowed."
+      );
+    }
+
+    const base64Data = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+
+    const timestamp = Date.now();
+    const sanitizedName = file.originalname
+      .replace(/\.[^/.]+$/, "")
+      .replace(/[^a-zA-Z0-9-_]/g, "-")
+      .replace(/-+/g, "-")
+      .substring(0, 30);
+    const publicId = `${sanitizedName}-${userId.slice(-6)}-${timestamp}`;
+
+    const uploadOptions = {
+      folder: "challenge-stories",
+      public_id: publicId,
+      resource_type: isVideo ? "video" : "image",
+      overwrite: false,
+    };
+
+    const result = await cloudinary.uploader.upload(base64Data, uploadOptions);
+
+    return responseUtil.success(res, "Media uploaded successfully", {
+      mediaType: isVideo ? "video" : "image",
+      mediaUrl: result.secure_url,
+      cloudinaryPublicId: result.public_id,
+      format: result.format,
+      size: result.bytes,
+      width: result.width,
+      height: result.height,
+    });
+  } catch (error) {
+    console.error("[CHALLENGE_STORY] Media upload error:", error.message);
+
+    if (error.message?.includes("File size too large")) {
+      return responseUtil.badRequest(res, "File size too large. Maximum size is 50MB.");
+    }
+
+    return responseUtil.internalError(res, "Failed to upload media", error.message);
+  }
+};
 
 /**
  * Create a challenge story
