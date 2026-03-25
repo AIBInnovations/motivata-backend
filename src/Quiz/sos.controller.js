@@ -1186,6 +1186,72 @@ export const resetProgram = async (req, res) => {
   }
 };
 
+/**
+ * Retry an SOS program after completion or abandonment
+ * Resets all progress and restarts the program from day 1
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const retryProgram = async (req, res) => {
+  try {
+    const { programId } = req.params;
+    const userId = req.user.id;
+
+    const progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+
+    if (!progress) {
+      return responseUtil.notFound(res, "No progress found for this program");
+    }
+
+    if (!["completed", "abandoned"].includes(progress.status)) {
+      return responseUtil.badRequest(
+        res,
+        "Program can only be retried after it has been completed or abandoned"
+      );
+    }
+
+    progress.currentDay = 1;
+    progress.completedAt = null;
+    progress.lastActivityAt = new Date();
+    progress.dailyProgress = [];
+    progress.totalScore = 0;
+    progress.maxPossibleScore = 0;
+    progress.daysCompleted = 0;
+    progress.currentStreak = 0;
+    progress.longestStreak = 0;
+    progress.lastStreakDate = null;
+    progress.status = "in_progress";
+    progress.startedAt = new Date();
+
+    await progress.save();
+
+    return responseUtil.success(res, "Program restarted successfully", {
+      progress: {
+        programId: progress.programId,
+        status: progress.status,
+        currentDay: progress.currentDay,
+        startedAt: progress.startedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Retry program error:", error.name, error.message, error.stack);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid program ID format");
+    }
+
+    if (error.name === "ValidationError") {
+      return responseUtil.validationError(
+        res,
+        "Validation failed",
+        Object.keys(error.errors).map((k) => ({ field: k, message: error.errors[k].message }))
+      );
+    }
+
+    return responseUtil.internalError(res, "Failed to retry program", error.message);
+  }
+};
+
 export default {
   // Program controllers
   createProgram,
@@ -1212,6 +1278,7 @@ export default {
   getLeaderboard,
   downloadCertificate,
   resetProgram,
+  retryProgram,
   // Admin progress controllers
   getAllUserProgress,
   getProgramStats,

@@ -16,6 +16,7 @@ import {
   getLeaderboard,
   downloadCertificate,
   resetProgram,
+  retryProgram,
 } from "./sos.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
@@ -170,5 +171,13 @@ router.post(
  * @param   {string} programId - Program ID
  */
 router.get("/programs/:programId/certificate", validateParams(programIdParam), downloadCertificate);
+
+/**
+ * @route   POST /api/app/sos/programs/:programId/retry
+ * @desc    Retry (restart) a completed or abandoned SOS program
+ * @access  User (authenticated)
+ * @param   {string} programId - Program ID
+ */
+router.post("/programs/:programId/retry", validateParams(programIdParam), retryProgram);
 
 export default router;
