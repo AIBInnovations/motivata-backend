@@ -15,6 +15,7 @@ import {
   submitDayQuiz,
   getLeaderboard,
   downloadCertificate,
+  resetProgram,
 } from "./sos.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
@@ -105,6 +106,14 @@ router.use(authenticate);
  * @body    {string} programId - Program ID to start
  */
 router.post("/programs/start", validateBody(progressSchemas.startProgram), startProgram);
+
+/**
+ * @route   POST /api/app/sos/programs/reset
+ * @desc    Reset user's progress for a program back to not_started
+ * @access  User (authenticated)
+ * @body    {string} programId - Program ID to reset
+ */
+router.post("/programs/reset", validateBody(progressSchemas.resetProgram), resetProgram);
 
 /**
  * @route   GET /api/app/sos/my-progress
