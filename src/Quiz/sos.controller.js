@@ -1120,6 +1120,55 @@ export const downloadCertificate = async (req, res) => {
   }
 };
 
+/**
+ * Reset user's progress for a program back to not_started
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const resetProgram = async (req, res) => {
+  try {
+    const { programId } = req.body;
+    const userId = req.user.id;
+
+    const progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+
+    if (!progress) {
+      return responseUtil.notFound(res, "No progress found for this program");
+    }
+
+    progress.status = "not_started";
+    progress.currentDay = 1;
+    progress.startedAt = null;
+    progress.completedAt = null;
+    progress.lastActivityAt = null;
+    progress.dailyProgress = [];
+    progress.totalScore = 0;
+    progress.maxPossibleScore = 0;
+    progress.daysCompleted = 0;
+    progress.currentStreak = 0;
+    progress.longestStreak = 0;
+    progress.lastStreakDate = null;
+
+    await progress.save();
+
+    return responseUtil.success(res, "Program progress reset successfully", {
+      progress: {
+        programId: progress.programId,
+        status: progress.status,
+        currentDay: progress.currentDay,
+      },
+    });
+  } catch (error) {
+    console.error("Reset program error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid program ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to reset program", error.message);
+  }
+};
+
 export default {
   // Program controllers
   createProgram,
@@ -1145,6 +1194,7 @@ export default {
   submitDayQuiz,
   getLeaderboard,
   downloadCertificate,
+  resetProgram,
   // Admin progress controllers
   getAllUserProgress,
   getProgramStats,

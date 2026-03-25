@@ -233,6 +233,15 @@ export const progressSchemas = {
   }),
 
   /**
+   * Reset program progress validation
+   */
+  resetProgram: Joi.object({
+    programId: mongoId.required().messages({
+      "string.pattern.base": "Invalid program ID format",
+    }),
+  }),
+
+  /**
    * Submit quiz answers validation
    */
   submitQuiz: Joi.object({
