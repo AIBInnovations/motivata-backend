@@ -1172,10 +1172,14 @@ export const resetProgram = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Reset program error:", error);
+    console.error("Reset program error:", error.name, error.message, error.stack);
 
     if (error.name === "CastError") {
       return responseUtil.badRequest(res, "Invalid program ID format");
+    }
+
+    if (error.name === "ValidationError") {
+      return responseUtil.validationError(res, "Validation failed", Object.keys(error.errors).map(k => ({ field: k, message: error.errors[k].message })));
     }
 
     return responseUtil.internalError(res, "Failed to reset program", error.message);
