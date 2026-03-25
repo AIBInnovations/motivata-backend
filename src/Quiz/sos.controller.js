@@ -1146,11 +1146,9 @@ export const resetProgram = async (req, res) => {
       return responseUtil.notFound(res, "No progress found for this program");
     }
 
-    progress.status = "not_started";
     progress.currentDay = 1;
-    progress.startedAt = null;
     progress.completedAt = null;
-    progress.lastActivityAt = null;
+    progress.lastActivityAt = new Date();
     progress.dailyProgress = [];
     progress.totalScore = 0;
     progress.maxPossibleScore = 0;
@@ -1159,13 +1157,18 @@ export const resetProgram = async (req, res) => {
     progress.longestStreak = 0;
     progress.lastStreakDate = null;
 
+    // Reset and immediately re-start so the frontend only needs one call for retry
+    progress.status = "in_progress";
+    progress.startedAt = new Date();
+
     await progress.save();
 
-    return responseUtil.success(res, "Program progress reset successfully", {
+    return responseUtil.success(res, "Program reset and restarted successfully", {
       progress: {
         programId: progress.programId,
         status: progress.status,
         currentDay: progress.currentDay,
+        startedAt: progress.startedAt,
       },
     });
   } catch (error) {
