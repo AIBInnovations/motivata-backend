@@ -772,12 +772,22 @@ export const getDayQuiz = async (req, res) => {
     // Get quiz for the requested day
     const quiz = await SOSQuiz.findByDay(programId, day);
 
-    if (!quiz) {
-      return responseUtil.notFound(res, `No quiz available for day ${day}`);
-    }
-
     // Get user's responses for this day if they exist
     const dayProgress = progress.dailyProgress.find((d) => d.dayNumber === day);
+
+    // If no quiz exists but the user already completed this day, return progress data gracefully
+    if (!quiz) {
+      if (dayProgress?.status === "completed") {
+        return responseUtil.success(res, "Quiz fetched successfully", {
+          quiz: null,
+          dayNumber: day,
+          totalDays: program.durationDays,
+          isCompleted: true,
+          userResponses: dayProgress.responses,
+        });
+      }
+      return responseUtil.notFound(res, `No quiz available for day ${day}`);
+    }
 
     const sanitizedQuiz = quiz.toObject();
     sanitizedQuiz.questions = sanitizedQuiz.questions.map((q) => {
