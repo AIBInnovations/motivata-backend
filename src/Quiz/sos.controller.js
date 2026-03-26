@@ -1137,32 +1137,40 @@ export const resetProgram = async (req, res) => {
     const { programId } = req.body;
     const userId = req.user.id;
 
-    const progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+    const existing = await UserSOSProgress.findOne({ userId, programId });
 
-    if (!progress) {
+    if (!existing) {
       return responseUtil.notFound(res, "No progress found for this program");
     }
 
-    progress.status = "not_started";
-    progress.currentDay = 1;
-    progress.startedAt = null;
-    progress.completedAt = null;
-    progress.lastActivityAt = new Date();
-    progress.dailyProgress = [];
-    progress.totalScore = 0;
-    progress.maxPossibleScore = 0;
-    progress.daysCompleted = 0;
-    progress.currentStreak = 0;
-    progress.longestStreak = 0;
-    progress.lastStreakDate = null;
-
-    await progress.save();
+    const updated = await UserSOSProgress.findOneAndUpdate(
+      { userId, programId },
+      {
+        $set: {
+          status: "not_started",
+          currentDay: 1,
+          lastActivityAt: new Date(),
+          dailyProgress: [],
+          totalScore: 0,
+          maxPossibleScore: 0,
+          daysCompleted: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+        },
+        $unset: {
+          startedAt: "",
+          completedAt: "",
+          lastStreakDate: "",
+        },
+      },
+      { new: true }
+    );
 
     return responseUtil.success(res, "Progress reset successfully", {
       progress: {
-        programId: progress.programId,
-        status: progress.status,
-        currentDay: progress.currentDay,
+        programId: updated.programId,
+        status: updated.status,
+        currentDay: updated.currentDay,
       },
     });
   } catch (error) {
@@ -1191,40 +1199,50 @@ export const retryProgram = async (req, res) => {
     const { programId } = req.params;
     const userId = req.user.id;
 
-    const progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+    const existing = await UserSOSProgress.findOne({ userId, programId });
 
-    if (!progress) {
+    if (!existing) {
       return responseUtil.notFound(res, "No progress found for this program");
     }
 
-    if (!["completed", "abandoned"].includes(progress.status)) {
+    if (!["completed", "abandoned"].includes(existing.status)) {
       return responseUtil.badRequest(
         res,
         "Program can only be retried after it has been completed or abandoned"
       );
     }
 
-    progress.currentDay = 1;
-    progress.completedAt = null;
-    progress.lastActivityAt = new Date();
-    progress.dailyProgress = [];
-    progress.totalScore = 0;
-    progress.maxPossibleScore = 0;
-    progress.daysCompleted = 0;
-    progress.currentStreak = 0;
-    progress.longestStreak = 0;
-    progress.lastStreakDate = null;
-    progress.status = "in_progress";
-    progress.startedAt = new Date();
+    const now = new Date();
 
-    await progress.save();
+    const updated = await UserSOSProgress.findOneAndUpdate(
+      { userId, programId },
+      {
+        $set: {
+          status: "in_progress",
+          currentDay: 1,
+          startedAt: now,
+          lastActivityAt: now,
+          dailyProgress: [],
+          totalScore: 0,
+          maxPossibleScore: 0,
+          daysCompleted: 0,
+          currentStreak: 0,
+          longestStreak: 0,
+        },
+        $unset: {
+          completedAt: "",
+          lastStreakDate: "",
+        },
+      },
+      { new: true }
+    );
 
     return responseUtil.success(res, "Program restarted successfully", {
       progress: {
-        programId: progress.programId,
-        status: progress.status,
-        currentDay: progress.currentDay,
-        startedAt: progress.startedAt,
+        programId: updated.programId,
+        status: updated.status,
+        currentDay: updated.currentDay,
+        startedAt: updated.startedAt,
       },
     });
   } catch (error) {
