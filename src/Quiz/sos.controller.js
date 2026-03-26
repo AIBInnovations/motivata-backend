@@ -568,10 +568,7 @@ export const startProgram = async (req, res) => {
       if (progress.status === "in_progress") {
         return responseUtil.badRequest(res, "You are already enrolled in this program");
       }
-      if (progress.status === "completed") {
-        return responseUtil.badRequest(res, "You have already completed this program");
-      }
-      // If abandoned, allow restart
+      // If abandoned, completed, or not_started — allow restart
       progress.status = "not_started";
     } else {
       progress = new UserSOSProgress({
@@ -1146,7 +1143,9 @@ export const resetProgram = async (req, res) => {
       return responseUtil.notFound(res, "No progress found for this program");
     }
 
+    progress.status = "not_started";
     progress.currentDay = 1;
+    progress.startedAt = null;
     progress.completedAt = null;
     progress.lastActivityAt = new Date();
     progress.dailyProgress = [];
@@ -1157,18 +1156,13 @@ export const resetProgram = async (req, res) => {
     progress.longestStreak = 0;
     progress.lastStreakDate = null;
 
-    // Reset and immediately re-start so the frontend only needs one call for retry
-    progress.status = "in_progress";
-    progress.startedAt = new Date();
-
     await progress.save();
 
-    return responseUtil.success(res, "Program reset and restarted successfully", {
+    return responseUtil.success(res, "Progress reset successfully", {
       progress: {
         programId: progress.programId,
         status: progress.status,
         currentDay: progress.currentDay,
-        startedAt: progress.startedAt,
       },
     });
   } catch (error) {
