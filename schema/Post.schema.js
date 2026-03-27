@@ -45,6 +45,26 @@ const postSchema = new mongoose.Schema(
     },
 
     /**
+     * Post title (used for admin posts)
+     */
+    title: {
+      type: String,
+      trim: true,
+      maxlength: [200, "Title cannot exceed 200 characters"],
+      default: "",
+    },
+
+    /**
+     * Post content/context (used for admin posts)
+     */
+    content: {
+      type: String,
+      trim: true,
+      maxlength: [5000, "Content cannot exceed 5000 characters"],
+      default: "",
+    },
+
+    /**
      * Media type - IMAGE (one or more) or VIDEO (exactly one)
      */
     mediaType: {
@@ -111,6 +131,16 @@ const postSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Club",
       default: null,
+      index: true,
+    },
+
+    /**
+     * Flag for admin-published explore posts (visible in Explore tab)
+     * Only true for posts created via admin panel Explore Posts feature
+     */
+    isExplorePost: {
+      type: Boolean,
+      default: false,
       index: true,
     },
 
