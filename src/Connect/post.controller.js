@@ -26,6 +26,8 @@ const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set
 
   return {
     id: post._id,
+    title: post.title || "",
+    content: post.content || "",
     caption: post.caption,
     mediaType: post.mediaType,
     mediaUrls: post.mediaUrls,
@@ -257,8 +259,8 @@ export const getExploreFeed = async (req, res) => {
     const currentUserId = req.user?.id;
     const skip = (page - 1) * limit;
 
-    // Build query: exclude club posts from explore feed
-    const query = { club: null };
+    // Build query: only admin-published explore posts
+    const query = { isExplorePost: true };
 
     const [posts, totalCount] = await Promise.all([
       Post.find(query)

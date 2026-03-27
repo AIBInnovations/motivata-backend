@@ -31,6 +31,8 @@ import motivataBlendRoutes from "../src/MotivataBlend/motivataBlend.route.js";
 import roundTableRoutes from "../src/RoundTable/roundTable.route.js";
 import motivataBlendAdminRoutes from "../src/MotivataBlend/motivataBlend.admin.route.js";
 import roundTableAdminRoutes from "../src/RoundTable/roundTable.admin.route.js";
+import adminConnectPostRoutes from "../src/Connect/post.admin.route.js";
+import adminJobRoutes from "../src/Job/job.admin.route.js";
 
 const router = express.Router();
 
@@ -136,6 +138,12 @@ router.use("/", adminMembershipRoutes);
 
 // Club routes - /api/web/clubs
 router.use("/clubs", adminClubRoutes);
+
+// Connect/Explore post routes - /api/web/connect
+router.use("/connect", adminConnectPostRoutes);
+
+// Job routes - /api/web/jobs
+router.use("/jobs", adminJobRoutes);
 
 // Service routes - /api/web/services, /api/web/service-orders, /api/web/service-requests, /api/web/user-subscriptions
 router.use("/", adminServiceRoutes);

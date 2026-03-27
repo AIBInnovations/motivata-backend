@@ -29,6 +29,7 @@ import challengeStoryRoutes from "../src/ChallengeStory/challengeStory.user.rout
 import userMembershipRoutes from "../src/Membership/user.membership.route.js";
 import seatArrangementUserRoutes from "../src/SeatArrangement/seatArrangement.user.route.js";
 import userServiceRoutes from "../src/Service/service.user.route.js";
+import userJobRoutes from "../src/Job/job.user.route.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +102,9 @@ router.use("/", userMembershipRoutes);
 
 // Service routes - /api/app/services (user-facing service browsing and purchase)
 router.use("/services", userServiceRoutes);
+
+// Job routes - /api/app/jobs
+router.use("/jobs", userJobRoutes);
 
 // Add more user routes here as needed
 // Example:
