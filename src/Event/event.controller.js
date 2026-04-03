@@ -658,7 +658,7 @@ export const getWebEventById = async (req, res) => {
       _id: id,
       isLive: true,
     }).select(
-      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode city category availableSeats ticketsSold featured joinLink'
+      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode venueName city category availableSeats ticketsSold featured joinLink'
     );
 
     if (!event) {

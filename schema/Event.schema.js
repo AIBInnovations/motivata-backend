@@ -74,6 +74,18 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
+     * Venue name (required for OFFLINE/HYBRID modes)
+     */
+    venueName: {
+      type: String,
+      required: function () {
+        return this.mode === "OFFLINE" || this.mode === "HYBRID";
+      },
+      trim: true,
+      maxlength: [300, "Venue name cannot exceed 300 characters"],
+    },
+
+    /**
      * Event location city (required for OFFLINE/HYBRID modes)
      */
     city: {
