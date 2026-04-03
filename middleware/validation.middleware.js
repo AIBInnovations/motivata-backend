@@ -288,6 +288,11 @@ export const eventSchemas = {
       videoUrl: Joi.string().uri().optional(),
     }).optional(),
     mode: Joi.string().valid("ONLINE", "OFFLINE", "HYBRID").required(),
+    venueName: Joi.when("mode", {
+      is: Joi.string().valid("OFFLINE", "HYBRID"),
+      then: Joi.string().trim().max(300).required(),
+      otherwise: Joi.string().trim().max(300).optional(),
+    }),
     city: Joi.when("mode", {
       is: Joi.string().valid("OFFLINE", "HYBRID"),
       then: Joi.string().trim().required(),
@@ -355,6 +360,11 @@ export const eventSchemas = {
       videoUrl: Joi.string().uri().optional(),
     }).optional(),
     mode: Joi.string().valid("ONLINE", "OFFLINE", "HYBRID").optional(),
+    venueName: Joi.when("mode", {
+      is: Joi.string().valid("OFFLINE", "HYBRID"),
+      then: Joi.string().trim().max(300).required(),
+      otherwise: Joi.string().trim().max(300).optional(),
+    }),
     city: Joi.when("mode", {
       is: Joi.string().valid("OFFLINE", "HYBRID"),
       then: Joi.string().trim().required(),
