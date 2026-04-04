@@ -11,7 +11,7 @@
  */
 
 import express from "express";
-import { createOrder, getPaymentStatus } from "./razorpay.controller.js";
+import { createOrder, getPaymentStatus, createSosOrder } from "./razorpay.controller.js";
 import { handleWebhook } from "./razorpay.webhook.js";
 
 const router = express.Router();
@@ -125,6 +125,13 @@ const router = express.Router();
 router.post("/create-order", createOrder);
 
 /**
+ * @route POST /api/web/razorpay/create-sos-order
+ * @desc Create payment order for SOS program
+ * @access Public
+ */
+router.post("/create-sos-order", createSosOrder);
+
+/**
  * @route GET /api/web/razorpay/status/:orderId
  * @group Razorpay Payment - Razorpay payment operations
  * @access Public
@@ -230,12 +237,11 @@ router.post("/webhook", handleWebhook);
  * App Callback - Redirects Razorpay callback to app via deep link
  * GET /api/web/razorpay/app-callback
  */
-router.get("/app-callback", (req, res) => {
+router.get("/app-callback", async (req, res) => {
   const {
     razorpay_payment_link_id,
     razorpay_payment_link_status,
     razorpay_payment_id,
-    razorpay_signature,
   } = req.query;
 
   console.log("[APP-CALLBACK] Received:", {
@@ -251,11 +257,28 @@ router.get("/app-callback", (req, res) => {
   if (razorpay_payment_id) params.set("paymentId", razorpay_payment_id);
   if (razorpay_payment_link_id) params.set("linkId", razorpay_payment_link_id);
 
+  // For paid SOS payments, check if scheduling is required
+  if (razorpay_payment_link_status === "paid" && razorpay_payment_link_id) {
+    try {
+      const Payment = (await import("../../schema/Payment.schema.js")).default;
+      const payment = await Payment.findOne({
+        paymentLinkId: razorpay_payment_link_id,
+        type: "SOS",
+      }).populate("sosId");
+
+      if (payment?.sosId?.requiresScheduling && payment.sosId.calendlyEventTypeUri) {
+        params.set("scheduleRequired", "true");
+        params.set("calendlyUri", payment.sosId.calendlyEventTypeUri);
+        params.set("sosId", payment.sosId._id.toString());
+        console.log("[APP-CALLBACK] SOS scheduling required, adding calendly params");
+      }
+    } catch (err) {
+      console.error("[APP-CALLBACK] SOS lookup error:", err.message);
+    }
+  }
+
   const appDeepLink = `motivata://payment/callback?${params.toString()}`;
-
   console.log("[APP-CALLBACK] Redirecting to:", appDeepLink);
-
-  // Redirect to app
   res.redirect(appDeepLink);
 });
 

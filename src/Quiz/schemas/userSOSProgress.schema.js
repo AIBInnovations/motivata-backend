@@ -189,6 +189,39 @@ const userSOSProgressSchema = new mongoose.Schema(
     lastStreakDate: {
       type: Date,
     },
+
+    /**
+     * Payment ID for paid programs
+     */
+    paymentId: {
+      type: String,
+      default: null,
+    },
+
+    /**
+     * Scheduling status (for programs that require scheduling)
+     */
+    schedulingStatus: {
+      type: String,
+      enum: ["not_required", "pending", "scheduled"],
+      default: "not_required",
+    },
+
+    /**
+     * When the session was scheduled
+     */
+    scheduledAt: {
+      type: Date,
+      default: null,
+    },
+
+    /**
+     * Calendly invitee URI (for reference after scheduling)
+     */
+    calendlyInviteeUri: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

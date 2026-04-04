@@ -562,22 +562,42 @@ export const startProgram = async (req, res) => {
     }
 
     // Check if user already has progress for this program
-    let progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+    const existing = await UserSOSProgress.findOne({ userId, programId });
 
-    if (progress) {
-      if (progress.status === "in_progress") {
+    let progress;
+    const now = new Date();
+
+    if (existing) {
+      if (existing.status === "in_progress") {
         return responseUtil.badRequest(res, "You are already enrolled in this program");
       }
-      // If abandoned, completed, or not_started — allow restart
-      progress.status = "not_started";
+      // Atomically reset all fields and set to in_progress
+      progress = await UserSOSProgress.findOneAndUpdate(
+        { userId, programId },
+        {
+          $set: {
+            status: "in_progress",
+            currentDay: 1,
+            startedAt: now,
+            lastActivityAt: now,
+            dailyProgress: [],
+            totalScore: 0,
+            maxPossibleScore: 0,
+            daysCompleted: 0,
+            currentStreak: 0,
+            longestStreak: 0,
+          },
+          $unset: {
+            completedAt: "",
+            lastStreakDate: "",
+          },
+        },
+        { new: true }
+      );
     } else {
-      progress = new UserSOSProgress({
-        userId,
-        programId,
-      });
+      progress = new UserSOSProgress({ userId, programId });
+      await progress.startProgram();
     }
-
-    await progress.startProgram();
 
     return responseUtil.success(res, "Program started successfully", {
       progress: {
@@ -1205,13 +1225,6 @@ export const retryProgram = async (req, res) => {
       return responseUtil.notFound(res, "No progress found for this program");
     }
 
-    if (!["completed", "abandoned"].includes(existing.status)) {
-      return responseUtil.badRequest(
-        res,
-        "Program can only be retried after it has been completed or abandoned"
-      );
-    }
-
     const now = new Date();
 
     const updated = await UserSOSProgress.findOneAndUpdate(
@@ -1264,6 +1277,103 @@ export const retryProgram = async (req, res) => {
   }
 };
 
+// ============================================
+// SOS SCHEDULING CONTROLLERS (User)
+// ============================================
+
+/**
+ * Get scheduling info for a paid SOS program (Calendly URI)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const getScheduleInfo = async (req, res) => {
+  try {
+    const { programId } = req.params;
+    const userId = req.user.id;
+
+    const program = await SOSProgram.findById(programId);
+    if (!program) {
+      return responseUtil.notFound(res, "Program not found");
+    }
+
+    if (!program.requiresScheduling) {
+      return responseUtil.badRequest(res, "This program does not require scheduling");
+    }
+
+    if (!program.calendlyEventTypeUri) {
+      return responseUtil.serviceUnavailable(res, "Scheduling is not configured for this program");
+    }
+
+    // Check if user has a progress record (i.e., paid/enrolled)
+    const progress = await UserSOSProgress.findOne({ userId, programId });
+
+    return responseUtil.success(res, "Schedule info retrieved", {
+      programId,
+      programTitle: program.title,
+      sessionType: program.sessionType,
+      calendlyUri: program.calendlyEventTypeUri,
+      schedulingStatus: progress?.schedulingStatus || "pending",
+      scheduledAt: progress?.scheduledAt || null,
+    });
+  } catch (error) {
+    console.error("Get schedule info error:", error);
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid program ID format");
+    }
+    return responseUtil.internalError(res, "Failed to get schedule info", error.message);
+  }
+};
+
+/**
+ * Confirm session scheduled (app calls this after Calendly booking)
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const confirmSchedule = async (req, res) => {
+  try {
+    const { programId } = req.params;
+    const userId = req.user.id;
+    const { scheduledAt, calendlyInviteeUri } = req.body;
+
+    const program = await SOSProgram.findById(programId);
+    if (!program) {
+      return responseUtil.notFound(res, "Program not found");
+    }
+
+    let progress = await UserSOSProgress.findOne({ userId, programId });
+
+    if (!progress) {
+      // Create progress record if it doesn't exist (first interaction after payment)
+      progress = new UserSOSProgress({
+        userId,
+        programId,
+        status: "not_started",
+        schedulingStatus: "scheduled",
+        scheduledAt: scheduledAt ? new Date(scheduledAt) : new Date(),
+        calendlyInviteeUri: calendlyInviteeUri || null,
+      });
+    } else {
+      progress.schedulingStatus = "scheduled";
+      progress.scheduledAt = scheduledAt ? new Date(scheduledAt) : new Date();
+      if (calendlyInviteeUri) progress.calendlyInviteeUri = calendlyInviteeUri;
+    }
+
+    await progress.save();
+
+    return responseUtil.success(res, "Session scheduled successfully", {
+      programId,
+      schedulingStatus: progress.schedulingStatus,
+      scheduledAt: progress.scheduledAt,
+    });
+  } catch (error) {
+    console.error("Confirm schedule error:", error);
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid program ID format");
+    }
+    return responseUtil.internalError(res, "Failed to confirm schedule", error.message);
+  }
+};
+
 export default {
   // Program controllers
   createProgram,
@@ -1291,6 +1401,8 @@ export default {
   downloadCertificate,
   resetProgram,
   retryProgram,
+  getScheduleInfo,
+  confirmSchedule,
   // Admin progress controllers
   getAllUserProgress,
   getProgramStats,

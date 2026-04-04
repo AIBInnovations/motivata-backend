@@ -85,6 +85,63 @@ const sosProgramSchema = new mongoose.Schema(
     },
 
     /**
+     * Session type for scheduling-based SOS programs
+     */
+    sessionType: {
+      type: String,
+      enum: {
+        values: ["one-to-one", "many-to-one"],
+        message: "{VALUE} is not a valid session type. Use one-to-one or many-to-one",
+      },
+      default: null,
+    },
+
+    /**
+     * Whether this program requires Calendly scheduling after payment
+     */
+    requiresScheduling: {
+      type: Boolean,
+      default: false,
+    },
+
+    /**
+     * Calendly event type URL for scheduling (required if requiresScheduling is true)
+     */
+    calendlyEventTypeUri: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+
+    /**
+     * Price of the program in base currency unit (INR)
+     * 0 means free
+     */
+    price: {
+      type: Number,
+      default: 0,
+      min: [0, "Price cannot be negative"],
+    },
+
+    /**
+     * Currency for program price
+     */
+    currency: {
+      type: String,
+      default: "INR",
+      trim: true,
+    },
+
+    /**
+     * Maximum participants per session (for many-to-one)
+     */
+    maxParticipants: {
+      type: Number,
+      default: null,
+      min: [1, "Max participants must be at least 1"],
+    },
+
+    /**
      * Soft delete flag
      */
     isDeleted: {
