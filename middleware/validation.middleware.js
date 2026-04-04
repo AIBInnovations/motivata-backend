@@ -258,7 +258,7 @@ export const userSchemas = {
     age: Joi.number().integer().min(1).max(150).optional().allow(null),
     achievement: Joi.string().trim().max(500).optional().allow(null, ''),
     bio: Joi.string().trim().max(500).optional().allow(null, ''),
-    lifeExperiences: Joi.string().trim().max(1000).optional().allow(null, ''),
+    lifeExperiences: Joi.array().items(Joi.string().trim().max(500)).optional().allow(null),
   }),
 
   /**
@@ -349,7 +349,7 @@ export const eventSchemas = {
       .optional(),
     availableSeats: Joi.number().integer().min(0).optional(),
     coupons: Joi.array().items(schemas.mongoId).optional(),
-  }),
+  }).rename("venue", "venueName", { override: true, ignoreUndefined: true }),
 
   /**
    * Update event schema
@@ -426,7 +426,7 @@ export const eventSchemas = {
     availableSeats: Joi.number().integer().min(0).optional(),
     coupons: Joi.array().items(schemas.mongoId).optional(),
     isLive: Joi.boolean().optional(),
-  }),
+  }).rename("venue", "venueName", { override: true, ignoreUndefined: true }),
 
   /**
    * Query parameters for listing events
