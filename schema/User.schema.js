@@ -59,6 +59,12 @@ const userSchema = new mongoose.Schema(
       maxlength: 500,
       default: null,
     },
+    lifeExperiences: {
+      type: String,
+      trim: true,
+      maxlength: 1000,
+      default: null,
+    },
     password: {
       type: String,
       required: true,
