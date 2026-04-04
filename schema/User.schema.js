@@ -60,9 +60,7 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
     lifeExperiences: {
-      type: String,
-      trim: true,
-      maxlength: 1000,
+      type: [String],
       default: null,
     },
     password: {
