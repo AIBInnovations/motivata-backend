@@ -81,4 +81,28 @@ router.get("/sos-scheduled", (req, res) => {
   res.redirect(appDeepLink);
 });
 
+/**
+ * @route   GET /api/app/calendly/session-scheduled
+ * @desc    Calendly redirect callback after session scheduling
+ *          Redirects user back to app with booking confirmation
+ * @access  Public
+ * @query   {string} bookingId - Session Booking ID
+ * @query   {string} [sessionId] - Session ID
+ */
+router.get("/session-scheduled", (req, res) => {
+  const { bookingId, sessionId } = req.query;
+
+  console.log("[CALENDLY-CALLBACK] Session scheduled callback received:", { bookingId, sessionId });
+
+  const params = new URLSearchParams();
+  if (bookingId) params.set("bookingId", bookingId);
+  if (sessionId) params.set("sessionId", sessionId);
+  params.set("scheduledAt", new Date().toISOString());
+
+  const appDeepLink = `motivata://session/schedule-confirmed?${params.toString()}`;
+  console.log("[CALENDLY-CALLBACK] Redirecting to:", appDeepLink);
+
+  res.redirect(appDeepLink);
+});
+
 export default router;

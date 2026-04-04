@@ -1171,6 +1171,57 @@ export const updateBookingAdmin = async (req, res) => {
   }
 };
 
+/**
+ * User confirms scheduling after Calendly booking
+ * Sets scheduledSlot on the user's booking
+ */
+export const confirmSessionSchedule = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { scheduledAt, calendlyEventUri } = req.body;
+    const userId = req.user.id;
+
+    console.log("[Session] User confirming schedule for booking:", bookingId);
+
+    const booking = await SessionBooking.findById(bookingId);
+    if (!booking) {
+      return responseUtil.notFound(res, "Booking not found");
+    }
+
+    // Verify the booking belongs to this user
+    if (booking.userId.toString() !== userId) {
+      return responseUtil.forbidden(res, "You can only update your own bookings");
+    }
+
+    // Verify booking is in a valid state for scheduling
+    if (!["confirmed", "pending"].includes(booking.status)) {
+      return responseUtil.badRequest(res, "Booking is not in a schedulable state");
+    }
+
+    // Use the model's schedule method
+    const scheduled = scheduledAt ? new Date(scheduledAt) : new Date();
+    await booking.schedule(scheduled, calendlyEventUri || undefined);
+
+    console.log("[Session] Booking scheduled by user:", bookingId, "at:", scheduled);
+
+    return responseUtil.success(res, "Session scheduled successfully", {
+      booking: {
+        _id: booking._id,
+        status: booking.status,
+        scheduledSlot: booking.scheduledSlot,
+      },
+    });
+  } catch (error) {
+    console.error("Confirm session schedule error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid booking ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to schedule session", error.message);
+  }
+};
+
 export default {
   createSession,
   getAllSessions,
@@ -1192,4 +1243,5 @@ export default {
   cancelBooking,
   listBookingsAdmin,
   updateBookingAdmin,
+  confirmSessionSchedule,
 };
