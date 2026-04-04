@@ -258,6 +258,7 @@ export const userSchemas = {
     age: Joi.number().integer().min(1).max(150).optional().allow(null),
     achievement: Joi.string().trim().max(500).optional().allow(null, ''),
     bio: Joi.string().trim().max(500).optional().allow(null, ''),
+    lifeExperiences: Joi.string().trim().max(1000).optional().allow(null, ''),
   }),
 
   /**
