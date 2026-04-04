@@ -57,4 +57,28 @@ router.get(
   getAvailableSlots
 );
 
+/**
+ * @route   GET /api/app/calendly/sos-scheduled
+ * @desc    Calendly redirect callback after SOS session is scheduled
+ *          Redirects user back to the motivata app with confirmation
+ * @access  Public
+ * @query   {string} sosId - SOS Program ID
+ * @query   {string} [status] - Scheduling status from Calendly
+ */
+router.get("/sos-scheduled", (req, res) => {
+  const { sosId, status } = req.query;
+
+  console.log("[CALENDLY-CALLBACK] SOS scheduled callback received:", { sosId, status });
+
+  const params = new URLSearchParams();
+  if (sosId) params.set("sosId", sosId);
+  if (status) params.set("status", status);
+  params.set("scheduledAt", new Date().toISOString());
+
+  const appDeepLink = `motivata://sos/schedule-confirmed?${params.toString()}`;
+  console.log("[CALENDLY-CALLBACK] Redirecting to:", appDeepLink);
+
+  res.redirect(appDeepLink);
+});
+
 export default router;

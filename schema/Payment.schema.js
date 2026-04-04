@@ -51,7 +51,7 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Payment type is required'],
     enum: {
-      values: ['EVENT', 'SESSION', 'MEMBERSHIP', 'MEMBERSHIP_REQUEST', 'SERVICE', 'OTHER', 'PRODUCT'],
+      values: ['EVENT', 'SESSION', 'MEMBERSHIP', 'MEMBERSHIP_REQUEST', 'SERVICE', 'OTHER', 'PRODUCT', 'SOS'],
       message: '{VALUE} is not a valid payment type'
     }
   },
@@ -90,6 +90,25 @@ const paymentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Session',
     default: null
+  },
+
+  /**
+   * Reference to SOS Program (if type is SOS)
+   */
+  sosId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SOSProgram',
+    default: null
+  },
+
+  /**
+   * Razorpay payment link ID (for app-callback lookup)
+   */
+  paymentLinkId: {
+    type: String,
+    trim: true,
+    default: null,
+    index: true,
   },
 
   /**

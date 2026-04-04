@@ -11,6 +11,7 @@ import EventEnrollment from "../../schema/EventEnrollment.schema.js";
 import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { reserveSeats, releaseSeatReservation } from "../SeatArrangement/seatArrangement.controller.js";
+import SOSProgram from "../Quiz/schemas/sosProgram.schema.js";
 
 /**
  * Normalize phone number by extracting last 10 digits
@@ -868,7 +869,129 @@ export const getPaymentStatus = async (req, res) => {
   }
 };
 
+/**
+ * Create a payment order for an SOS program
+ *
+ * @route POST /api/web/razorpay/create-sos-order
+ * @access Public
+ */
+export const createSosOrder = async (req, res) => {
+  try {
+    const { currency = "INR", sosId, metadata = {} } = req.body;
+
+    if (!sosId) {
+      return responseUtil.badRequest(res, "SOS program ID is required");
+    }
+
+    if (!metadata.buyer || !metadata.buyer.phone) {
+      return responseUtil.badRequest(res, "Buyer information with phone number is required");
+    }
+
+    if (!metadata.buyer.name || !metadata.buyer.name.trim()) {
+      return responseUtil.badRequest(res, "Buyer name is required");
+    }
+
+    const program = await SOSProgram.findById(sosId);
+    if (!program) {
+      return responseUtil.notFound(res, "SOS program not found");
+    }
+    if (!program.isActive) {
+      return responseUtil.badRequest(res, "This SOS program is not currently available");
+    }
+    if (!program.price || program.price <= 0) {
+      return responseUtil.badRequest(res, "This program is free and does not require payment");
+    }
+
+    // Create Razorpay order
+    const razorpayOrder = await razorpayInstance.orders.create({
+      amount: Math.round(program.price * 100),
+      currency,
+      receipt: `sos_${Date.now()}`,
+      notes: {
+        type: "SOS",
+        sosId: sosId.toString(),
+        programTitle: program.title,
+        sessionType: program.sessionType || "one-to-one",
+        buyer_name: metadata.buyer.name || "",
+        buyer_phone: metadata.buyer.phone || "",
+      },
+    });
+
+    // Create payment record
+    const payment = new Payment({
+      orderId: razorpayOrder.id,
+      type: "SOS",
+      sosId,
+      amount: program.price,
+      finalAmount: program.price,
+      status: "PENDING",
+      phone: metadata.buyer.phone ? metadata.buyer.phone.slice(-10) : null,
+      metadata: {
+        ...metadata,
+        razorpayOrderStatus: razorpayOrder.status,
+        programTitle: program.title,
+        sessionType: program.sessionType,
+      },
+    });
+    await payment.save();
+
+    // Build callback URL pointing to our app-callback
+    const backendUrl = process.env.BACKEND_URL || process.env.WORDPRESS_FRONTEND_URL || "";
+    const callbackUrl = `${backendUrl}/api/web/razorpay/app-callback`;
+
+    // Create payment link
+    const paymentLink = await razorpayInstance.paymentLink.create({
+      amount: Math.round(program.price * 100),
+      currency,
+      description: `SOS Program: ${program.title}`,
+      reference_id: razorpayOrder.id,
+      callback_url: callbackUrl,
+      callback_method: "get",
+      customer: {
+        name: metadata.buyer?.name || "",
+        email: metadata.buyer?.email || "",
+        contact: metadata.buyer?.phone || "",
+      },
+      notify: { sms: false, email: false },
+      reminder_enable: false,
+      notes: {
+        orderId: razorpayOrder.id,
+        type: "SOS",
+        sosId: sosId.toString(),
+      },
+    });
+
+    // Store paymentLinkId for app-callback lookup
+    payment.paymentLinkId = paymentLink.id;
+    payment.metadata.paymentLinkId = paymentLink.id;
+    await payment.save();
+
+    console.log("[SOS-ORDER] Created SOS payment order:", {
+      orderId: razorpayOrder.id,
+      sosId,
+      paymentLinkId: paymentLink.id,
+    });
+
+    return responseUtil.created(res, "SOS payment order created successfully", {
+      orderId: razorpayOrder.id,
+      amount: program.price,
+      currency,
+      paymentUrl: paymentLink.short_url,
+      paymentLinkId: paymentLink.id,
+      status: razorpayOrder.status,
+      gateway: {
+        name: "razorpay",
+        keyId: process.env.RAZORPAY_KEY_ID,
+      },
+    });
+  } catch (error) {
+    console.error("[SOS-ORDER] Create SOS order error:", error);
+    return responseUtil.internalError(res, "Failed to create SOS payment order", error.message);
+  }
+};
+
 export default {
   createOrder,
   getPaymentStatus,
+  createSosOrder,
 };

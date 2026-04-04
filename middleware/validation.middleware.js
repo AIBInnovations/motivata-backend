@@ -254,6 +254,10 @@ export const userSchemas = {
     name: schemas.name.optional(),
     email: schemas.email.optional(),
     phone: schemas.phone.optional(),
+    occupation: Joi.string().trim().max(100).optional().allow(null, ''),
+    age: Joi.number().integer().min(1).max(150).optional().allow(null),
+    achievement: Joi.string().trim().max(500).optional().allow(null, ''),
+    bio: Joi.string().trim().max(500).optional().allow(null, ''),
   }),
 
   /**

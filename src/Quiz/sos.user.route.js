@@ -17,6 +17,8 @@ import {
   downloadCertificate,
   resetProgram,
   retryProgram,
+  getScheduleInfo,
+  confirmSchedule,
 } from "./sos.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
@@ -179,5 +181,23 @@ router.get("/programs/:programId/certificate", validateParams(programIdParam), d
  * @param   {string} programId - Program ID
  */
 router.post("/programs/:programId/retry", validateParams(programIdParam), retryProgram);
+
+/**
+ * @route   GET /api/app/sos/programs/:programId/schedule-info
+ * @desc    Get Calendly scheduling URL for a paid SOS program
+ * @access  User (authenticated)
+ * @param   {string} programId - Program ID
+ */
+router.get("/programs/:programId/schedule-info", validateParams(programIdParam), getScheduleInfo);
+
+/**
+ * @route   POST /api/app/sos/programs/:programId/confirm-schedule
+ * @desc    Confirm session scheduled via Calendly (app calls after booking)
+ * @access  User (authenticated)
+ * @param   {string} programId - Program ID
+ * @body    {string} [scheduledAt] - ISO date string of scheduled time
+ * @body    {string} [calendlyInviteeUri] - Calendly invitee URI
+ */
+router.post("/programs/:programId/confirm-schedule", validateParams(programIdParam), confirmSchedule);
 
 export default router;

@@ -35,6 +35,30 @@ const userSchema = new mongoose.Schema(
       trim: true,
       minlength: 10,
     },
+    occupation: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: null,
+    },
+    age: {
+      type: Number,
+      min: 1,
+      max: 150,
+      default: null,
+    },
+    achievement: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null,
+    },
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: null,
+    },
     password: {
       type: String,
       required: true,
