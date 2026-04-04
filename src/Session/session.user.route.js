@@ -16,6 +16,7 @@ import {
   getUserBookings,
   getBookingById,
   cancelBooking,
+  confirmSessionSchedule,
 } from "./session.controller.js";
 import {
   createSessionOrder,
@@ -159,6 +160,22 @@ router.post(
   validateParams(sessionSchemas.bookingId),
   validateBody(sessionSchemas.cancelBooking),
   cancelBooking
+);
+
+/**
+ * @route   POST /api/app/sessions/my-bookings/:bookingId/confirm-schedule
+ * @desc    User confirms scheduling after Calendly booking
+ * @access  User (authenticated)
+ * @param   {string} bookingId - Booking ID
+ * @body    {string} [scheduledAt] - Scheduled time (ISO string)
+ * @body    {string} [calendlyEventUri] - Calendly event URI
+ * @returns {Object} Updated booking with scheduled slot
+ */
+router.post(
+  "/my-bookings/:bookingId/confirm-schedule",
+  authenticate,
+  validateParams(sessionSchemas.bookingId),
+  confirmSessionSchedule
 );
 
 // ============================================

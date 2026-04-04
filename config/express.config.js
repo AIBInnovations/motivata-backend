@@ -108,6 +108,65 @@ app.get("/health", (_req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
+// Android App Links — Digital Asset Links verification file
+// Required for deep links to open the Motivata app directly
+app.get("/.well-known/assetlinks.json", (_req, res) => {
+  res.json([
+    {
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: {
+        namespace: "android_app",
+        package_name: "com.synquic.motivata",
+        sha256_cert_fingerprints: [
+          "C2:C0:48:F4:2C:3E:E6:7F:EF:74:DC:26:25:C7:87:FF:F9:C7:51:9E:B7:B2:5E:F0:37:78:F5:0A:59:20:AC:56",
+          "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C"
+        ],
+      },
+    },
+  ]);
+});
+
+// Deep link redirect — opens the app via motivata:// scheme, falls back to Play Store
+// Uses /open/ prefix to avoid conflicts with the admin panel on the same domain
+app.get("/open/events/:eventId", (req, res) => {
+  const { eventId } = req.params;
+  const deepLink = `motivata://event/${eventId}`;
+  const playStoreLink = "https://play.google.com/store/apps/details?id=com.synquic.motivata";
+  res.send(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Opening Motivata...</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script>
+  window.location.replace("${deepLink}");
+  setTimeout(function(){ window.location.replace("${playStoreLink}"); }, 1500);
+</script>
+</head><body style="background:#111;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px">
+<h2>Opening Motivata...</h2>
+<p>If the app doesn't open, <a href="${playStoreLink}" style="color:#fedd44">get it on Google Play</a></p>
+</body></html>`);
+});
+
+// Deep link redirect for posts
+app.get("/open/post/:postId", (req, res) => {
+  const { postId } = req.params;
+  const deepLink = `motivata://post/${postId}`;
+  const playStoreLink = "https://play.google.com/store/apps/details?id=com.synquic.motivata";
+  res.send(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Opening Motivata...</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script>
+  window.location.replace("${deepLink}");
+  setTimeout(function(){ window.location.replace("${playStoreLink}"); }, 1500);
+</script>
+</head><body style="background:#111;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px">
+<h2>Opening Motivata...</h2>
+<p>If the app doesn't open, <a href="${playStoreLink}" style="color:#fedd44">get it on Google Play</a></p>
+</body></html>`);
+});
+
 // 404 handler — catches requests to undefined routes
 app.use((_req, res) => {
   res.status(404).json({
