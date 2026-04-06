@@ -5,12 +5,39 @@
 
 import express from "express";
 import Joi from "joi";
+import axios from "axios";
 import { getAvailableSlots } from "./calendly.controller.js";
 import { optionalAuth } from "../../middleware/auth.middleware.js";
 import {
   validateParams,
   validateQuery,
 } from "../../middleware/validation.middleware.js";
+import SessionBooking from "../../schema/SessionBooking.schema.js";
+
+/**
+ * Fetch scheduled event start time from Calendly API using invitee UUID.
+ * Requires CALENDLY_PAT in .env. Falls back to current time if unavailable.
+ */
+const fetchScheduledTime = async (inviteeUuid) => {
+  const pat = process.env.CALENDLY_PAT;
+  if (!pat || !inviteeUuid) return null;
+  try {
+    const { data } = await axios.get(
+      `https://api.calendly.com/event_invitees/${inviteeUuid}`,
+      { headers: { Authorization: `Bearer ${pat}` }, timeout: 5000 }
+    );
+    const eventUri = data?.resource?.event;
+    if (!eventUri) return null;
+    // Fetch the scheduled event to get start_time
+    const { data: eventData } = await axios.get(eventUri, {
+      headers: { Authorization: `Bearer ${pat}` }, timeout: 5000,
+    });
+    return eventData?.resource?.start_time ? new Date(eventData.resource.start_time) : null;
+  } catch (err) {
+    console.warn("[CALENDLY-CALLBACK] Could not fetch scheduled time from API:", err.message);
+    return null;
+  }
+};
 
 /** @type {express.Router} */
 const router = express.Router();
@@ -65,15 +92,17 @@ router.get(
  * @query   {string} sosId - SOS Program ID
  * @query   {string} [status] - Scheduling status from Calendly
  */
-router.get("/sos-scheduled", (req, res) => {
-  const { sosId, status } = req.query;
+router.get("/sos-scheduled", async (req, res) => {
+  const { sosId, status, invitee_uuid } = req.query;
 
-  console.log("[CALENDLY-CALLBACK] SOS scheduled callback received:", { sosId, status });
+  console.log("[CALENDLY-CALLBACK] SOS scheduled callback received:", { sosId, status, invitee_uuid });
+
+  const scheduledAt = (await fetchScheduledTime(invitee_uuid)) || new Date();
 
   const params = new URLSearchParams();
   if (sosId) params.set("sosId", sosId);
   if (status) params.set("status", status);
-  params.set("scheduledAt", new Date().toISOString());
+  params.set("scheduledAt", scheduledAt.toISOString());
 
   const appDeepLink = `motivata://sos/schedule-confirmed?${params.toString()}`;
   console.log("[CALENDLY-CALLBACK] Redirecting to:", appDeepLink);
@@ -89,15 +118,35 @@ router.get("/sos-scheduled", (req, res) => {
  * @query   {string} bookingId - Session Booking ID
  * @query   {string} [sessionId] - Session ID
  */
-router.get("/session-scheduled", (req, res) => {
-  const { bookingId, sessionId } = req.query;
+router.get("/session-scheduled", async (req, res) => {
+  const { bookingId, sessionId, invitee_uuid } = req.query;
 
-  console.log("[CALENDLY-CALLBACK] Session scheduled callback received:", { bookingId, sessionId });
+  console.log("[CALENDLY-CALLBACK] Session scheduled callback received:", { bookingId, sessionId, invitee_uuid });
+
+  // Try to get real scheduled time from Calendly API
+  const scheduledAt = (await fetchScheduledTime(invitee_uuid)) || new Date();
+  console.log("[CALENDLY-CALLBACK] Scheduled at:", scheduledAt, invitee_uuid ? "(from Calendly API)" : "(fallback: now)");
+
+  // Immediately save to DB — don't rely solely on the app deep link
+  if (bookingId) {
+    try {
+      const booking = await SessionBooking.findById(bookingId);
+      if (booking && booking.status !== "scheduled") {
+        booking.status = "scheduled";
+        booking.scheduledSlot = scheduledAt;
+        if (invitee_uuid) booking.calendlyEventUri = `https://api.calendly.com/event_invitees/${invitee_uuid}`;
+        await booking.save();
+        console.log("[CALENDLY-CALLBACK] ✓ Booking saved to DB:", bookingId, "→", scheduledAt);
+      }
+    } catch (err) {
+      console.error("[CALENDLY-CALLBACK] Failed to save booking:", err.message);
+    }
+  }
 
   const params = new URLSearchParams();
   if (bookingId) params.set("bookingId", bookingId);
   if (sessionId) params.set("sessionId", sessionId);
-  params.set("scheduledAt", new Date().toISOString());
+  params.set("scheduledAt", scheduledAt.toISOString());
 
   const appDeepLink = `motivata://session/schedule-confirmed?${params.toString()}`;
   console.log("[CALENDLY-CALLBACK] Redirecting to:", appDeepLink);

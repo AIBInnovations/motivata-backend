@@ -98,6 +98,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/web", adminRoutes); // only admin uses
 app.use("/api/app", appRoutes); // non admin uses
 
+
 // Basic route
 app.get("/", (_req, res) => {
   res.json({ message: "Welcome to Motivata API" });
