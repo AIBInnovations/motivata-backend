@@ -171,7 +171,7 @@ export const register = async (req, res) => {
     // Save refresh token to database
     user.refreshToken = tokens.refreshToken;
     user.lastLogin = new Date();
-    await user.save();
+    await user.save({ validateBeforeSave: false });
 
     // Remove sensitive data
     const userData = user.toObject();
@@ -229,7 +229,7 @@ export const login = async (req, res) => {
     // Update refresh token and last login
     user.refreshToken = tokens.refreshToken;
     user.lastLogin = new Date();
-    await user.save();
+    await user.save({ validateBeforeSave: false });
 
     // Remove sensitive data
     const userData = user.toObject();
@@ -400,7 +400,7 @@ export const loginWithPhone = async (req, res) => {
     });
     user.refreshToken = tokens.refreshToken;
     user.lastLogin = new Date();
-    await user.save();
+    await user.save({ validateBeforeSave: false });
     console.log('[LOGIN-PHONE] User document updated successfully', {
       userId: user._id,
       lastLogin: user.lastLogin
