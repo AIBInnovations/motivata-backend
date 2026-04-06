@@ -6,13 +6,16 @@
 import express from "express";
 import Joi from "joi";
 import axios from "axios";
+import crypto from "crypto";
 import { getAvailableSlots } from "./calendly.controller.js";
-import { optionalAuth } from "../../middleware/auth.middleware.js";
+import { optionalAuth, authenticate } from "../../middleware/auth.middleware.js";
+import User from "../../schema/User.schema.js";
 import {
   validateParams,
   validateQuery,
 } from "../../middleware/validation.middleware.js";
 import SessionBooking from "../../schema/SessionBooking.schema.js";
+import UserSOSProgress from "../Quiz/schemas/userSOSProgress.schema.js";
 
 /**
  * Fetch scheduled event start time from Calendly API using invitee UUID.
@@ -152,6 +155,204 @@ router.get("/session-scheduled", async (req, res) => {
   console.log("[CALENDLY-CALLBACK] Redirecting to:", appDeepLink);
 
   res.redirect(appDeepLink);
+});
+
+/**
+ * @route   POST /api/app/calendly/sync-my-bookings
+ * @desc    Triggered by the app on SOS/Profile page load.
+ *          Checks Calendly for any events matching the user's unscheduled bookings
+ *          and updates scheduledSlot + status immediately.
+ * @access  Authenticated user
+ */
+router.post("/sync-my-bookings", authenticate, async (req, res) => {
+  const pat = process.env.CALENDLY_PAT;
+  if (!pat) return res.status(200).json({ synced: 0 });
+
+  const userId = req.user.id;
+
+  try {
+    // 1. Find this user's unscheduled confirmed bookings
+    const unscheduled = await SessionBooking.find({
+      userId,
+      status: { $in: ["confirmed", "pending"] },
+      paymentStatus: { $in: ["paid", "free"] },
+      scheduledSlot: { $exists: false },
+    }).lean();
+
+    if (unscheduled.length === 0) {
+      return res.status(200).json({ synced: 0, message: "No unscheduled bookings" });
+    }
+
+    const bookingById = new Map(unscheduled.map(b => [b._id.toString(), b]));
+
+    // 2. Get user email for fallback matching
+    const user = await User.findById(userId, "email").lean();
+    const userEmail = user?.email?.toLowerCase();
+
+    // 3. Fetch active Calendly events (7 days back → 90 days forward)
+    const apiHeaders = { Authorization: `Bearer ${pat}` };
+    const { data: me } = await axios.get("https://api.calendly.com/users/me", { headers: apiHeaders, timeout: 8000 });
+    const orgUri = me.resource.current_organization;
+
+    const params = new URLSearchParams({
+      organization: orgUri,
+      status: "active",
+      sort: "start_time:asc",
+      count: "100",
+      min_start_time: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      max_start_time: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    const { data: eventsData } = await axios.get(
+      `https://api.calendly.com/scheduled_events?${params}`,
+      { headers: apiHeaders, timeout: 10000 }
+    );
+    const events = eventsData.collection || [];
+
+    let synced = 0;
+
+    for (const event of events) {
+      const startTime = new Date(event.start_time);
+      const uuid = event.uri.split("/").pop();
+
+      let invitees;
+      try {
+        const { data: inv } = await axios.get(
+          `https://api.calendly.com/scheduled_events/${uuid}/invitees`,
+          { headers: apiHeaders, timeout: 8000 }
+        );
+        invitees = inv.collection || [];
+      } catch {
+        continue;
+      }
+
+      for (const invitee of invitees) {
+        const utmContent = invitee.tracking?.utm_content;
+        const inviteeEmail = invitee.email?.toLowerCase();
+        const inviteeUri = invitee.uri;
+
+        let bookingId = null;
+
+        // Primary: utm_content = bookingId
+        if (utmContent && bookingById.has(utmContent)) {
+          bookingId = utmContent;
+        }
+        // Fallback: invitee email matches this user
+        else if (userEmail && inviteeEmail === userEmail && bookingById.size > 0) {
+          bookingId = [...bookingById.keys()][0]; // most recent
+        }
+
+        if (!bookingId) continue;
+
+        await SessionBooking.findByIdAndUpdate(bookingId, {
+          status: "scheduled",
+          scheduledSlot: startTime,
+          ...(inviteeUri && { calendlyEventUri: inviteeUri }),
+        });
+
+        bookingById.delete(bookingId);
+        synced++;
+
+        console.log(`[CALENDLY-SYNC-USER] ✓ Booking ${bookingId} scheduled at ${startTime.toISOString()} for user ${userId}`);
+      }
+
+      if (bookingById.size === 0) break; // all matched
+    }
+
+    return res.status(200).json({ synced });
+  } catch (err) {
+    console.error("[CALENDLY-SYNC-USER] Error:", err.message);
+    return res.status(200).json({ synced: 0, error: err.message });
+  }
+});
+
+/**
+ * @route   POST /api/app/calendly/webhook
+ * @desc    Calendly webhook receiver for invitee.created / invitee.canceled events
+ *          utm_content = bookingId (session booking) or sosId (SOS program)
+ * @access  Public (verified by signing key if set)
+ */
+router.post("/webhook", express.json({ type: "*/*" }), async (req, res) => {
+  try {
+    // Verify Calendly webhook signature if signing key is configured
+    const signingKey = process.env.CALENDLY_WEBHOOK_SIGNING_KEY;
+    if (signingKey) {
+      const signature = req.headers["calendly-webhook-signature"];
+      if (!signature) {
+        console.warn("[CALENDLY-WEBHOOK] Missing signature header");
+        return res.status(401).json({ error: "Missing signature" });
+      }
+      // Calendly signature: t=timestamp,v1=hmac_sha256(timestamp + "." + body)
+      const parts = {};
+      signature.split(",").forEach(part => {
+        const [k, v] = part.split("=");
+        parts[k] = v;
+      });
+      const toSign = `${parts.t}.${JSON.stringify(req.body)}`;
+      const expected = crypto.createHmac("sha256", signingKey).update(toSign).digest("hex");
+      if (expected !== parts.v1) {
+        console.warn("[CALENDLY-WEBHOOK] Invalid signature");
+        return res.status(401).json({ error: "Invalid signature" });
+      }
+    }
+
+    const event = req.body?.event;
+    const payload = req.body?.payload;
+
+    console.log("[CALENDLY-WEBHOOK] Received event:", event);
+
+    // Only handle invitee.created (new booking)
+    if (event !== "invitee.created") {
+      return res.status(200).json({ received: true });
+    }
+
+    const utmContent = payload?.tracking?.utm_content;
+    const startTime = payload?.event?.start_time || payload?.scheduled_event?.start_time;
+    const inviteeUri = payload?.invitee?.uri || "";
+
+    console.log("[CALENDLY-WEBHOOK] utm_content:", utmContent, "| start_time:", startTime);
+
+    if (!utmContent || !startTime) {
+      console.warn("[CALENDLY-WEBHOOK] Missing utm_content or start_time — cannot match booking");
+      return res.status(200).json({ received: true });
+    }
+
+    const scheduledAt = new Date(startTime);
+
+    // Try session booking first
+    const sessionBooking = await SessionBooking.findById(utmContent).catch(() => null);
+    if (sessionBooking) {
+      if (sessionBooking.status !== "scheduled") {
+        sessionBooking.status = "scheduled";
+        sessionBooking.scheduledSlot = scheduledAt;
+        if (inviteeUri) sessionBooking.calendlyEventUri = inviteeUri;
+        await sessionBooking.save();
+        console.log("[CALENDLY-WEBHOOK] ✓ Session booking updated:", utmContent, "→", scheduledAt);
+      } else {
+        console.log("[CALENDLY-WEBHOOK] Session booking already scheduled:", utmContent);
+      }
+      return res.status(200).json({ received: true });
+    }
+
+    // Try SOS progress record
+    const mongoose = (await import("mongoose")).default;
+    if (mongoose.Types.ObjectId.isValid(utmContent)) {
+      const sosProgress = await UserSOSProgress.findById(utmContent).catch(() => null);
+      if (sosProgress) {
+        sosProgress.scheduledAt = scheduledAt;
+        if (inviteeUri) sosProgress.calendlyInviteeUri = inviteeUri;
+        await sosProgress.save();
+        console.log("[CALENDLY-WEBHOOK] ✓ SOS progress updated:", utmContent, "→", scheduledAt);
+        return res.status(200).json({ received: true });
+      }
+    }
+
+    console.warn("[CALENDLY-WEBHOOK] No matching booking found for utm_content:", utmContent);
+    return res.status(200).json({ received: true });
+  } catch (err) {
+    console.error("[CALENDLY-WEBHOOK] Error:", err.message);
+    // Always return 200 to Calendly so it doesn't retry indefinitely
+    return res.status(200).json({ received: true, error: err.message });
+  }
 });
 
 export default router;

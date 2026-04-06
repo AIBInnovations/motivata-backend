@@ -8,6 +8,7 @@ import connectDB from "./config/database.config.js";
 import { runCashTicketAudit } from "./scripts/cashTicketAudit.js";
 import seedFeatureAccess from "./seeds/featureAccessSeed.js";
 import { cleanupDeletedUsers } from "./scripts/cleanupDeletedUsers.js";
+import { startCalendlySyncJob } from "./services/calendlySync.service.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -54,6 +55,9 @@ const startServer = async () => {
     cleanupDeletedUsers().catch((err) => {
       console.error("> Deleted users cleanup failed:", err.message);
     });
+
+    // Start Calendly sync job — polls every 5 min to update scheduled bookings
+    startCalendlySyncJob();
 
     app.listen(PORT, () => {
       console.log(`> Server is running on port ${PORT}`);

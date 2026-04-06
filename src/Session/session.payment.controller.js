@@ -87,6 +87,7 @@ export const createSessionOrder = async (req, res) => {
       console.log("[SESSION-PAYMENT] Free session booking created:", booking.bookingReference);
 
       return responseUtil.created(res, "Session booked successfully (free)", {
+        bookingId: booking._id,
         bookingReference: booking.bookingReference,
         status: "confirmed",
         paymentStatus: "free",
@@ -200,6 +201,7 @@ export const createSessionOrder = async (req, res) => {
 
     return responseUtil.created(res, "Session payment order created successfully", {
       orderId: razorpayOrder.id,
+      bookingId: booking._id,
       bookingReference: booking.bookingReference,
       amount: amount,
       currency: currency,
@@ -304,6 +306,7 @@ export const getSessionPaymentStatus = async (req, res) => {
       session: sessionData,
       booking: booking
         ? {
+            bookingId: booking._id,
             bookingReference: booking.bookingReference,
             status: booking.status,
             paymentStatus: booking.paymentStatus,
