@@ -263,6 +263,14 @@ export const getSessionPaymentStatus = async (req, res) => {
           payment.status = "SUCCESS";
           payment.purchaseDateTime = new Date(razorpayOrder.created_at * 1000);
           await payment.save();
+
+          // Also update the SessionBooking if it's still pending
+          if (booking && booking.paymentStatus !== "paid") {
+            booking.paymentStatus = "paid";
+            booking.status = "confirmed";
+            await booking.save();
+            console.log("[SESSION-PAYMENT] Synced booking status to paid/confirmed via Razorpay check:", booking.bookingReference);
+          }
         }
       } catch (rzError) {
         console.error("[SESSION-PAYMENT] Razorpay fetch error:", rzError);
@@ -314,7 +322,91 @@ export const getSessionPaymentStatus = async (req, res) => {
   }
 };
 
+/**
+ * Sync payment status for a booking — called by user when stuck on "Payment Pending"
+ * Looks up the associated Payment record, checks Razorpay if needed, and updates booking
+ *
+ * @route POST /api/app/sessions/my-bookings/:bookingId/sync-payment
+ * @access User (authenticated)
+ */
+export const syncSessionBookingPayment = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const userId = req.user.id;
+
+    const booking = await SessionBooking.findOne({ _id: bookingId, userId });
+    if (!booking) {
+      return responseUtil.notFound(res, "Booking not found");
+    }
+
+    // Already paid — nothing to sync
+    if (booking.paymentStatus === "paid" || booking.paymentStatus === "free") {
+      return responseUtil.success(res, "Booking already confirmed", {
+        paymentStatus: booking.paymentStatus,
+        status: booking.status,
+      });
+    }
+
+    // Find the associated Payment record via bookingReference
+    const payment = await Payment.findOne({
+      "metadata.bookingReference": booking.bookingReference,
+      type: "SESSION",
+    });
+
+    if (!payment) {
+      return responseUtil.notFound(res, "Payment record not found for this booking");
+    }
+
+    // If Payment is already SUCCESS, just sync booking
+    if (payment.status === "SUCCESS") {
+      booking.paymentStatus = "paid";
+      booking.status = "confirmed";
+      await booking.save();
+      console.log("[SESSION-SYNC] Synced booking from existing SUCCESS payment:", booking.bookingReference);
+      return responseUtil.success(res, "Payment confirmed", {
+        paymentStatus: "paid",
+        status: "confirmed",
+        synced: true,
+      });
+    }
+
+    // Payment still PENDING — check with Razorpay
+    try {
+      const razorpayOrder = await razorpayInstance.orders.fetch(payment.orderId);
+      if (razorpayOrder.status === "paid") {
+        payment.status = "SUCCESS";
+        payment.purchaseDateTime = new Date();
+        await payment.save();
+
+        booking.paymentStatus = "paid";
+        booking.status = "confirmed";
+        await booking.save();
+
+        console.log("[SESSION-SYNC] Synced booking after Razorpay confirmed paid:", booking.bookingReference);
+        return responseUtil.success(res, "Payment confirmed", {
+          paymentStatus: "paid",
+          status: "confirmed",
+          synced: true,
+        });
+      }
+    } catch (rzError) {
+      console.error("[SESSION-SYNC] Razorpay fetch error:", rzError.message);
+    }
+
+    // Payment not yet confirmed by Razorpay
+    return responseUtil.success(res, "Payment not yet confirmed by payment gateway", {
+      paymentStatus: booking.paymentStatus,
+      status: booking.status,
+      synced: false,
+    });
+  } catch (error) {
+    console.error("[SESSION-SYNC] Error:", error);
+    return responseUtil.internalError(res, "Failed to sync payment status", error.message);
+  }
+};
+
 export default {
   createSessionOrder,
   getSessionPaymentStatus,
+  syncSessionBookingPayment,
 };

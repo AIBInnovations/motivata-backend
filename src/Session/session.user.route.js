@@ -21,6 +21,7 @@ import {
 import {
   createSessionOrder,
   getSessionPaymentStatus,
+  syncSessionBookingPayment,
 } from "./session.payment.controller.js";
 import { optionalAuth, authenticate } from "../../middleware/auth.middleware.js";
 import {
@@ -176,6 +177,18 @@ router.post(
   authenticate,
   validateParams(sessionSchemas.bookingId),
   confirmSessionSchedule
+);
+
+/**
+ * @route   POST /api/app/sessions/my-bookings/:bookingId/sync-payment
+ * @desc    Sync payment status from Razorpay for a pending booking
+ * @access  User (authenticated)
+ */
+router.post(
+  "/my-bookings/:bookingId/sync-payment",
+  authenticate,
+  validateParams(sessionSchemas.bookingId),
+  syncSessionBookingPayment
 );
 
 // ============================================
