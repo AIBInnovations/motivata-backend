@@ -11,6 +11,32 @@ import Like from "../../schema/Like.schema.js";
 import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import cloudinary from "../../config/cloudinary.config.js";
+import multer from "multer";
+
+// ============================================
+// MULTER CONFIGURATION FOR CLUB POST IMAGES
+// ============================================
+
+const storage = multer.memoryStorage();
+
+export const uploadClubPostMedia = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  fileFilter: (req, file, cb) => {
+    const allowedMimeTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+    ];
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Invalid file type: ${file.mimetype}. Only images are allowed.`), false);
+    }
+  },
+});
 
 /**
  * Create a new club
@@ -740,6 +766,117 @@ export const getPostById = async (req, res) => {
   } catch (error) {
     console.error('[CLUB-ADMIN] Get post by ID error:', error);
     return responseUtil.internalError(res, 'Failed to fetch post', error.message);
+  }
+};
+
+/**
+ * Upload image for a club post (Admin only)
+ * POST /api/web/clubs/media/upload
+ */
+export const uploadClubMedia = async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return responseUtil.badRequest(res, "No file provided");
+    }
+
+    const base64Data = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    const timestamp = Date.now();
+    const sanitizedName = file.originalname
+      .replace(/\.[^/.]+$/, "")
+      .replace(/[^a-zA-Z0-9-_]/g, "-")
+      .replace(/-+/g, "-")
+      .substring(0, 30);
+    const publicId = `club-admin-${sanitizedName}-${timestamp}`;
+
+    const result = await cloudinary.uploader.upload(base64Data, {
+      folder: "connect/club-admin-posts",
+      public_id: publicId,
+      resource_type: "image",
+      overwrite: false,
+    });
+
+    return responseUtil.success(res, "Media uploaded successfully", {
+      originalName: file.originalname,
+      publicId: result.public_id,
+      mediaType: "IMAGE",
+      mediaUrl: result.secure_url,
+      width: result.width,
+      height: result.height,
+      format: result.format,
+      size: result.bytes,
+    });
+  } catch (error) {
+    console.error("[CLUB-ADMIN] Upload club media error:", error);
+    return responseUtil.internalError(res, "Failed to upload media", error.message);
+  }
+};
+
+/**
+ * Create a post in a club (Admin only)
+ * POST /api/web/clubs/:clubId/posts
+ */
+export const createClubPost = async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    const { caption, mediaUrls } = req.body;
+    const adminId = req.user.id;
+
+    const club = await Club.findById(clubId);
+    if (!club) {
+      return responseUtil.notFound(res, "Club not found");
+    }
+
+    if (!mediaUrls || !Array.isArray(mediaUrls) || mediaUrls.length === 0) {
+      return responseUtil.badRequest(res, "At least one image URL is required");
+    }
+
+    if (mediaUrls.length > 10) {
+      return responseUtil.badRequest(res, "Cannot have more than 10 images");
+    }
+
+    const post = new Post({
+      authorType: "Admin",
+      author: adminId,
+      caption: caption?.trim() || "",
+      mediaType: "IMAGE",
+      mediaUrls,
+      club: clubId,
+      isExplorePost: false,
+    });
+
+    await post.save();
+    await post.populate({ path: "author", select: "name email" });
+
+    // Increment club post count
+    await Club.findByIdAndUpdate(clubId, { $inc: { postCount: 1 } });
+
+    return responseUtil.created(res, "Club post created successfully", {
+      post: {
+        id: post._id,
+        caption: post.caption,
+        mediaType: post.mediaType,
+        mediaUrls: post.mediaUrls,
+        likeCount: post.likeCount,
+        shareCount: post.shareCount,
+        author: {
+          id: post.author._id,
+          name: post.author.name,
+        },
+        club: clubId,
+        createdAt: post.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("[CLUB-ADMIN] Create club post error:", error);
+    if (error.name === "ValidationError") {
+      const errors = Object.keys(error.errors).map((key) => ({
+        field: key,
+        message: error.errors[key].message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+    return responseUtil.internalError(res, "Failed to create club post", error.message);
   }
 };
 
