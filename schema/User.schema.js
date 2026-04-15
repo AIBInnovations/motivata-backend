@@ -121,6 +121,15 @@ const userSchema = new mongoose.Schema(
       min: 0,
     },
     /**
+     * Privacy settings: user controls what others can see on their profile
+     */
+    privacySettings: {
+      showOccupation: { type: Boolean, default: true },
+      showAge:        { type: Boolean, default: true },
+      showBio:        { type: Boolean, default: true },
+      showPosts:      { type: Boolean, default: true },
+    },
+    /**
      * FCM tokens for push notifications (supports multiple devices)
      */
     fcmTokens: [

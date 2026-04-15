@@ -291,8 +291,20 @@ export const searchUsers = async (req, res) => {
 
     // Build search query
     const searchRegex = new RegExp(search.trim(), "i");
+    const trimmed = search.trim();
+    const numericValue = Number(trimmed);
+    const orConditions = [
+      { name: searchRegex },
+      { email: searchRegex },
+      { phone: searchRegex },
+      { occupation: searchRegex },
+      { bio: searchRegex },
+    ];
+    if (!isNaN(numericValue) && trimmed !== "") {
+      orConditions.push({ age: numericValue });
+    }
     const query = {
-      $or: [{ name: searchRegex }, { email: searchRegex }, { phone: searchRegex }],
+      $or: orConditions,
       isDeleted: false,
     };
 
@@ -303,7 +315,7 @@ export const searchUsers = async (req, res) => {
 
     const [users, totalCount] = await Promise.all([
       User.find(query)
-        .select("name email phone followerCount followingCount postCount")
+        .select("name email phone occupation age bio followerCount followingCount postCount createdAt")
         .sort({ followerCount: -1, name: 1 })
         .skip(skip)
         .limit(Number(limit)),
@@ -326,10 +338,15 @@ export const searchUsers = async (req, res) => {
       name: user.name,
       email: user.email,
       phone: user.phone,
+      occupation: user.occupation || null,
+      age: user.age || null,
+      bio: user.bio || null,
       followerCount: user.followerCount || 0,
       followingCount: user.followingCount || 0,
       postCount: user.postCount || 0,
       isFollowing: currentUserId ? followingSet.has(user._id.toString()) : false,
+      isOwnProfile: false,
+      joinedAt: user.createdAt,
     }));
 
     const totalPages = Math.ceil(totalCount / limit);
@@ -364,65 +381,88 @@ export const getUserProfile = async (req, res) => {
     const currentUserId = req.user?.id;
 
     const user = await User.findById(userId).select(
-      "name email phone followerCount followingCount postCount createdAt"
+      "name email phone occupation age bio followerCount followingCount postCount privacySettings createdAt"
     );
 
     if (!user) {
       return responseUtil.notFound(res, "User not found");
     }
 
-    // Get user's recent posts
-    const posts = await Post.find({ author: userId })
-      .populate("author", "name email")
-      .sort({ createdAt: -1 })
-      .limit(Number(postsLimit));
+    const isOwnProfile = currentUserId === userId;
+    const privacy = user.privacySettings || {};
 
-    // Get like status and following status if user is logged in
-    let isFollowing = false;
-    let likedPostIds = new Set();
+    // Get user's recent posts — skip if viewer can't see posts
+    let formattedPosts = [];
+    if (isOwnProfile || privacy.showPosts !== false) {
+      const posts = await Post.find({ author: userId })
+        .populate("author", "name email")
+        .sort({ createdAt: -1 })
+        .limit(Number(postsLimit));
 
-    if (currentUserId) {
-      const postIds = posts.map((p) => p._id);
-      const [followingStatus, likedPosts] = await Promise.all([
-        currentUserId !== userId ? Connect.isFollowing(currentUserId, userId) : false,
-        Like.hasLikedPosts(currentUserId, postIds),
-      ]);
-      isFollowing = followingStatus;
-      likedPostIds = likedPosts;
+      // Get like status and following status if user is logged in
+      let isFollowing = false;
+      let likedPostIds = new Set();
+
+      if (currentUserId) {
+        const postIds = posts.map((p) => p._id);
+        const [followingStatus, likedPosts] = await Promise.all([
+          !isOwnProfile ? Connect.isFollowing(currentUserId, userId) : Promise.resolve(false),
+          Like.hasLikedPosts(currentUserId, postIds),
+        ]);
+        isFollowing = followingStatus;
+        likedPostIds = likedPosts;
+      }
+
+      formattedPosts = posts.map((post) => ({
+        id: post._id,
+        caption: post.caption,
+        mediaType: post.mediaType,
+        mediaUrls: post.mediaUrls,
+        mediaThumbnail: post.mediaThumbnail,
+        likeCount: post.likeCount,
+        shareCount: post.shareCount,
+        author: {
+          id: post.author._id,
+          name: post.author.name,
+          isFollowing: currentUserId && !isOwnProfile ? isFollowing : false,
+        },
+        isLiked: currentUserId ? likedPostIds.has(post._id.toString()) : false,
+        isOwnPost: isOwnProfile,
+        createdAt: post.createdAt,
+      }));
     }
 
-    // Format posts
-    const formattedPosts = posts.map((post) => ({
-      id: post._id,
-      caption: post.caption,
-      mediaType: post.mediaType,
-      mediaUrls: post.mediaUrls,
-      mediaThumbnail: post.mediaThumbnail,
-      likeCount: post.likeCount,
-      shareCount: post.shareCount,
-      author: {
-        id: post.author._id,
-        name: post.author.name,
-        isFollowing: currentUserId && currentUserId !== userId ? isFollowing : false,
-      },
-      isLiked: currentUserId ? likedPostIds.has(post._id.toString()) : false,
-      isOwnPost: currentUserId === userId,
-      createdAt: post.createdAt,
-    }));
+    // Determine follow status (needed for user object too)
+    let isFollowing = false;
+    if (currentUserId && !isOwnProfile) {
+      isFollowing = await Connect.isFollowing(currentUserId, userId);
+    }
+
+    // Build user object — respect privacy settings for non-owners
+    const userObj = {
+      id: user._id,
+      name: user.name,
+      followerCount: user.followerCount || 0,
+      followingCount: user.followingCount || 0,
+      postCount: user.postCount || 0,
+      joinedAt: user.createdAt,
+      isFollowing,
+      isOwnProfile,
+      // Fields visible to owner always; others see only if privacy allows
+      ...(isOwnProfile || privacy.showOccupation !== false ? { occupation: user.occupation || null } : {}),
+      ...(isOwnProfile || privacy.showAge !== false       ? { age: user.age || null }               : {}),
+      ...(isOwnProfile || privacy.showBio !== false       ? { bio: user.bio || null }               : {}),
+      // Owner always gets their own privacy settings so they can manage toggles
+      ...(isOwnProfile ? { privacySettings: {
+        showOccupation: privacy.showOccupation !== false,
+        showAge:        privacy.showAge !== false,
+        showBio:        privacy.showBio !== false,
+        showPosts:      privacy.showPosts !== false,
+      }} : {}),
+    };
 
     return responseUtil.success(res, "User profile fetched successfully", {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        followerCount: user.followerCount || 0,
-        followingCount: user.followingCount || 0,
-        postCount: user.postCount || 0,
-        joinedAt: user.createdAt,
-        isFollowing,
-        isOwnProfile: currentUserId === userId,
-      },
+      user: userObj,
       posts: formattedPosts,
     });
   } catch (error) {
@@ -433,6 +473,50 @@ export const getUserProfile = async (req, res) => {
     }
 
     return responseUtil.internalError(res, "Failed to fetch user profile", error.message);
+  }
+};
+
+/**
+ * Update current user's privacy settings
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const updatePrivacySettings = async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+    const { showOccupation, showAge, showBio, showPosts } = req.body;
+
+    const update = {};
+    if (showOccupation !== undefined) update["privacySettings.showOccupation"] = Boolean(showOccupation);
+    if (showAge !== undefined)        update["privacySettings.showAge"]        = Boolean(showAge);
+    if (showBio !== undefined)        update["privacySettings.showBio"]        = Boolean(showBio);
+    if (showPosts !== undefined)      update["privacySettings.showPosts"]      = Boolean(showPosts);
+
+    if (Object.keys(update).length === 0) {
+      return responseUtil.badRequest(res, "No privacy settings provided");
+    }
+
+    const user = await User.findByIdAndUpdate(
+      currentUserId,
+      { $set: update },
+      { new: true, select: "privacySettings" }
+    );
+
+    if (!user) {
+      return responseUtil.notFound(res, "User not found");
+    }
+
+    return responseUtil.success(res, "Privacy settings updated", {
+      privacySettings: {
+        showOccupation: user.privacySettings.showOccupation !== false,
+        showAge:        user.privacySettings.showAge !== false,
+        showBio:        user.privacySettings.showBio !== false,
+        showPosts:      user.privacySettings.showPosts !== false,
+      },
+    });
+  } catch (error) {
+    console.error("[CONNECT] Update privacy settings error:", error);
+    return responseUtil.internalError(res, "Failed to update privacy settings", error.message);
   }
 };
 
