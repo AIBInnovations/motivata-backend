@@ -14,6 +14,7 @@ const jobPostSchema = new mongoose.Schema(
     requirements: { type: String, trim: true, maxlength: 3000, default: "" },
     salary: { type: String, trim: true, maxlength: 200, default: "" },
     deadline: { type: Date, default: null },
+    jobImage: { type: String, default: "" },
     isActive: { type: Boolean, default: true, index: true },
     applicationCount: { type: Number, default: 0, min: 0 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin", required: true },

@@ -1539,6 +1539,13 @@ export const clubSchemas = {
       .valid("name", "memberCount", "postCount", "createdAt")
       .default("memberCount"),
     sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    search: Joi.string().trim().optional(),
+    occupation: Joi.string().trim().optional(),
+    minAge: Joi.number().integer().min(1).max(150).optional(),
+    maxAge: Joi.number().integer().min(1).max(150).optional(),
+    name: Joi.string().trim().optional(),
+    achievement: Joi.string().trim().optional(),
+    lifeExperience: Joi.string().trim().optional(),
   }),
 
   /**
