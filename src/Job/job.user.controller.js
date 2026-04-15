@@ -2,6 +2,43 @@ import JobPost from "../../schema/JobPost.schema.js";
 import JobApplication from "../../schema/JobApplication.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
+// Get single active job post
+export const getJob = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const userId = req.user?.id;
+
+    const job = await JobPost.findOne({ _id: jobId, isActive: true });
+    if (!job) return responseUtil.notFound(res, "Job not found");
+
+    let hasApplied = false;
+    if (userId) {
+      const applied = await JobApplication.findOne({ job: jobId, user: userId });
+      hasApplied = !!applied;
+    }
+
+    return responseUtil.success(res, "Job fetched", {
+      job: {
+        id: job._id,
+        title: job.title,
+        company: job.company,
+        location: job.location,
+        type: job.type,
+        description: job.description,
+        requirements: job.requirements,
+        salary: job.salary,
+        deadline: job.deadline,
+        jobImage: job.jobImage || "",
+        applicationCount: job.applicationCount,
+        hasApplied,
+        createdAt: job.createdAt,
+      },
+    });
+  } catch (error) {
+    return responseUtil.internalError(res, "Failed to fetch job", error.message);
+  }
+};
+
 // Get active job posts
 export const getJobs = async (req, res) => {
   try {

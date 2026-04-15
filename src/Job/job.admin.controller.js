@@ -70,6 +70,51 @@ export const createJob = async (req, res) => {
   }
 };
 
+// Upload image and immediately save it to the job
+export const uploadAndSetJobImage = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const file = req.file;
+    if (!file) return responseUtil.badRequest(res, "No file provided");
+
+    const job = await JobPost.findById(jobId);
+    if (!job) return responseUtil.notFound(res, "Job not found");
+
+    const base64Data = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    const publicId = `job-${jobId}-${Date.now()}`;
+
+    const result = await cloudinary.uploader.upload(base64Data, {
+      folder: "jobs/images",
+      public_id: publicId,
+      resource_type: "image",
+      overwrite: false,
+    });
+
+    job.jobImage = result.secure_url;
+    await job.save();
+
+    return responseUtil.success(res, "Job image uploaded successfully", {
+      jobImage: result.secure_url,
+      job,
+    });
+  } catch (error) {
+    console.error("[JOB ADMIN] Upload and set image error:", error);
+    return responseUtil.internalError(res, "Failed to upload job image", error.message);
+  }
+};
+
+// Get single job post
+export const getJob = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = await JobPost.findById(jobId).populate("createdBy", "name email");
+    if (!job) return responseUtil.notFound(res, "Job not found");
+    return responseUtil.success(res, "Job fetched", { job });
+  } catch (error) {
+    return responseUtil.internalError(res, "Failed to fetch job", error.message);
+  }
+};
+
 // Get all job posts
 export const getJobs = async (req, res) => {
   try {

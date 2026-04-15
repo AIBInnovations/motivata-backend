@@ -13,6 +13,7 @@ import {
   searchUsers,
   getUserProfile,
   checkFollowStatus,
+  updatePrivacySettings,
 } from "./connect.controller.js";
 import {
   createPost,
@@ -259,6 +260,21 @@ router.get(
   optionalAuth,
   validateQuery(connectSchemas.searchQuery),
   searchUsers
+);
+
+/**
+ * @route PATCH /api/app/connect/users/privacy
+ * @description Update current user's privacy settings
+ * @access Private (authenticated users)
+ * @body {boolean} [showOccupation]
+ * @body {boolean} [showAge]
+ * @body {boolean} [showBio]
+ * @body {boolean} [showPosts]
+ */
+router.patch(
+  "/users/privacy",
+  authenticate,
+  updatePrivacySettings
 );
 
 /**
