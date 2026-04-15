@@ -1,11 +1,48 @@
 import JobPost from "../../schema/JobPost.schema.js";
 import JobApplication from "../../schema/JobApplication.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import cloudinary from "../../config/cloudinary.config.js";
+import multer from "multer";
+
+const storage = multer.memoryStorage();
+export const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error(`Invalid file type: ${file.mimetype}`), false);
+  },
+});
+
+export const uploadJobImage = async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return responseUtil.badRequest(res, "No file provided");
+
+    const base64Data = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    const publicId = `job-${Date.now()}`;
+
+    const result = await cloudinary.uploader.upload(base64Data, {
+      folder: "jobs/images",
+      public_id: publicId,
+      resource_type: "image",
+      overwrite: false,
+    });
+
+    return responseUtil.success(res, "Image uploaded successfully", {
+      imageUrl: result.secure_url,
+    });
+  } catch (error) {
+    console.error("[JOB ADMIN] Upload image error:", error);
+    return responseUtil.internalError(res, "Failed to upload image", error.message);
+  }
+};
 
 // Create job post
 export const createJob = async (req, res) => {
   try {
-    const { title, company, location, type, description, requirements, salary, deadline } = req.body;
+    const { title, company, location, type, description, requirements, salary, deadline, jobImage } = req.body;
     const adminId = req.user.id;
 
     if (!title?.trim() || !company?.trim() || !location?.trim() || !type || !description?.trim()) {
@@ -21,6 +58,7 @@ export const createJob = async (req, res) => {
       requirements: requirements?.trim() || "",
       salary: salary?.trim() || "",
       deadline: deadline ? new Date(deadline) : null,
+      jobImage: jobImage?.trim() || "",
       createdBy: adminId,
     });
 
@@ -64,7 +102,7 @@ export const updateJob = async (req, res) => {
   try {
     const { jobId } = req.params;
     const updates = req.body;
-    const allowed = ["title", "company", "location", "type", "description", "requirements", "salary", "deadline", "isActive"];
+    const allowed = ["title", "company", "location", "type", "description", "requirements", "salary", "deadline", "isActive", "jobImage"];
     const updateData = {};
     allowed.forEach(key => { if (updates[key] !== undefined) updateData[key] = updates[key]; });
 

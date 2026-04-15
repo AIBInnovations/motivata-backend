@@ -13,6 +13,7 @@ import ClubJoinRequest from "../../schema/ClubJoinRequest.schema.js";
 import Post from "../../schema/Post.schema.js";
 import Like from "../../schema/Like.schema.js";
 import Connect from "../../schema/Connect.schema.js";
+import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
@@ -28,6 +29,13 @@ export const getAllClubs = async (req, res) => {
       limit = 20,
       sortBy = "memberCount",
       sortOrder = "desc",
+      search,
+      occupation,
+      minAge,
+      maxAge,
+      name,
+      achievement,
+      lifeExperience,
     } = req.query;
 
     const currentUserId = req.user?.id || null;
@@ -37,12 +45,54 @@ export const getAllClubs = async (req, res) => {
     const sort = {};
     sort[sortBy] = sortOrder === "asc" ? 1 : -1;
 
+    // Build club query
+    const clubQuery = {};
+
+    // Club name search
+    if (search) {
+      clubQuery.name = new RegExp(search, "i");
+    }
+
+    // Member profile filters: find clubs that have matching members
+    const hasProfileFilter = occupation || minAge || maxAge || name || achievement || lifeExperience;
+    if (hasProfileFilter) {
+      const userQuery = { isDeleted: false };
+
+      if (name) {
+        userQuery.name = new RegExp(name, "i");
+      }
+      if (occupation) {
+        userQuery.occupation = new RegExp(occupation, "i");
+      }
+      if (minAge !== undefined || maxAge !== undefined) {
+        userQuery.age = {};
+        if (minAge !== undefined) userQuery.age.$gte = Number(minAge);
+        if (maxAge !== undefined) userQuery.age.$lte = Number(maxAge);
+      }
+      if (achievement) {
+        userQuery.achievement = new RegExp(achievement, "i");
+      }
+      if (lifeExperience) {
+        userQuery.lifeExperiences = new RegExp(lifeExperience, "i");
+      }
+
+      const matchingUserIds = await User.find(userQuery).distinct("_id");
+
+      // Find clubs where these users are approved members
+      const matchingClubIds = await ClubMember.find({
+        user: { $in: matchingUserIds },
+        status: "APPROVED",
+      }).distinct("club");
+
+      clubQuery._id = { $in: matchingClubIds };
+    }
+
     const [clubs, totalCount] = await Promise.all([
-      Club.find()
+      Club.find(clubQuery)
         .sort(sort)
         .skip(skip)
         .limit(Number(limit)),
-      Club.countDocuments(),
+      Club.countDocuments(clubQuery),
     ]);
 
     // If user is authenticated, get their club memberships

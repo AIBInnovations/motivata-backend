@@ -31,6 +31,7 @@ export const getJobs = async (req, res) => {
       requirements: job.requirements,
       salary: job.salary,
       deadline: job.deadline,
+      jobImage: job.jobImage || "",
       applicationCount: job.applicationCount,
       hasApplied: appliedJobIds.has(job._id.toString()),
       createdAt: job.createdAt,
