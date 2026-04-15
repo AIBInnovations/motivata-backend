@@ -19,6 +19,9 @@ import {
   getClubPosts,
   getPostById,
   deletePost,
+  uploadClubMedia,
+  uploadClubPostMedia,
+  createClubPost,
 } from "./club.admin.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 import {
@@ -139,6 +142,23 @@ router.delete(
   validateParams(clubSchemas.postId),
   deletePost
 );
+
+/**
+ * @route   POST /api/web/clubs/media/upload
+ * @desc    Upload an image for a club post
+ * @access  Admin only
+ * @body    {file} file - Image file (multipart/form-data)
+ */
+router.post("/media/upload", uploadClubPostMedia.single("file"), uploadClubMedia);
+
+/**
+ * @route   POST /api/web/clubs/:clubId/posts
+ * @desc    Create a post in a club (admin-authored, with image)
+ * @access  Admin only
+ * @body    {string[]} mediaUrls - Array of image URLs from upload endpoint (required)
+ * @body    {string} [caption] - Post caption
+ */
+router.post("/:clubId/posts", validateParams(clubSchemas.clubId), createClubPost);
 
 /**
  * @route   GET /api/web/clubs/join-requests
