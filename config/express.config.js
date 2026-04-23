@@ -168,16 +168,14 @@ app.get("/open/post/:postId", (req, res) => {
 </body></html>`);
 });
 
-// Deep link redirect for challenges — opens the Motivata app on the challenge detail,
+// Deep link redirect for challenges — opens the Motivata app on the Challenges list,
 // falls back to Play Store / App Store if the app is not installed.
 // Mounted under /api/ because the reverse proxy at motivata.synquic.com only forwards
 // /api/* to this Node backend; everything else goes to the admin panel.
-const challengeDeepLinkHandler = (req, res) => {
-  const { challengeId } = req.params;
+const challengeDeepLinkHandler = (_req, res) => {
   const playStoreLink = "https://play.google.com/store/apps/details?id=com.synquic.motivata";
   const appStoreLink = process.env.APP_STORE_URL || playStoreLink;
   // JSON-encoded so the value is safe to drop into inline JS regardless of contents.
-  const safeChallengeId = JSON.stringify(String(challengeId));
   const safePlayStore = JSON.stringify(playStoreLink);
   const safeAppStore = JSON.stringify(appStoreLink);
   res.send(`<!DOCTYPE html>
@@ -190,18 +188,17 @@ const challengeDeepLinkHandler = (req, res) => {
   var ua = navigator.userAgent || "";
   var isAndroid = /Android/i.test(ua);
   var isIOS = /iPhone|iPad|iPod/i.test(ua);
-  var challengeId = ${safeChallengeId};
   var playStore = ${safePlayStore};
   var appStore = ${safeAppStore};
 
   if (isAndroid) {
-    // intent:// = Android's native way to open a specific app. If the Motivata
-    // app is installed, it opens directly on the challenge screen. If not,
-    // browser_fallback_url sends the user to the Play Store automatically —
-    // no timeout race needed.
+    // intent:// opens the Motivata app on the Challenges list screen. The
+    // challenge id stays in the backend URL for tracking, but the app URL
+    // targets the list — mobile routes motivata://challenges to that screen.
+    // browser_fallback_url sends the user to the Play Store automatically if
+    // the app isn't installed.
     var intentUrl =
-      "intent://challenge/" + encodeURIComponent(challengeId) +
-      "#Intent;scheme=motivata;package=com.synquic.motivata;" +
+      "intent://challenges#Intent;scheme=motivata;package=com.synquic.motivata;" +
       "S.browser_fallback_url=" + encodeURIComponent(playStore) + ";end";
     window.location.replace(intentUrl);
     return;
@@ -211,7 +208,7 @@ const challengeDeepLinkHandler = (req, res) => {
     // iOS doesn't support intent://. Try the custom scheme; if the app isn't
     // installed the page stays visible, so after 1.5s send them to the App Store.
     var clickedAt = Date.now();
-    window.location.replace("motivata://challenge/" + encodeURIComponent(challengeId));
+    window.location.replace("motivata://challenges");
     setTimeout(function () {
       if (Date.now() - clickedAt < 2000) {
         window.location.replace(appStore);
