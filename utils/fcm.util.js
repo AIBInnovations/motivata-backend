@@ -138,6 +138,7 @@ export const sendToMultipleDevices = async ({
   body,
   data = {},
   eventId,
+  imageUrl,
 }) => {
   if (!tokens || tokens.length === 0) {
     console.log(`[FCM] No tokens provided, skipping notification`);
@@ -156,6 +157,7 @@ export const sendToMultipleDevices = async ({
       notification: {
         title,
         body,
+        ...(imageUrl ? { imageUrl } : {}),
       },
       data: Object.fromEntries(
         Object.entries(data).map(([key, value]) => [key, String(value)])
@@ -165,6 +167,7 @@ export const sendToMultipleDevices = async ({
         notification: {
           sound: "default",
           channelId: "default",
+          ...(imageUrl ? { imageUrl } : {}),
         },
       },
       apns: {
@@ -172,8 +175,12 @@ export const sendToMultipleDevices = async ({
           aps: {
             sound: "default",
             badge: 1,
+            "mutable-content": imageUrl ? 1 : 0,
           },
         },
+        ...(imageUrl
+          ? { fcmOptions: { imageUrl } }
+          : {}),
       },
     };
 

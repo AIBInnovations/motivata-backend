@@ -30,7 +30,7 @@ export const notifyPeersOnTaskComplete = async ({
 
     const [completingUser, challenge, peers] = await Promise.all([
       User.findById(completingUserId, "name").lean(),
-      Challenge.findById(challengeId, "title tasks").lean(),
+      Challenge.findById(challengeId, "title tasks imageUrl").lean(),
       UserChallenge.find(
         {
           challengeId,
@@ -63,7 +63,8 @@ export const notifyPeersOnTaskComplete = async ({
     await sendToMultipleDevices({
       tokens,
       title: "Challenge update!",
-      body: `${completingUser.name} ne "${taskTitle}" complete kar liya`,
+      body: `${completingUser.name} completed "${taskTitle}"`,
+      imageUrl: challenge.imageUrl || undefined,
       data: {
         screen: "ChallengeProgress",
         challengeId: String(challengeId),
