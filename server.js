@@ -9,6 +9,7 @@ import { runCashTicketAudit } from "./scripts/cashTicketAudit.js";
 import seedFeatureAccess from "./seeds/featureAccessSeed.js";
 import { cleanupDeletedUsers } from "./scripts/cleanupDeletedUsers.js";
 import { startCalendlySyncJob } from "./services/calendlySync.service.js";
+import { startChallengeReminderJobs } from "./services/challengeReminder.service.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -58,6 +59,9 @@ const startServer = async () => {
 
     // Start Calendly sync job — polls every 5 min to update scheduled bookings
     startCalendlySyncJob();
+
+    // Start challenge reminder cron — 12:00 PM & 6:00 PM daily (server local time)
+    startChallengeReminderJobs();
 
     app.listen(PORT, () => {
       console.log(`> Server is running on port ${PORT}`);

@@ -92,13 +92,30 @@ const challengeSchema = new mongoose.Schema(
     },
 
     /**
-     * Duration in days (null = no limit)
+     * Default duration in days (null = no limit). Used when the user joins
+     * without picking a specific duration.
      */
     durationDays: {
       type: Number,
       min: [1, "Duration must be at least 1 day"],
       max: [365, "Duration cannot exceed 365 days"],
       default: null,
+    },
+
+    /**
+     * Preset duration options the user can choose from at join time.
+     * Empty array means the challenge has a fixed duration (durationDays only).
+     */
+    allowedDurations: {
+      type: [Number],
+      default: [],
+      validate: {
+        validator: function (arr) {
+          if (!Array.isArray(arr)) return false;
+          return arr.every((n) => Number.isInteger(n) && n >= 1 && n <= 365);
+        },
+        message: "Each allowed duration must be an integer between 1 and 365",
+      },
     },
 
     /**

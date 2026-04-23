@@ -95,10 +95,20 @@ const userChallengeSchema = new mongoose.Schema(
     },
 
     /**
-     * When the challenge ends (calculated from durationDays)
+     * When the challenge ends (calculated from selectedDurationDays or challenge.durationDays)
      */
     endsAt: {
       type: Date,
+    },
+
+    /**
+     * Duration the user picked at join time. Falls back to challenge.durationDays
+     * when unset. Drives both endsAt calculation and auto-completion.
+     */
+    selectedDurationDays: {
+      type: Number,
+      min: [1, "Duration must be at least 1 day"],
+      max: [365, "Duration cannot exceed 365 days"],
     },
 
     /**
@@ -271,7 +281,8 @@ userChallengeSchema.methods.markTaskComplete = async function (taskId) {
   if (this.endsAt) {
     const Challenge = mongoose.model("Challenge");
     const challenge = await Challenge.findById(this.challengeId);
-    if (challenge && challenge.durationDays && this.daysCompleted >= challenge.durationDays) {
+    const duration = this.selectedDurationDays || (challenge && challenge.durationDays);
+    if (duration && this.daysCompleted >= duration) {
       this.status = "completed";
       this.completedAt = new Date();
     }
@@ -413,9 +424,10 @@ userChallengeSchema.pre("save", async function (next) {
   if (this.isNew && !this.endsAt) {
     const Challenge = mongoose.model("Challenge");
     const challenge = await Challenge.findById(this.challengeId);
-    if (challenge && challenge.durationDays) {
+    const duration = this.selectedDurationDays || (challenge && challenge.durationDays);
+    if (duration) {
       const endsAt = new Date(this.startedAt);
-      endsAt.setDate(endsAt.getDate() + challenge.durationDays);
+      endsAt.setDate(endsAt.getDate() + duration);
       this.endsAt = endsAt;
     }
   }

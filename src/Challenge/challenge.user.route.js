@@ -6,6 +6,7 @@
 import express from "express";
 import {
   getAvailableChallenges,
+  getChallengeShareLink,
   joinChallenge,
   getMyChallenges,
   getChallengeProgress,
@@ -26,6 +27,13 @@ const router = express.Router();
  * @access  Public (optional auth)
  */
 router.get("/", optionalAuth, validateQuery(challengeSchemas.list), getAvailableChallenges);
+
+/**
+ * @route   GET /api/app/challenges/:challengeId/share
+ * @desc    Get a shareable deep-link + pre-filled WhatsApp message for a challenge
+ * @access  Public
+ */
+router.get("/:challengeId/share", validateParams(challengeSchemas.challengeId), getChallengeShareLink);
 
 // ============================================
 // AUTHENTICATED ROUTES
