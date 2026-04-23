@@ -383,8 +383,8 @@ export const getChallengeShareLink = async (req, res) => {
       return responseUtil.notFound(res, "Challenge not found");
     }
 
-    const baseUrl = process.env.SHARE_BASE_URL || "https://motivata.in";
-    const shareUrl = `${baseUrl}/open/challenge/${challengeId}`;
+    const baseUrl = process.env.SHARE_BASE_URL || "https://motivata.synquic.com";
+    const shareUrl = `${baseUrl}/api/open/challenge/${challengeId}`;
 
     const shareText =
       `Check out this challenge on Motivata: *${challenge.title}*\n\n` +
