@@ -7,6 +7,7 @@ import Challenge from "./challenge.schema.js";
 import UserChallenge from "./userChallenge.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
+import { notifyPeersOnTaskComplete } from "../../services/peerNotification.service.js";
 
 const MAX_ACTIVE_CHALLENGES = 5;
 
@@ -364,13 +365,57 @@ export const getAvailableChallenges = async (req, res) => {
 };
 
 /**
+ * Get a shareable link + pre-filled WhatsApp message for a challenge
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const getChallengeShareLink = async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+
+    const challenge = await Challenge.findOne({
+      _id: challengeId,
+      isActive: true,
+      isDeleted: false,
+    }).select("title description");
+
+    if (!challenge) {
+      return responseUtil.notFound(res, "Challenge not found");
+    }
+
+    const baseUrl = process.env.SHARE_BASE_URL || "https://motivata.in";
+    const shareUrl = `${baseUrl}/open/challenge/${challengeId}`;
+
+    const shareText =
+      `Check out this challenge on Motivata: *${challenge.title}*\n\n` +
+      `${challenge.description}\n\n` +
+      `Join me here: ${shareUrl}`;
+
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+
+    return responseUtil.success(res, "Share link generated", {
+      challengeId,
+      shareUrl,
+      shareText,
+      whatsappUrl,
+    });
+  } catch (error) {
+    console.error("Get challenge share link error:", error);
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid challenge ID format");
+    }
+    return responseUtil.internalError(res, "Failed to generate share link", error.message);
+  }
+};
+
+/**
  * Select/join a challenge (max 5)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
 export const joinChallenge = async (req, res) => {
   try {
-    const { challengeId } = req.body;
+    const { challengeId, durationDays } = req.body;
     const userId = req.user.id;
 
     // Check if challenge exists and is active
@@ -382,6 +427,27 @@ export const joinChallenge = async (req, res) => {
     if (!challenge.isActive) {
       return responseUtil.badRequest(res, "This challenge is not currently available");
     }
+
+    // Validate user-picked duration (if provided) against the challenge's presets
+    const allowed = challenge.allowedDurations || [];
+    if (typeof durationDays !== "undefined") {
+      if (allowed.length === 0) {
+        return responseUtil.badRequest(
+          res,
+          "This challenge has a fixed duration and does not support custom durations"
+        );
+      }
+      if (!allowed.includes(durationDays)) {
+        return responseUtil.badRequest(
+          res,
+          `Invalid duration. Choose one of: ${allowed.join(", ")} days`
+        );
+      }
+    }
+
+    // Duration that will drive endsAt + auto-completion. Falls back to the
+    // challenge's default durationDays when the user doesn't pick one.
+    const resolvedDuration = durationDays || challenge.durationDays || null;
 
     // Check if user already has this challenge
     const existing = await UserChallenge.findByUserAndChallenge(userId, challengeId);
@@ -397,11 +463,12 @@ export const joinChallenge = async (req, res) => {
       existing.dailyProgress = [];
       existing.lastActivityAt = new Date();
       existing.completedAt = null;
+      existing.selectedDurationDays = resolvedDuration || undefined;
 
       // Recalculate endsAt
-      if (challenge.durationDays) {
+      if (resolvedDuration) {
         const endsAt = new Date();
-        endsAt.setDate(endsAt.getDate() + challenge.durationDays);
+        endsAt.setDate(endsAt.getDate() + resolvedDuration);
         existing.endsAt = endsAt;
       } else {
         existing.endsAt = null;
@@ -427,6 +494,7 @@ export const joinChallenge = async (req, res) => {
     const userChallenge = new UserChallenge({
       userId,
       challengeId,
+      selectedDurationDays: resolvedDuration || undefined,
     });
 
     await userChallenge.save();
@@ -437,7 +505,8 @@ export const joinChallenge = async (req, res) => {
         _id: challenge._id,
         title: challenge.title,
         taskCount: challenge.tasks.length,
-        durationDays: challenge.durationDays,
+        durationDays: resolvedDuration,
+        allowedDurations: challenge.allowedDurations || [],
       },
     });
   } catch (error) {
@@ -562,6 +631,12 @@ export const markTaskComplete = async (req, res) => {
     }
 
     await userChallenge.markTaskComplete(taskId);
+
+    notifyPeersOnTaskComplete({
+      userChallenge,
+      taskId,
+      completingUserId: userId,
+    }).catch((err) => console.error("Peer notification failed:", err.message));
 
     // Get updated today's progress
     const todayProgress = await userChallenge.getTodayProgress();
@@ -718,6 +793,7 @@ export default {
   getAllUserProgress,
   // User
   getAvailableChallenges,
+  getChallengeShareLink,
   joinChallenge,
   getMyChallenges,
   getChallengeProgress,

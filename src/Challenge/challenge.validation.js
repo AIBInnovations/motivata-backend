@@ -54,6 +54,15 @@ export const challengeSchemas = {
       "number.min": "Duration must be at least 1 day",
       "number.max": "Duration cannot exceed 365 days",
     }),
+    allowedDurations: Joi.array()
+      .items(Joi.number().integer().min(1).max(365))
+      .unique()
+      .optional()
+      .messages({
+        "array.unique": "allowedDurations must not contain duplicates",
+        "number.min": "Each allowed duration must be at least 1 day",
+        "number.max": "Each allowed duration cannot exceed 365 days",
+      }),
     imageUrl: Joi.string().uri().optional().allow("").messages({
       "string.uri": "Please provide a valid image URL",
     }),
@@ -81,6 +90,13 @@ export const challengeSchemas = {
       "array.min": "Challenge must have at least one task",
     }),
     durationDays: Joi.number().integer().min(1).max(365).optional().allow(null),
+    allowedDurations: Joi.array()
+      .items(Joi.number().integer().min(1).max(365))
+      .unique()
+      .optional()
+      .messages({
+        "array.unique": "allowedDurations must not contain duplicates",
+      }),
     imageUrl: Joi.string().uri().optional().allow(""),
     isActive: Joi.boolean(),
     order: Joi.number().integer().min(0),
@@ -123,6 +139,10 @@ export const challengeSchemas = {
   join: Joi.object({
     challengeId: mongoId.required().messages({
       "string.pattern.base": "Invalid challenge ID format",
+    }),
+    durationDays: Joi.number().integer().min(1).max(365).optional().messages({
+      "number.min": "Duration must be at least 1 day",
+      "number.max": "Duration cannot exceed 365 days",
     }),
   }),
 

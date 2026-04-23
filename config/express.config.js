@@ -168,6 +168,26 @@ app.get("/open/post/:postId", (req, res) => {
 </body></html>`);
 });
 
+// Deep link redirect for challenges — opens app to challenge detail, falls back to Play Store
+app.get("/open/challenge/:challengeId", (req, res) => {
+  const { challengeId } = req.params;
+  const deepLink = `motivata://challenge/${challengeId}`;
+  const playStoreLink = "https://play.google.com/store/apps/details?id=com.synquic.motivata";
+  res.send(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Opening Motivata...</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script>
+  window.location.replace("${deepLink}");
+  setTimeout(function(){ window.location.replace("${playStoreLink}"); }, 1500);
+</script>
+</head><body style="background:#111;color:#fff;font-family:sans-serif;text-align:center;padding-top:80px">
+<h2>Opening Motivata...</h2>
+<p>If the app doesn't open, <a href="${playStoreLink}" style="color:#fedd44">get it on Google Play</a></p>
+</body></html>`);
+});
+
 // 404 handler — catches requests to undefined routes
 app.use((_req, res) => {
   res.status(404).json({
