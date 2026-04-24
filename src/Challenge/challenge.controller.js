@@ -8,6 +8,7 @@ import UserChallenge from "./userChallenge.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
 import { notifyPeersOnTaskComplete } from "../../services/peerNotification.service.js";
+import { getIconCatalog } from "./challenge.icons.js";
 
 const MAX_ACTIVE_CHALLENGES = 5;
 
@@ -261,7 +262,7 @@ export const toggleChallengeStatus = async (req, res) => {
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
-export const getChallengeCategories = async (req, res) => {
+export const getChallengeCategories = async (_req, res) => {
   try {
     const categories = await Challenge.aggregate([
       { $match: { isDeleted: false } },
@@ -285,6 +286,23 @@ export const getChallengeCategories = async (req, res) => {
   } catch (error) {
     console.error("Get challenge categories error:", error);
     return responseUtil.internalError(res, "Failed to retrieve categories", error.message);
+  }
+};
+
+/**
+ * Get the preset icon catalog — list of keys, labels, and asset URLs —
+ * so the admin panel can render an icon picker for challenges & tasks.
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const getIconOptions = async (_req, res) => {
+  try {
+    return responseUtil.success(res, "Icons retrieved successfully", {
+      icons: getIconCatalog(),
+    });
+  } catch (error) {
+    console.error("Get icon options error:", error);
+    return responseUtil.internalError(res, "Failed to retrieve icons", error.message);
   }
 };
 
@@ -538,7 +556,7 @@ export const getMyChallenges = async (req, res) => {
     const challenges = await UserChallenge.find(query)
       .populate({
         path: "challengeId",
-        select: "title description category difficulty tasks imageUrl durationDays createdBy",
+        select: "title description category difficulty tasks imageUrl icon durationDays createdBy",
         populate: { path: "createdBy", select: "name" },
       })
       .sort({ lastActivityAt: -1 });
@@ -548,7 +566,7 @@ export const getMyChallenges = async (req, res) => {
       challenges.map(async (uc) => {
         const ucObj = uc.toObject();
         if (uc.status === "active") {
-          ucObj.todayProgress = await uc.getTodayProgress();
+          return { ...ucObj, todayProgress: await uc.getTodayProgress() };
         }
         return ucObj;
       })
@@ -577,7 +595,7 @@ export const getChallengeProgress = async (req, res) => {
 
     const userChallenge = await UserChallenge.findOne({ userId, challengeId }).populate(
       "challengeId",
-      "title description category difficulty tasks imageUrl durationDays"
+      "title description category difficulty tasks imageUrl icon durationDays"
     );
 
     if (!userChallenge) {
@@ -587,10 +605,13 @@ export const getChallengeProgress = async (req, res) => {
     // Get today's progress
     const todayProgress = await userChallenge.getTodayProgress();
 
+    const totalJoinedUsers = await UserChallenge.countDocuments({ challengeId });
+
     return responseUtil.success(res, "Challenge progress fetched successfully", {
       userChallenge,
       todayProgress,
       challenge: userChallenge.challengeId,
+      totalJoinedUsers,
     });
   } catch (error) {
     console.error("Get challenge progress error:", error);
@@ -790,6 +811,7 @@ export default {
   deleteChallenge,
   toggleChallengeStatus,
   getChallengeCategories,
+  getIconOptions,
   getAllUserProgress,
   // User
   getAvailableChallenges,

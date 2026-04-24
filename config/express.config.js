@@ -94,6 +94,9 @@ app.use("/api/web/razorpay/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Static assets — serves preset icon SVGs at /assets/icons/<key>.svg
+app.use("/assets", express.static(path.join(__dirname, "../assets")));
+
 // global routes
 app.use("/api/web", adminRoutes); // only admin uses
 app.use("/api/app", appRoutes); // non admin uses

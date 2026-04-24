@@ -4,6 +4,7 @@
  */
 
 import mongoose from "mongoose";
+import { ICON_KEYS } from "./challenge.icons.js";
 
 /**
  * Task sub-schema for challenge tasks
@@ -24,6 +25,14 @@ const taskSchema = new mongoose.Schema(
     order: {
       type: Number,
       default: 0,
+    },
+    icon: {
+      type: String,
+      enum: {
+        values: [...ICON_KEYS, null],
+        message: "{VALUE} is not a valid icon",
+      },
+      default: null,
     },
   },
   { _id: true }
@@ -125,6 +134,20 @@ const challengeSchema = new mongoose.Schema(
       type: String,
       trim: true,
       match: [/^https?:\/\/.+/, "Please provide a valid image URL"],
+    },
+
+    /**
+     * Preset icon key. One of ICON_KEYS (see challenge.icons.js).
+     * Coexists with imageUrl — imageUrl is the cover image, icon is the
+     * small picker badge shown in lists.
+     */
+    icon: {
+      type: String,
+      enum: {
+        values: [...ICON_KEYS, null],
+        message: "{VALUE} is not a valid icon",
+      },
+      default: null,
     },
 
     /**
