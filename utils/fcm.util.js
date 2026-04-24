@@ -69,6 +69,7 @@ export const sendToDevice = async ({
         notification: {
           sound: "default",
           channelId: "default",
+          icon: "ic_notification",
         },
       },
       apns: {
@@ -167,6 +168,7 @@ export const sendToMultipleDevices = async ({
         notification: {
           sound: "default",
           channelId: "default",
+          icon: "ic_notification",
           ...(imageUrl ? { imageUrl } : {}),
         },
       },
