@@ -252,13 +252,42 @@ userChallengeSchema.methods.markTaskComplete = async function (taskId) {
     return progressDate.getTime() === today.getTime();
   });
 
+  // Re-sync tasks from challenge if today's progress has an empty tasks list (stale/corrupt entry)
+  if (this.dailyProgress[progressIndex].tasks.length === 0) {
+    const Challenge = mongoose.model("Challenge");
+    const challenge = await Challenge.findById(this.challengeId);
+    if (challenge) {
+      this.dailyProgress[progressIndex].tasks = challenge.tasks.map((t) => ({
+        taskId: t._id,
+        completed: false,
+      }));
+    }
+  }
+
   // Mark task complete
-  const taskIndex = this.dailyProgress[progressIndex].tasks.findIndex(
+  let taskIndex = this.dailyProgress[progressIndex].tasks.findIndex(
     (t) => t.taskId.toString() === taskId.toString()
   );
 
   if (taskIndex === -1) {
-    throw new Error("Task not found in challenge");
+    // Task not in cached dailyProgress — verify it exists in the current challenge
+    const Challenge = mongoose.model("Challenge");
+    const challenge = await Challenge.findById(this.challengeId);
+    if (!challenge) throw new Error("Challenge not found");
+
+    const challengeTask = challenge.tasks.find(
+      (t) => t._id.toString() === taskId.toString()
+    );
+    if (!challengeTask) {
+      throw new Error("Task not found in challenge");
+    }
+
+    // Task is valid but missing from stale dailyProgress — add it and proceed
+    this.dailyProgress[progressIndex].tasks.push({
+      taskId: challengeTask._id,
+      completed: false,
+    });
+    taskIndex = this.dailyProgress[progressIndex].tasks.length - 1;
   }
 
   this.dailyProgress[progressIndex].tasks[taskIndex].completed = true;
