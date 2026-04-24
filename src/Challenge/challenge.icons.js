@@ -38,7 +38,7 @@ export const ICON_KEYS = CHALLENGE_ICONS.map((i) => i.key);
  */
 export const getIconUrl = (key) => {
   if (!key || !ICON_KEYS.includes(key)) return null;
-  return `/assets/icons/${key}.svg`;
+  return `/api/assets/icons/${key}.svg`;
 };
 
 /**
