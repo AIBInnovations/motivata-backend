@@ -4,8 +4,17 @@
  */
 
 import Joi from "joi";
+import { ICON_KEYS } from "./challenge.icons.js";
 
 const mongoIdPattern = /^[0-9a-fA-F]{24}$/;
+
+const iconField = Joi.string()
+  .valid(...ICON_KEYS)
+  .optional()
+  .allow(null, "")
+  .messages({
+    "any.only": `icon must be one of: ${ICON_KEYS.join(", ")}`,
+  });
 const mongoId = Joi.string().regex(mongoIdPattern).messages({
   "string.pattern.base": "Invalid ID format",
 });
@@ -22,6 +31,7 @@ const taskSchema = Joi.object({
     "string.max": "Task description cannot exceed 500 characters",
   }),
   order: Joi.number().integer().min(0).default(0),
+  icon: iconField,
 });
 
 /**
@@ -66,6 +76,7 @@ export const challengeSchemas = {
     imageUrl: Joi.string().uri().optional().allow("").messages({
       "string.uri": "Please provide a valid image URL",
     }),
+    icon: iconField,
     isActive: Joi.boolean().default(true),
     order: Joi.number().integer().min(0).default(0),
   }),
@@ -98,6 +109,7 @@ export const challengeSchemas = {
         "array.unique": "allowedDurations must not contain duplicates",
       }),
     imageUrl: Joi.string().uri().optional().allow(""),
+    icon: iconField,
     isActive: Joi.boolean(),
     order: Joi.number().integer().min(0),
   }).min(1),

@@ -12,6 +12,7 @@ import {
   deleteChallenge,
   toggleChallengeStatus,
   getChallengeCategories,
+  getIconOptions,
   getAllUserProgress,
 } from "./challenge.controller.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
@@ -33,6 +34,13 @@ router.use(isAdmin);
  * @access  Admin
  */
 router.get("/categories", getChallengeCategories);
+
+/**
+ * @route   GET /api/web/challenges/icons
+ * @desc    Get preset icon catalog (key, label, url) for the admin picker
+ * @access  Admin
+ */
+router.get("/icons", getIconOptions);
 
 /**
  * @route   POST /api/web/challenges
