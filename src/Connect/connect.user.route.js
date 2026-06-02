@@ -28,6 +28,11 @@ import {
   sharePost,
   getPostLikers,
   openPostDeepLink,
+  getPostComments,
+  createPostComment,
+  deletePostComment,
+  likePostComment,
+  unlikePostComment,
 } from "./post.controller.js";
 import { uploadConnectMedia } from "./media.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
@@ -241,6 +246,65 @@ router.get(
   validateParams(connectSchemas.postId),
   validateQuery(connectSchemas.paginationQuery),
   getPostLikers
+);
+
+// ============================================
+// POST COMMENT ROUTES
+// ============================================
+
+/**
+ * @route GET /api/app/connect/posts/:postId/comments
+ * @description Get all comments for a post (newest first)
+ * @access Public (optional auth for ownership flag)
+ */
+router.get(
+  "/posts/:postId/comments",
+  optionalAuth,
+  validateParams(connectSchemas.postId),
+  getPostComments
+);
+
+/**
+ * @route POST /api/app/connect/posts/:postId/comments
+ * @description Add a comment to a post
+ * @access Private (any authenticated user)
+ * @body {string} text - Comment text
+ */
+router.post(
+  "/posts/:postId/comments",
+  authenticate,
+  validateParams(connectSchemas.postId),
+  createPostComment
+);
+
+/**
+ * @route DELETE /api/app/connect/posts/:postId/comments/:commentId
+ * @description Delete a comment (author or admin)
+ * @access Private (authenticated users)
+ */
+router.delete(
+  "/posts/:postId/comments/:commentId",
+  authenticate,
+  validateParams(connectSchemas.postId),
+  deletePostComment
+);
+
+/**
+ * @route POST/DELETE /api/app/connect/posts/:postId/comments/:commentId/like
+ * @description Like / unlike a comment
+ * @access Private (authenticated users)
+ */
+router.post(
+  "/posts/:postId/comments/:commentId/like",
+  authenticate,
+  validateParams(connectSchemas.postId),
+  likePostComment
+);
+router.delete(
+  "/posts/:postId/comments/:commentId/like",
+  authenticate,
+  validateParams(connectSchemas.postId),
+  unlikePostComment
 );
 
 // ============================================

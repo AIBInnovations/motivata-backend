@@ -10,6 +10,7 @@
 import Challenge from "../src/Challenge/challenge.schema.js";
 import UserChallenge from "../src/Challenge/userChallenge.schema.js";
 import User from "../schema/User.schema.js";
+import Connect from "../schema/Connect.schema.js";
 import { sendToMultipleDevices } from "../utils/fcm.util.js";
 
 /**
@@ -75,5 +76,118 @@ export const notifyPeersOnTaskComplete = async ({
     });
   } catch (err) {
     console.error("[PEER-NOTIFY] Failed to notify peers:", err.message);
+  }
+};
+
+/**
+ * Nudge the requesting user's connections (people they follow) who are taking
+ * the same challenge, asking them to update their progress.
+ *
+ * @param {Object} params
+ * @param {string} params.challengeId - The challenge to nudge about.
+ * @param {string} params.requesterId - User sending the nudge.
+ * @returns {Promise<{ notified: number }>} How many connections were reached.
+ */
+export const notifyConnectionsToUpdate = async ({ challengeId, requesterId }) => {
+  const [requester, challenge, followingIds] = await Promise.all([
+    User.findById(requesterId, "name").lean(),
+    Challenge.findById(challengeId, "title imageUrl").lean(),
+    Connect.find({ follower: requesterId, isDeleted: false }).distinct("following"),
+  ]);
+
+  if (!challenge) {
+    throw { status: 404, message: "Challenge not found" };
+  }
+  if (!followingIds.length) {
+    return { notified: 0 };
+  }
+
+  // Connections who are actively taking this challenge
+  const connectionChallenges = await UserChallenge.find(
+    {
+      challengeId,
+      status: "active",
+      userId: { $in: followingIds },
+    },
+    "userId"
+  ).lean();
+
+  if (!connectionChallenges.length) {
+    return { notified: 0 };
+  }
+
+  const recipientIds = connectionChallenges.map((uc) => uc.userId);
+  const recipients = await User.find(
+    { _id: { $in: recipientIds } },
+    "fcmTokens"
+  ).lean();
+
+  const tokens = recipients.flatMap((u) =>
+    (u.fcmTokens || []).map((t) => t.token).filter(Boolean)
+  );
+
+  if (!tokens.length) {
+    return { notified: recipientIds.length };
+  }
+
+  await sendToMultipleDevices({
+    tokens,
+    title: "Challenge update!",
+    body: `${requester?.name || "A connection"} completed today's challenge, did you? Mark your progress`,
+    imageUrl: challenge.imageUrl || undefined,
+    data: {
+      screen: "ChallengeProgress",
+      challengeId: String(challengeId),
+      type: "CONNECTION_NUDGE",
+      byUserId: String(requesterId),
+      byUserName: requester?.name || "",
+    },
+  });
+
+  return { notified: recipientIds.length };
+};
+
+/**
+ * Notify the referrer that someone joined a challenge they shared.
+ * Fire-and-forget — failures are logged and swallowed.
+ *
+ * @param {Object} params
+ * @param {string} params.challengeId - The challenge that was joined.
+ * @param {string} params.joinerId - User who just joined.
+ * @param {string} params.referrerId - User who shared the invite.
+ */
+export const notifyReferrerOnJoin = async ({ challengeId, joinerId, referrerId }) => {
+  try {
+    if (!referrerId || String(referrerId) === String(joinerId)) return;
+
+    const [joiner, referrer, challenge] = await Promise.all([
+      User.findById(joinerId, "name").lean(),
+      User.findById(referrerId, "fcmTokens").lean(),
+      Challenge.findById(challengeId, "title imageUrl").lean(),
+    ]);
+
+    if (!joiner || !referrer || !challenge) return;
+
+    const tokens = (referrer.fcmTokens || [])
+      .map((t) => t.token)
+      .filter(Boolean);
+
+    if (tokens.length === 0) return;
+
+    await sendToMultipleDevices({
+      tokens,
+      title: "Your invite worked! 🎉",
+      body: `${joiner.name} joined "${challenge.title}" that you shared`,
+      imageUrl: challenge.imageUrl || undefined,
+      data: {
+        screen: "ChallengeProgress",
+        challengeId: String(challengeId),
+        type: "REFERRAL_JOIN",
+        byUserId: String(joinerId),
+        byUserName: joiner.name,
+      },
+    });
+  } catch (err) {
+    console.error("[REFERRAL-NOTIFY] Failed to notify referrer:", err.message);
   }
 };

@@ -33,6 +33,7 @@ import motivataBlendAdminRoutes from "../src/MotivataBlend/motivataBlend.admin.r
 import roundTableAdminRoutes from "../src/RoundTable/roundTable.admin.route.js";
 import adminConnectPostRoutes from "../src/Connect/post.admin.route.js";
 import adminJobRoutes from "../src/Job/job.admin.route.js";
+import adminRecommendationRoutes from "../src/Recommendation/recommendation.admin.route.js";
 
 const router = express.Router();
 
@@ -82,6 +83,9 @@ router.use("/challenges", adminChallengeRoutes);
 
 // Poll routes - /api/web/polls
 router.use("/polls", adminPollRoutes);
+
+// Recommendation routes - /api/web/recommendations
+router.use("/recommendations", adminRecommendationRoutes);
 
 // Razorpay routes - /api/web/razorpay
 router.use("/razorpay", razorpayRoutes);

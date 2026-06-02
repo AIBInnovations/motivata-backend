@@ -36,7 +36,7 @@ const sosOptionSchema = Joi.object({
 
 /**
  * SOS Question schema for daily quizzes
- * Supports: text, single-choice, multiple-choice, scale, boolean
+ * Supports: text, text-list, text-group, single-choice, multiple-choice, scale, boolean
  */
 const sosQuestionSchema = Joi.object({
   questionText: Joi.string().required().trim().max(1000).messages({
@@ -45,9 +45,10 @@ const sosQuestionSchema = Joi.object({
   }),
   questionType: Joi.string()
     .required()
-    .valid("text", "single-choice", "multiple-choice", "scale", "boolean")
+    .valid("text", "text-list", "text-group", "single-choice", "multiple-choice", "scale", "boolean")
     .messages({
-      "any.only": "Question type must be text, single-choice, multiple-choice, scale, or boolean",
+      "any.only":
+        "Question type must be text, text-list, text-group, single-choice, multiple-choice, scale, or boolean",
     }),
   options: Joi.array().items(sosOptionSchema).when("questionType", {
     is: Joi.string().valid("single-choice", "multiple-choice", "scale"),
@@ -55,6 +56,23 @@ const sosQuestionSchema = Joi.object({
       "array.min": "Choice-based questions must have at least 2 options",
     }),
     otherwise: Joi.array().optional(),
+  }),
+  // Number of free-text entry slots for "text-list" questions (e.g. a–e = 5)
+  maxEntries: Joi.number().integer().min(1).when("questionType", {
+    is: "text-list",
+    then: Joi.required().messages({
+      "any.required": "text-list questions require maxEntries",
+    }),
+    otherwise: Joi.optional(),
+  }),
+  // Labelled sub-fields for "text-group" questions (e.g. ["Strength", "Weakness"])
+  subFields: Joi.array().items(Joi.string().trim().max(100)).when("questionType", {
+    is: "text-group",
+    then: Joi.array().min(1).required().messages({
+      "array.min": "text-group questions require at least one sub-field",
+      "any.required": "text-group questions require subFields",
+    }),
+    otherwise: Joi.optional(),
   }),
   isRequired: Joi.boolean().default(true),
   order: Joi.number().integer().min(0).default(0),
@@ -250,7 +268,13 @@ export const progressSchemas = {
         Joi.object({
           questionId: mongoId.required(),
           answer: Joi.alternatives()
-            .try(Joi.string(), Joi.number(), Joi.boolean(), Joi.array().items(Joi.string()))
+            .try(
+              Joi.string(),
+              Joi.number(),
+              Joi.boolean(),
+              Joi.array().items(Joi.string().allow("")), // text-list (a–e) and multiple-choice
+              Joi.object().pattern(Joi.string(), Joi.string().allow("")) // text-group (e.g. {Strength, Weakness})
+            )
             .required()
             .messages({
               "any.required": "Answer is required",

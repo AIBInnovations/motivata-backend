@@ -144,8 +144,10 @@ export const checkFeatureAccess = async (req, res) => {
       isDeleted: false,
       status: 'ACTIVE',
       $or: [
-        { isLifetime: true }, // Lifetime memberships never expire
-        { endDate: { $gte: new Date() } }, // Regular memberships must not be expired
+        { isLifetime: true },
+        { endDate: null },
+        { endDate: { $lte: new Date(1000) } },
+        { endDate: { $gte: new Date() } },
       ],
     }).populate('membershipPlanId');
 

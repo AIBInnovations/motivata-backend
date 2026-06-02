@@ -6,6 +6,7 @@
 import Event from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
+import UserMembership from '../../schema/UserMembership.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { sendNewEventNotification } from '../../utils/fcm.util.js';
 
@@ -18,6 +19,44 @@ const getSavedSet = async (userId) => {
   const user = await User.findById(userId).select('savedEvents').lean();
   if (!user) return new Set();
   return new Set(user.savedEvents.map((id) => id.toString()));
+};
+
+/**
+ * Determine whether the current viewer has an active membership.
+ * Admins are always treated as members (full access). Anonymous viewers
+ * and users without an active membership are treated as non-members.
+ * @param {Object} reqUser - req.user (decoded token) or undefined
+ * @returns {Promise<boolean>}
+ */
+const getViewerIsMember = async (reqUser) => {
+  if (!reqUser?.id) return false;
+  if (reqUser.userType === 'admin') return true;
+
+  // Phone may be on the token; otherwise look it up by user id.
+  let phone = reqUser.phone;
+  if (!phone) {
+    const u = await User.findById(reqUser.id).select('phone').lean();
+    phone = u?.phone;
+  }
+  if (!phone) return false;
+
+  return UserMembership.hasActiveMembership(phone);
+};
+
+/**
+ * Attach audience/access flags to a plain event object so the client can
+ * render the "Members Only" badge and the "Become a member" gate.
+ * - requiresMembership: event is restricted to members
+ * - locked: event is restricted AND the current viewer is not a member
+ * @param {Object} eventObj - plain event object (already .toObject())
+ * @param {boolean} viewerIsMember - whether the current viewer is a member
+ * @returns {Object} the same object with requiresMembership/locked added
+ */
+const withAccessFlags = (eventObj, viewerIsMember) => {
+  const requiresMembership = !!eventObj.audience && eventObj.audience !== 'ALL';
+  eventObj.requiresMembership = requiresMembership;
+  eventObj.locked = requiresMembership && !viewerIsMember;
+  return eventObj;
 };
 
 /**
@@ -126,20 +165,21 @@ export const getAllEvents = async (req, res) => {
     const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
     // Execute query with pagination
-    const [events, totalCount, savedSet] = await Promise.all([
+    const [events, totalCount, savedSet, viewerIsMember] = await Promise.all([
       Event.find(query)
         .sort(sortOptions)
         .skip(skip)
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
       Event.countDocuments(query),
-      getSavedSet(req.user?.id)
+      getSavedSet(req.user?.id),
+      getViewerIsMember(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => ({
+    const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }));
+    }, viewerIsMember));
 
     // Calculate pagination info
     const totalPages = Math.ceil(totalCount / limit);
@@ -184,7 +224,10 @@ export const getEventById = async (req, res) => {
     // Update event status if expired
     await event.updateEventStatus();
 
-    const savedSet = await getSavedSet(req.user?.id);
+    const [savedSet, viewerIsMember] = await Promise.all([
+      getSavedSet(req.user?.id),
+      getViewerIsMember(req.user),
+    ]);
 
     const [buyerEnrollments, totalBuyers] = await Promise.all([
       EventEnrollment.find({ eventId: id })
@@ -204,14 +247,19 @@ export const getEventById = async (req, res) => {
     const isCurrentlyLive = event.startDate <= now && event.endDate >= now;
     const isAdminUser = req.user?.userType === 'admin';
 
-    const eventObj = {
+    const eventObj = withAccessFlags({
       ...event.toObject(),
       isSaved: savedSet.has(event._id.toString()),
       ticketBuyers,
       totalBuyers,
-    };
+    }, viewerIsMember);
 
     if (!isAdminUser && !isCurrentlyLive) {
+      delete eventObj.joinLink;
+    }
+
+    // Non-members must not receive the join link for members-only events
+    if (eventObj.locked) {
       delete eventObj.joinLink;
     }
 
@@ -450,7 +498,7 @@ export const getUpcomingEvents = async (req, res) => {
 
     const { limit = 10 } = req.query;
 
-    const [events, savedSet] = await Promise.all([
+    const [events, savedSet, viewerIsMember] = await Promise.all([
       Event.find({
         startDate: { $gt: new Date() },
         isLive: true
@@ -458,13 +506,14 @@ export const getUpcomingEvents = async (req, res) => {
         .sort({ startDate: 1 })
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
-      getSavedSet(req.user?.id)
+      getSavedSet(req.user?.id),
+      getViewerIsMember(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => ({
+    const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }));
+    }, viewerIsMember));
 
     return responseUtil.success(res, 'Upcoming events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -488,20 +537,21 @@ export const getEventsByCategory = async (req, res) => {
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
-    const [events, totalCount, savedSet] = await Promise.all([
+    const [events, totalCount, savedSet, viewerIsMember] = await Promise.all([
       Event.find({ category, isLive: true })
         .sort({ startDate: 1 })
         .skip(skip)
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
       Event.countDocuments({ category, isLive: true }),
-      getSavedSet(req.user?.id)
+      getSavedSet(req.user?.id),
+      getViewerIsMember(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => ({
+    const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }));
+    }, viewerIsMember));
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -621,7 +671,7 @@ export const getFeaturedEvents = async (req, res) => {
 
     const { limit = 10 } = req.query;
 
-    const [events, savedSet] = await Promise.all([
+    const [events, savedSet, viewerIsMember] = await Promise.all([
       Event.find({
         featured: true,
         isLive: true
@@ -629,13 +679,14 @@ export const getFeaturedEvents = async (req, res) => {
         .sort({ startDate: 1 })
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
-      getSavedSet(req.user?.id)
+      getSavedSet(req.user?.id),
+      getViewerIsMember(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => ({
+    const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }));
+    }, viewerIsMember));
 
     return responseUtil.success(res, 'Featured events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -658,7 +709,7 @@ export const getWebEventById = async (req, res) => {
       _id: id,
       isLive: true,
     }).select(
-      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode venueName city category availableSeats ticketsSold featured joinLink'
+      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode venueName city category availableSeats ticketsSold featured audience joinLink'
     );
 
     if (!event) {
@@ -681,8 +732,12 @@ export const getWebEventById = async (req, res) => {
 
     const now = new Date();
     const isCurrentlyLive = event.startDate <= now && event.endDate >= now;
-    const eventObj = { ...event.toObject(), ticketBuyers, totalBuyers };
-    if (!isCurrentlyLive) {
+    // Public website has no logged-in user, so the viewer is treated as a non-member.
+    const eventObj = withAccessFlags(
+      { ...event.toObject(), ticketBuyers, totalBuyers },
+      false
+    );
+    if (!isCurrentlyLive || eventObj.locked) {
       delete eventObj.joinLink;
     }
 

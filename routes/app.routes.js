@@ -30,6 +30,7 @@ import userMembershipRoutes from "../src/Membership/user.membership.route.js";
 import seatArrangementUserRoutes from "../src/SeatArrangement/seatArrangement.user.route.js";
 import userServiceRoutes from "../src/Service/service.user.route.js";
 import userJobRoutes from "../src/Job/job.user.route.js";
+import userRecommendationRoutes from "../src/Recommendation/recommendation.user.route.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -105,6 +106,9 @@ router.use("/services", userServiceRoutes);
 
 // Job routes - /api/app/jobs
 router.use("/jobs", userJobRoutes);
+
+// Recommendation routes - /api/app/recommendations
+router.use("/recommendations", userRecommendationRoutes);
 
 // Add more user routes here as needed
 // Example:

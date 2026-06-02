@@ -46,7 +46,7 @@ export const uploadClubPostMedia = multer({
  */
 export const createClub = async (req, res) => {
   try {
-    const { name, description, thumbnail, postPermissions } = req.body;
+    const { name, description, thumbnail, requiresApproval, postPermissions } = req.body;
 
     const clubData = {
       name,
@@ -54,6 +54,8 @@ export const createClub = async (req, res) => {
       thumbnail: thumbnail || null,
       postPermissions: postPermissions || ['MEMBERS'],
     };
+
+    if (requiresApproval !== undefined) clubData.requiresApproval = requiresApproval;
 
     const club = new Club(clubData);
     await club.save();

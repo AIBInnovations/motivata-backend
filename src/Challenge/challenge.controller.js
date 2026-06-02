@@ -5,9 +5,10 @@
 
 import Challenge from "./challenge.schema.js";
 import UserChallenge from "./userChallenge.schema.js";
+import Connect from "../../schema/Connect.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
-import { notifyPeersOnTaskComplete } from "../../services/peerNotification.service.js";
+import { notifyPeersOnTaskComplete, notifyConnectionsToUpdate, notifyReferrerOnJoin } from "../../services/peerNotification.service.js";
 import { getIconCatalog } from "./challenge.icons.js";
 
 const MAX_ACTIVE_CHALLENGES = 5;
@@ -402,7 +403,11 @@ export const getChallengeShareLink = async (req, res) => {
     }
 
     const baseUrl = process.env.SHARE_BASE_URL || "https://motivata.synquic.com";
-    const shareUrl = `${baseUrl}/api/open/challenge/${challengeId}`;
+    // Embed the inviter's id (when authenticated) so we can notify them when someone joins
+    const referrerId = req.user?.id;
+    const shareUrl = referrerId
+      ? `${baseUrl}/api/open/challenge/${challengeId}?ref=${referrerId}`
+      : `${baseUrl}/api/open/challenge/${challengeId}`;
 
     const shareText =
       `Check out this challenge on Motivata: *${challenge.title}*\n\n` +
@@ -433,7 +438,7 @@ export const getChallengeShareLink = async (req, res) => {
  */
 export const joinChallenge = async (req, res) => {
   try {
-    const { challengeId, durationDays } = req.body;
+    const { challengeId, durationDays, referrerId } = req.body;
     const userId = req.user.id;
 
     // Check if challenge exists and is active
@@ -494,6 +499,11 @@ export const joinChallenge = async (req, res) => {
 
       await existing.save();
 
+      // Notify referrer (fire-and-forget) if this join came from a shared invite
+      if (referrerId) {
+        notifyReferrerOnJoin({ challengeId, joinerId: userId, referrerId });
+      }
+
       return responseUtil.success(res, "Challenge rejoined successfully", {
         userChallenge: existing,
       });
@@ -516,6 +526,11 @@ export const joinChallenge = async (req, res) => {
     });
 
     await userChallenge.save();
+
+    // Notify referrer (fire-and-forget) if this join came from a shared invite
+    if (referrerId) {
+      notifyReferrerOnJoin({ challengeId, joinerId: userId, referrerId });
+    }
 
     return responseUtil.created(res, "Challenge joined successfully", {
       userChallenge,
@@ -607,11 +622,25 @@ export const getChallengeProgress = async (req, res) => {
 
     const totalJoinedUsers = await UserChallenge.countDocuments({ challengeId });
 
+    // Count how many of the user's connections (people they follow) are taking this challenge
+    const followingIds = await Connect.find({
+      follower: userId,
+      isDeleted: false,
+    }).distinct("following");
+
+    const connectionsTaking = followingIds.length
+      ? await UserChallenge.countDocuments({
+          challengeId,
+          userId: { $in: followingIds },
+        })
+      : 0;
+
     return responseUtil.success(res, "Challenge progress fetched successfully", {
       userChallenge,
       todayProgress,
       challenge: userChallenge.challengeId,
       totalJoinedUsers,
+      connectionsTaking,
     });
   } catch (error) {
     console.error("Get challenge progress error:", error);
@@ -621,6 +650,39 @@ export const getChallengeProgress = async (req, res) => {
     }
 
     return responseUtil.internalError(res, "Failed to fetch challenge progress", error.message);
+  }
+};
+
+/**
+ * Nudge connections to update their progress on a challenge
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const nudgeConnections = async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+    const userId = req.user.id;
+
+    // Requester must be participating in the challenge
+    const userChallenge = await UserChallenge.findOne({ userId, challengeId });
+    if (!userChallenge) {
+      return responseUtil.notFound(res, "You are not participating in this challenge");
+    }
+
+    const { notified } = await notifyConnectionsToUpdate({ challengeId, requesterId: userId });
+
+    return responseUtil.success(res, "Connections notified", { notified });
+  } catch (error) {
+    console.error("Nudge connections error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid challenge ID format");
+    }
+    if (error.status === 404) {
+      return responseUtil.notFound(res, error.message);
+    }
+
+    return responseUtil.internalError(res, "Failed to notify connections", error.message);
   }
 };
 
@@ -819,6 +881,7 @@ export default {
   joinChallenge,
   getMyChallenges,
   getChallengeProgress,
+  nudgeConnections,
   markTaskComplete,
   unmarkTask,
   abandonChallenge,

@@ -97,8 +97,8 @@ router.get(
   optionalAuth,
   validateParams(Joi.object({
     category: Joi.string().valid(
-      'TECHNOLOGY', 'EDUCATION', 'MEDICAL', 'COMEDY', 'ENTERTAINMENT',
-      'BUSINESS', 'SPORTS', 'ARTS', 'MUSIC', 'FOOD', 'LIFESTYLE', 'OTHER'
+      'WEBINAR', 'MASTERCLASS', 'WORKSHOPS', 'TALK_SESSIONS', 'LIVE_SESSIONS',
+      'ENTERTAINMENT', 'PROGRAMS', 'MEETUPS', 'COMMUNITY_SERVICE', 'HEALTH_WELLNESS'
     ).required()
   })),
   validateQuery(Joi.object({

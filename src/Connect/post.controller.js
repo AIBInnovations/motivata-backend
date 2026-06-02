@@ -7,8 +7,11 @@ import Post from "../../schema/Post.schema.js";
 import Like from "../../schema/Like.schema.js";
 import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
+import Admin from "../../schema/Admin.schema.js";
 import Club from "../../schema/Club.schema.js";
 import ClubMember from "../../schema/ClubMember.schema.js";
+import PostComment from "../../schema/PostComment.schema.js";
+import PostCommentLike from "../../schema/PostCommentLike.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
 /**
@@ -34,6 +37,7 @@ const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set
     mediaThumbnail: post.mediaThumbnail,
     likeCount: post.likeCount,
     shareCount: post.shareCount,
+    commentCount: post.commentCount || 0,
     author: {
       id: post.author._id,
       name: post.author.name,
@@ -132,6 +136,9 @@ export const createPost = async (req, res) => {
       mediaUrls,
       mediaThumbnail: mediaThumbnail || null,
       club: clubId || null,
+      // General (non-club) posts are public and surface on the Explore feed.
+      // Club posts stay scoped to their club.
+      isExplorePost: !clubId,
     };
 
     const post = new Post(postData);
@@ -786,6 +793,243 @@ export const openPostDeepLink = async (req, res) => {
   }
 };
 
+/**
+ * Resolve the comment author's display name based on their account type.
+ */
+const resolveCommentAuthorName = async (reqUser) => {
+  if (reqUser.userType === "admin") {
+    const admin = await Admin.findById(reqUser.id).select("name").lean();
+    return admin?.name || "Admin";
+  }
+  const user = await User.findById(reqUser.id).select("name").lean();
+  return user?.name || "User";
+};
+
+/**
+ * Get all comments for a post (newest first). Public (optional auth).
+ * @route GET /api/app/connect/posts/:postId/comments
+ */
+export const getPostComments = async (req, res) => {
+  try {
+    const { postId } = req.params;
+
+    const exists = await Post.exists({ _id: postId });
+    if (!exists) {
+      return responseUtil.notFound(res, "Post not found");
+    }
+
+    const comments = await PostComment.find({ post: postId })
+      .sort({ createdAt: -1 })
+      .populate({ path: "author", select: "name" })
+      .lean();
+
+    const currentUserId = req.user?.id || null;
+
+    // Which of these comments has the viewer liked?
+    let likedSet = new Set();
+    if (currentUserId && comments.length > 0) {
+      const likes = await PostCommentLike.find({
+        user: currentUserId,
+        comment: { $in: comments.map((c) => c._id) },
+      })
+        .select("comment")
+        .lean();
+      likedSet = new Set(likes.map((l) => l.comment.toString()));
+    }
+
+    const formatted = comments.map((c) => ({
+      _id: c._id,
+      post: c.post,
+      authorType: c.authorType,
+      author: c.author?._id || c.author,
+      authorName: c.author?.name || c.authorName || "User",
+      text: c.text,
+      likeCount: c.likeCount || 0,
+      isLiked: likedSet.has(c._id.toString()),
+      isOwnComment: currentUserId
+        ? (c.author?._id || c.author)?.toString() === currentUserId
+        : false,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
+
+    return responseUtil.success(res, "Comments fetched successfully", {
+      comments: formatted,
+      totalCount: formatted.length,
+    });
+  } catch (error) {
+    console.error("[POST] Get comments error:", error);
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid post ID");
+    }
+    return responseUtil.internalError(res, "Failed to fetch comments", error.message);
+  }
+};
+
+/**
+ * Create a comment on a post. Any authenticated user may comment.
+ * @route POST /api/app/connect/posts/:postId/comments
+ */
+export const createPostComment = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const { text } = req.body;
+
+    if (!text || !text.trim()) {
+      return responseUtil.badRequest(res, "Comment text is required");
+    }
+
+    const post = await Post.findById(postId);
+    if (!post) {
+      return responseUtil.notFound(res, "Post not found");
+    }
+
+    const authorType = req.user.userType === "admin" ? "Admin" : "User";
+    const authorName = await resolveCommentAuthorName(req.user);
+
+    const comment = await PostComment.create({
+      post: postId,
+      authorType,
+      author: req.user.id,
+      authorName,
+      text: text.trim(),
+    });
+
+    await Post.findByIdAndUpdate(postId, { $inc: { commentCount: 1 } });
+
+    return responseUtil.created(res, "Comment posted successfully", {
+      comment: {
+        _id: comment._id,
+        post: postId,
+        authorType,
+        author: req.user.id,
+        authorName,
+        text: comment.text,
+        isOwnComment: true,
+        createdAt: comment.createdAt,
+        updatedAt: comment.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("[POST] Create comment error:", error);
+    if (error.name === "ValidationError") {
+      return responseUtil.badRequest(res, error.message);
+    }
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid post ID");
+    }
+    return responseUtil.internalError(res, "Failed to post comment", error.message);
+  }
+};
+
+/**
+ * Delete a comment. Allowed for the comment author or any admin.
+ * @route DELETE /api/app/connect/posts/:postId/comments/:commentId
+ */
+export const deletePostComment = async (req, res) => {
+  try {
+    const { postId, commentId } = req.params;
+    const comment = await PostComment.findById(commentId);
+
+    if (!comment || comment.post.toString() !== postId) {
+      return responseUtil.notFound(res, "Comment not found");
+    }
+
+    const isAdmin = req.user.userType === "admin";
+    const isAuthor = comment.author.toString() === req.user.id;
+
+    if (!isAdmin && !isAuthor) {
+      return responseUtil.forbidden(res, "You can only delete your own comments");
+    }
+
+    await comment.softDelete();
+    await Post.findByIdAndUpdate(postId, {
+      $inc: { commentCount: -1 },
+    });
+    // Guard against a negative count.
+    await Post.updateOne(
+      { _id: postId, commentCount: { $lt: 0 } },
+      { $set: { commentCount: 0 } }
+    );
+
+    return responseUtil.success(res, "Comment deleted successfully");
+  } catch (error) {
+    console.error("[POST] Delete comment error:", error);
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID");
+    }
+    return responseUtil.internalError(res, "Failed to delete comment", error.message);
+  }
+};
+
+/**
+ * Like a post comment (any authenticated user). Idempotent.
+ * @route POST /api/app/connect/posts/:postId/comments/:commentId/like
+ */
+export const likePostComment = async (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const comment = await PostComment.findById(commentId);
+    if (!comment) {
+      return responseUtil.notFound(res, "Comment not found");
+    }
+
+    try {
+      await PostCommentLike.create({ comment: commentId, user: req.user.id });
+      comment.likeCount = (comment.likeCount || 0) + 1;
+      await comment.save();
+    } catch (err) {
+      // Duplicate like — already liked; ignore.
+      if (err.code !== 11000) throw err;
+    }
+
+    return responseUtil.success(res, "Comment liked", {
+      likeCount: comment.likeCount,
+      isLiked: true,
+    });
+  } catch (error) {
+    console.error("[POST] Like comment error:", error);
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid comment ID");
+    }
+    return responseUtil.internalError(res, "Failed to like comment", error.message);
+  }
+};
+
+/**
+ * Unlike a post comment. Idempotent.
+ * @route DELETE /api/app/connect/posts/:postId/comments/:commentId/like
+ */
+export const unlikePostComment = async (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const comment = await PostComment.findById(commentId);
+    if (!comment) {
+      return responseUtil.notFound(res, "Comment not found");
+    }
+
+    const removed = await PostCommentLike.findOneAndDelete({
+      comment: commentId,
+      user: req.user.id,
+    });
+    if (removed) {
+      comment.likeCount = Math.max(0, (comment.likeCount || 0) - 1);
+      await comment.save();
+    }
+
+    return responseUtil.success(res, "Comment unliked", {
+      likeCount: comment.likeCount,
+      isLiked: false,
+    });
+  } catch (error) {
+    console.error("[POST] Unlike comment error:", error);
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid comment ID");
+    }
+    return responseUtil.internalError(res, "Failed to unlike comment", error.message);
+  }
+};
+
 export default {
   createPost,
   getFeed,
@@ -799,4 +1043,9 @@ export default {
   sharePost,
   getPostLikers,
   openPostDeepLink,
+  getPostComments,
+  createPostComment,
+  deletePostComment,
+  likePostComment,
+  unlikePostComment,
 };

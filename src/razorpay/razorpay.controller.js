@@ -8,6 +8,7 @@ import Payment from "../../schema/Payment.schema.js";
 import Event from "../../schema/Event.schema.js";
 import User from "../../schema/User.schema.js";
 import EventEnrollment from "../../schema/EventEnrollment.schema.js";
+import UserMembership from "../../schema/UserMembership.schema.js";
 import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { reserveSeats, releaseSeatReservation } from "../SeatArrangement/seatArrangement.controller.js";
@@ -239,6 +240,20 @@ export const createOrder = async (req, res) => {
     if (!isValidPhone(metadata.buyer.phone)) {
       return responseUtil.badRequest(res, "Invalid buyer phone number format. Must be 10 digits.");
     }
+
+    // === MEMBERS-ONLY EVENT GUARD ===
+    // For members-only events, the buyer must have an active membership.
+    // This is the secure backstop behind the app's "Become a member" prompt.
+    if (event.audience === "MEMBERS_ONLY") {
+      const buyerIsMember = await UserMembership.hasActiveMembership(metadata.buyer.phone);
+      if (!buyerIsMember) {
+        return responseUtil.forbidden(
+          res,
+          "This event is for members only. Please become a member to book."
+        );
+      }
+    }
+    // === END MEMBERS-ONLY EVENT GUARD ===
 
     // Validate buyer email format (if provided)
     if (metadata.buyer.email && !isValidEmail(metadata.buyer.email)) {

@@ -15,6 +15,11 @@ const jobPostSchema = new mongoose.Schema(
     salary: { type: String, trim: true, maxlength: 200, default: "" },
     deadline: { type: Date, default: null },
     jobImage: { type: String, default: "" },
+    // Opportunity filter attributes (values come from admin-managed OpportunityFilter options)
+    opportunityType: { type: String, trim: true, default: "" },
+    duration: { type: String, trim: true, default: "" },
+    timeline: { type: String, trim: true, default: "" },
+    opportunityLocation: { type: String, trim: true, default: "" },
     isActive: { type: Boolean, default: true, index: true },
     applicationCount: { type: Number, default: 0, min: 0 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin", required: true },
