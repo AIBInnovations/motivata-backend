@@ -48,7 +48,9 @@ export const getJobs = async (req, res) => {
 
     const [jobs, total] = await Promise.all([
       JobPost.find({ isActive: true }).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-      JobPost.countDocuments({ isActive: true }),
+      // countDocuments does NOT trigger the pre(/^find/) soft-delete filter,
+      // so exclude removed jobs explicitly — otherwise the total never drops.
+      JobPost.countDocuments({ isActive: true, isDeleted: false }),
     ]);
 
     // Check which jobs user has already applied to
@@ -69,6 +71,10 @@ export const getJobs = async (req, res) => {
       salary: job.salary,
       deadline: job.deadline,
       jobImage: job.jobImage || "",
+      opportunityType: job.opportunityType || "",
+      duration: job.duration || "",
+      timeline: job.timeline || "",
+      opportunityLocation: job.opportunityLocation || "",
       applicationCount: job.applicationCount,
       hasApplied: appliedJobIds.has(job._id.toString()),
       createdAt: job.createdAt,

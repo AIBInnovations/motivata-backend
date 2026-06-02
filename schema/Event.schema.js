@@ -127,6 +127,21 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
+     * Audience / access level for the event.
+     * - ALL: open to everyone (default)
+     * - MEMBERS_ONLY: only users with an active membership can book/access;
+     *   non-members can view the listing but are prompted to become a member.
+     */
+    audience: {
+      type: String,
+      enum: {
+        values: ["ALL", "MEMBERS_ONLY"],
+        message: "{VALUE} is not a valid audience",
+      },
+      default: "ALL",
+    },
+
+    /**
      * Event category
      */
     category: {
@@ -134,18 +149,16 @@ const eventSchema = new mongoose.Schema(
       required: [true, "Event category is required"],
       enum: {
         values: [
-          "TECHNOLOGY",
-          "EDUCATION",
-          "MEDICAL",
-          "COMEDY",
+          "WEBINAR",
+          "MASTERCLASS",
+          "WORKSHOPS",
+          "TALK_SESSIONS",
+          "LIVE_SESSIONS",
           "ENTERTAINMENT",
-          "BUSINESS",
-          "SPORTS",
-          "ARTS",
-          "MUSIC",
-          "FOOD",
-          "LIFESTYLE",
-          "OTHER",
+          "PROGRAMS",
+          "MEETUPS",
+          "COMMUNITY_SERVICE",
+          "HEALTH_WELLNESS",
         ],
         message: "{VALUE} is not a valid category",
       },

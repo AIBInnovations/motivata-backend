@@ -124,6 +124,15 @@ const postSchema = new mongoose.Schema(
     },
 
     /**
+     * Comment count (denormalized for performance)
+     */
+    commentCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    /**
      * Optional club association
      * If set, post belongs to a club and will NOT appear in main feed
      */

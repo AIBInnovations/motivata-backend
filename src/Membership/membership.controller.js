@@ -1032,7 +1032,14 @@ export const checkActiveMembership = async (req, res) => {
       status: "ACTIVE",
       paymentStatus: "SUCCESS",
       startDate: { $lte: now },
-      endDate: { $gt: now },
+      // Include lifetime memberships (isLifetime:true, null endDate, or epoch endDate)
+      // alongside time-limited memberships whose endDate is still in the future.
+      $or: [
+        { isLifetime: true },
+        { endDate: null },
+        { endDate: { $lte: new Date(1000) } },
+        { endDate: { $gt: now } },
+      ],
     };
 
     if (phone && userId) {

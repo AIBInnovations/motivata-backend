@@ -86,8 +86,8 @@ const runReminderPass = async () => {
 
       await sendToMultipleDevices({
         tokens,
-        title: "Apna challenge complete karo!",
-        body: `"${challengeTitle}" ka aaj ka task pending hai. Abhi complete karein.`,
+        title: "Complete your challenge!",
+        body: `Today's task for "${challengeTitle}" is still pending. Complete it now.`,
         data: {
           screen: "ChallengeProgress",
           challengeId: String(uc.challengeId?._id || uc.challengeId),

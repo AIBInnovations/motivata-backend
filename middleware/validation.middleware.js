@@ -312,20 +312,19 @@ export const eventSchemas = {
       }),
     joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional().default(false),
+    audience: Joi.string().valid("ALL", "MEMBERS_ONLY").optional().default("ALL"),
     category: Joi.string()
       .valid(
-        "TECHNOLOGY",
-        "EDUCATION",
-        "MEDICAL",
-        "COMEDY",
+        "WEBINAR",
+        "MASTERCLASS",
+        "WORKSHOPS",
+        "TALK_SESSIONS",
+        "LIVE_SESSIONS",
         "ENTERTAINMENT",
-        "BUSINESS",
-        "SPORTS",
-        "ARTS",
-        "MUSIC",
-        "FOOD",
-        "LIFESTYLE",
-        "OTHER"
+        "PROGRAMS",
+        "MEETUPS",
+        "COMMUNITY_SERVICE",
+        "HEALTH_WELLNESS"
       )
       .required(),
     startDate: Joi.date().iso().required(),
@@ -385,20 +384,19 @@ export const eventSchemas = {
       }),
     joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional(),
+    audience: Joi.string().valid("ALL", "MEMBERS_ONLY").optional(),
     category: Joi.string()
       .valid(
-        "TECHNOLOGY",
-        "EDUCATION",
-        "MEDICAL",
-        "COMEDY",
+        "WEBINAR",
+        "MASTERCLASS",
+        "WORKSHOPS",
+        "TALK_SESSIONS",
+        "LIVE_SESSIONS",
         "ENTERTAINMENT",
-        "BUSINESS",
-        "SPORTS",
-        "ARTS",
-        "MUSIC",
-        "FOOD",
-        "LIFESTYLE",
-        "OTHER"
+        "PROGRAMS",
+        "MEETUPS",
+        "COMMUNITY_SERVICE",
+        "HEALTH_WELLNESS"
       )
       .optional(),
     // For updates: only validate format, not cross-field constraints
@@ -440,24 +438,23 @@ export const eventSchemas = {
     sortOrder: Joi.string().valid("asc", "desc").default("desc"),
     category: Joi.string()
       .valid(
-        "TECHNOLOGY",
-        "EDUCATION",
-        "MEDICAL",
-        "COMEDY",
+        "WEBINAR",
+        "MASTERCLASS",
+        "WORKSHOPS",
+        "TALK_SESSIONS",
+        "LIVE_SESSIONS",
         "ENTERTAINMENT",
-        "BUSINESS",
-        "SPORTS",
-        "ARTS",
-        "MUSIC",
-        "FOOD",
-        "LIFESTYLE",
-        "OTHER"
+        "PROGRAMS",
+        "MEETUPS",
+        "COMMUNITY_SERVICE",
+        "HEALTH_WELLNESS"
       )
       .optional(),
     mode: Joi.string().valid("ONLINE", "OFFLINE", "HYBRID").optional(),
     city: Joi.string().trim().optional(),
     isLive: Joi.boolean().optional(),
     featured: Joi.boolean().optional(),
+    audience: Joi.string().valid("ALL", "MEMBERS_ONLY").optional(),
     minPrice: Joi.number().min(0).optional(),
     maxPrice: Joi.number().min(0).optional(),
     startDateFrom: Joi.date().iso().optional(),
@@ -1452,6 +1449,9 @@ export const clubSchemas = {
     }),
     thumbnail: Joi.string().uri().optional().allow(null, "").messages({
       "string.uri": "Please provide a valid thumbnail URL",
+    }),
+    requiresApproval: Joi.boolean().optional().messages({
+      "boolean.base": "requiresApproval must be a boolean",
     }),
     postPermissions: Joi.array()
       .items(Joi.string().valid('ANYONE', 'MEMBERS', 'ADMIN'))

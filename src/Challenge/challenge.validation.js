@@ -156,6 +156,8 @@ export const challengeSchemas = {
       "number.min": "Duration must be at least 1 day",
       "number.max": "Duration cannot exceed 365 days",
     }),
+    // Optional: user who shared the challenge invite (referrer), to notify on join
+    referrerId: mongoId.optional(),
   }),
 
   /**

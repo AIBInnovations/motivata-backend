@@ -10,6 +10,7 @@ import {
   joinChallenge,
   getMyChallenges,
   getChallengeProgress,
+  nudgeConnections,
   markTaskComplete,
   unmarkTask,
   abandonChallenge,
@@ -33,7 +34,7 @@ router.get("/", optionalAuth, validateQuery(challengeSchemas.list), getAvailable
  * @desc    Get a shareable deep-link + pre-filled WhatsApp message for a challenge
  * @access  Public
  */
-router.get("/:challengeId/share", validateParams(challengeSchemas.challengeId), getChallengeShareLink);
+router.get("/:challengeId/share", optionalAuth, validateParams(challengeSchemas.challengeId), getChallengeShareLink);
 
 // ============================================
 // AUTHENTICATED ROUTES
@@ -60,6 +61,13 @@ router.get("/my-challenges", validateQuery(challengeSchemas.myChallenges), getMy
  * @access  User (authenticated)
  */
 router.get("/:challengeId/progress", validateParams(challengeSchemas.challengeId), getChallengeProgress);
+
+/**
+ * @route   POST /api/app/challenges/:challengeId/nudge
+ * @desc    Notify the user's connections taking this challenge to update their progress
+ * @access  User (authenticated)
+ */
+router.post("/:challengeId/nudge", validateParams(challengeSchemas.challengeId), nudgeConnections);
 
 /**
  * @route   POST /api/app/challenges/:challengeId/tasks/:taskId/complete

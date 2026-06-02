@@ -41,9 +41,17 @@ const questionSchema = new mongoose.Schema(
       type: String,
       required: [true, "Question type is required"],
       enum: {
-        values: ["text", "single-choice", "multiple-choice", "scale", "boolean"],
+        values: [
+          "text",
+          "text-list",
+          "text-group",
+          "single-choice",
+          "multiple-choice",
+          "scale",
+          "boolean",
+        ],
         message:
-          "{VALUE} is not a valid question type. Use text, single-choice, multiple-choice, scale, or boolean",
+          "{VALUE} is not a valid question type. Use text, text-list, text-group, single-choice, multiple-choice, scale, or boolean",
       },
     },
     options: {
@@ -57,6 +65,39 @@ const questionSchema = new mongoose.Schema(
           return true;
         },
         message: "Choice-based and scale questions must have at least 2 options",
+      },
+    },
+    /**
+     * Number of free-text entry slots for "text-list" questions (e.g. a–e = 5).
+     */
+    maxEntries: {
+      type: Number,
+      min: [1, "maxEntries must be at least 1"],
+      validate: {
+        validator: function (v) {
+          // text-list questions must define how many entries to collect
+          if (this.questionType === "text-list") {
+            return typeof v === "number" && v >= 1;
+          }
+          return true;
+        },
+        message: "text-list questions require maxEntries of at least 1",
+      },
+    },
+    /**
+     * Labelled sub-fields for "text-group" questions (e.g. ["Strength", "Weakness"]).
+     */
+    subFields: {
+      type: [String],
+      validate: {
+        validator: function (v) {
+          // text-group questions must define at least one labelled sub-field
+          if (this.questionType === "text-group") {
+            return Array.isArray(v) && v.length >= 1;
+          }
+          return true;
+        },
+        message: "text-group questions require at least one sub-field label",
       },
     },
     isRequired: {

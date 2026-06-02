@@ -42,7 +42,7 @@ export const uploadJobImage = async (req, res) => {
 // Create job post
 export const createJob = async (req, res) => {
   try {
-    const { title, company, location, type, description, requirements, salary, deadline, jobImage } = req.body;
+    const { title, company, location, type, description, requirements, salary, deadline, jobImage, opportunityType, duration, timeline, opportunityLocation } = req.body;
     const adminId = req.user.id;
 
     if (!title?.trim() || !company?.trim() || !location?.trim() || !type || !description?.trim()) {
@@ -59,6 +59,10 @@ export const createJob = async (req, res) => {
       salary: salary?.trim() || "",
       deadline: deadline ? new Date(deadline) : null,
       jobImage: jobImage?.trim() || "",
+      opportunityType: opportunityType?.trim() || "",
+      duration: duration?.trim() || "",
+      timeline: timeline?.trim() || "",
+      opportunityLocation: opportunityLocation?.trim() || "",
       createdBy: adminId,
     });
 
@@ -147,7 +151,7 @@ export const updateJob = async (req, res) => {
   try {
     const { jobId } = req.params;
     const updates = req.body;
-    const allowed = ["title", "company", "location", "type", "description", "requirements", "salary", "deadline", "isActive", "jobImage"];
+    const allowed = ["title", "company", "location", "type", "description", "requirements", "salary", "deadline", "isActive", "jobImage", "opportunityType", "duration", "timeline", "opportunityLocation"];
     const updateData = {};
     allowed.forEach(key => { if (updates[key] !== undefined) updateData[key] = updates[key]; });
 

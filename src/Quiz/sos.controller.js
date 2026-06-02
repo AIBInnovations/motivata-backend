@@ -509,19 +509,34 @@ export const getAvailablePrograms = async (req, res) => {
 
     const programs = await SOSProgram.findActive(query).sort({ createdAt: -1 });
 
+    const programIds = programs.map((p) => p._id);
+
+    // Count active (findByDay-eligible) quizzes per program so clients can avoid
+    // selecting a program that has no quiz content yet.
+    const quizCounts = await SOSQuiz.aggregate([
+      { $match: { programId: { $in: programIds }, isActive: true, isDeleted: false } },
+      { $group: { _id: "$programId", count: { $sum: 1 } } },
+    ]);
+    const quizCountMap = new Map(
+      quizCounts.map((q) => [q._id.toString(), q.count])
+    );
+
     // If user is logged in, get their progress for each program
     let userProgress = [];
     if (userId) {
       userProgress = await UserSOSProgress.find({
         userId,
-        programId: { $in: programs.map((p) => p._id) },
+        programId: { $in: programIds },
       }).select("programId status currentDay daysCompleted");
     }
 
     const programsWithProgress = programs.map((program) => {
       const progress = userProgress.find((p) => p.programId.toString() === program._id.toString());
+      const quizCount = quizCountMap.get(program._id.toString()) || 0;
       return {
         ...program.toObject(),
+        quizCount,
+        hasQuiz: quizCount > 0,
         userProgress: progress
           ? {
               status: progress.status,

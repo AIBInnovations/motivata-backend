@@ -339,13 +339,23 @@ userMembershipSchema.statics.findActiveMembership = async function (phone) {
   const normalizedPhone = phone.slice(-10);
   const now = new Date();
 
+  // A membership is active if:
+  //   - isLifetime is true (explicit lifetime flag), OR
+  //   - endDate is null/missing (stored as null = lifetime), OR
+  //   - endDate is the Unix epoch (timestamp 0 = effectively no expiry), OR
+  //   - endDate is a real future date
   const membership = await this.findOne({
     phone: normalizedPhone,
     isDeleted: false,
     status: 'ACTIVE',
     paymentStatus: 'SUCCESS',
     startDate: { $lte: now },
-    endDate: { $gt: now }
+    $or: [
+      { isLifetime: true },
+      { endDate: null },
+      { endDate: { $lte: new Date(1000) } }, // epoch 0 = lifetime stored as 0/near-0
+      { endDate: { $gt: now } },
+    ],
   })
     .sort({ endDate: -1 })
     .populate('membershipPlanId');
