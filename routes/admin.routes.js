@@ -21,6 +21,7 @@ import adminAssetRoutes from "../src/Asset/asset.admin.route.js";
 import adminStoryRoutes from "../src/Story/story.admin.route.js";
 import adminMembershipRoutes from "../src/Membership/admin.membership.route.js";
 import membershipRequestRoutes from "../src/Membership/membership.request.route.js";
+import doerRequestRoutes from "../src/Membership/doer.request.route.js";
 import adminClubRoutes from "../src/Club/club.admin.route.js";
 import seatArrangementAdminRoutes from "../src/SeatArrangement/seatArrangement.admin.route.js";
 import adminServiceRoutes from "../src/Service/service.admin.route.js";
@@ -111,6 +112,11 @@ router.use("/stories", adminStoryRoutes);
 // Membership Request routes - /api/web/membership-requests (public + admin)
 // IMPORTANT: Must come BEFORE adminMembershipRoutes to avoid auth middleware
 router.use("/membership-requests", membershipRequestRoutes);
+
+// Doer Request routes - /api/web/doer-requests (public + admin)
+// Same controller as membership-requests, pinned to the DOER queue.
+// IMPORTANT: Must come BEFORE adminMembershipRoutes to avoid auth middleware
+router.use("/doer-requests", doerRequestRoutes);
 
 // Feature Access routes - /api/web/feature-access (includes public check endpoint)
 // IMPORTANT: Must come BEFORE root-mounted routes to avoid auth middleware

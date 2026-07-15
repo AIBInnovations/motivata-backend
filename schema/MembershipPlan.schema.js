@@ -23,6 +23,17 @@ const membershipPlanSchema = new mongoose.Schema(
       maxlength: [2000, 'Description cannot exceed 2000 characters']
     },
 
+    // Which product this plan belongs to. DOER plans back the "Become a Doer"
+    // form (Motivata Community); MEMBERSHIP plans back the membership form.
+    // Both still create a UserMembership on payment — the split is only about
+    // which form offers the plan and which admin queue reviews the request.
+    planType: {
+      type: String,
+      enum: ['MEMBERSHIP', 'DOER'],
+      default: 'MEMBERSHIP',
+      index: true
+    },
+
     // Pricing
     price: {
       type: Number,
@@ -206,12 +217,31 @@ membershipPlanSchema.methods.restore = async function () {
 };
 
 // Static method to find active plans
-membershipPlanSchema.statics.findActive = function (includeInactive = false) {
+membershipPlanSchema.statics.findActive = function (includeInactive = false, planType = null) {
   const query = { isDeleted: false };
   if (!includeInactive) {
     query.isActive = true;
   }
+  // Omitting planType returns every plan — keeps existing callers unchanged.
+  if (planType) {
+    Object.assign(query, membershipPlanSchema.statics.planTypeFilter(planType));
+  }
   return this.find(query).sort({ displayOrder: 1, createdAt: -1 });
+};
+
+/**
+ * Match a plan type against documents written before `planType` existed.
+ *
+ * Plans already in the database have no planType field at all, and Mongo does
+ * NOT match a missing field against { planType: 'MEMBERSHIP' } — so querying for
+ * the literal would hide every existing plan and leave the membership form's
+ * dropdown empty. `$ne: 'DOER'` matches both the new MEMBERSHIP plans and the
+ * legacy ones with no field, so no data migration is needed.
+ */
+membershipPlanSchema.statics.planTypeFilter = function (planType) {
+  return planType === 'DOER'
+    ? { planType: 'DOER' }
+    : { planType: { $ne: 'DOER' } };
 };
 
 // Static method to find featured plans

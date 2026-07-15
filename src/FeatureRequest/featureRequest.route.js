@@ -8,6 +8,7 @@ import express from 'express';
 import { authenticate, isAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, schemas } from '../../middleware/validation.middleware.js';
 import { featureRequestSchemas } from './featureRequest.validation.js';
+import { publicFormLimiter } from '../../middleware/rateLimit.middleware.js';
 import {
   getFeaturePricing,
   submitFeatureRequest,
@@ -46,6 +47,7 @@ router.get('/pricing', getFeaturePricing);
  */
 router.post(
   '/',
+  publicFormLimiter,
   validateBody(featureRequestSchemas.submit),
   submitFeatureRequest
 );

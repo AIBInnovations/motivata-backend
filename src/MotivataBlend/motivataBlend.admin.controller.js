@@ -317,8 +317,10 @@ export const getPendingCount = async (req, res) => {
       status: 'PENDING'
     });
 
+    // Key must be `count` — the sidebar badge reads result.data.count, and the
+    // membership-request endpoint already answers with that shape.
     return responseUtil.success(res, 'Pending count fetched successfully', {
-      pendingCount
+      count: pendingCount
     });
   } catch (error) {
     console.error('[MOTIVATA-BLEND-ADMIN] Error fetching pending count:', error.message);

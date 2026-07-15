@@ -13,6 +13,7 @@ import {
   serviceOrderSchemas,
   serviceRequestSchemas,
 } from "../../middleware/validation.middleware.js";
+import { codeCheckLimiter } from "../../middleware/rateLimit.middleware.js";
 import {
   getUserServices,
   getUserServiceById,
@@ -47,6 +48,7 @@ router.get(
  */
 router.post(
   "/validate-coupon",
+  codeCheckLimiter,
   validateBody(serviceOrderSchemas.validateServiceCoupon),
   validateServiceCoupon
 );
@@ -60,17 +62,6 @@ router.post(
   "/purchase",
   validateBody(serviceOrderSchemas.directPurchase),
   createDirectPurchase
-);
-
-/**
- * @route   GET /api/app/services/:id
- * @desc    Get single service details by ID
- * @access  Public/User
- */
-router.get(
-  "/:id",
-  validateParams(serviceSchemas.serviceId),
-  getUserServiceById
 );
 
 /**
@@ -111,6 +102,20 @@ router.get(
 router.get(
   "/subscriptions",
   getUserSubscriptions
+);
+
+/**
+ * @route   GET /api/app/services/:id
+ * @desc    Get single service details by ID
+ * @access  Public/User
+ *
+ * MUST stay last: an earlier "/:id" swallows "/requests" and "/subscriptions",
+ * which then fail ObjectId validation instead of reaching their handlers.
+ */
+router.get(
+  "/:id",
+  validateParams(serviceSchemas.serviceId),
+  getUserServiceById
 );
 
 export default router;

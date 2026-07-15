@@ -44,6 +44,18 @@ const membershipRequestSchema = new mongoose.Schema(
     },
 
     /**
+     * Which form this request came from. Mirrors MembershipPlan.planType and
+     * decides which admin queue lists it. The approval / payment / webhook path
+     * is identical for both — a DOER request still ends in a UserMembership.
+     */
+    requestType: {
+      type: String,
+      enum: ['MEMBERSHIP', 'DOER'],
+      default: 'MEMBERSHIP',
+      index: true
+    },
+
+    /**
      * User's preferred plan (optional - can be overridden by admin)
      */
     requestedPlanId: {
@@ -295,6 +307,7 @@ membershipRequestSchema.index({ phone: 1, status: 1 });
 membershipRequestSchema.index({ status: 1, createdAt: -1 });
 membershipRequestSchema.index({ orderId: 1 });
 membershipRequestSchema.index({ isDeleted: 1, status: 1, createdAt: -1 });
+membershipRequestSchema.index({ requestType: 1, status: 1, createdAt: -1 });
 
 /**
  * Pre-save hook to normalize phone number
@@ -308,22 +321,48 @@ membershipRequestSchema.pre('save', function (next) {
 });
 
 /**
- * Static: Get pending requests count
+ * Static: Match a request type against documents written before `requestType`
+ * existed.
+ *
+ * Every request already in the database has no requestType field, and Mongo does
+ * NOT match a missing field against { requestType: 'MEMBERSHIP' } — so querying
+ * for the literal would make the admin's Membership Requests page show zero rows.
+ * `$ne: 'DOER'` matches new MEMBERSHIP requests and legacy ones alike, so no data
+ * migration is needed.
  */
-membershipRequestSchema.statics.getPendingCount = function () {
-  return this.countDocuments({ status: 'PENDING', isDeleted: false });
+membershipRequestSchema.statics.requestTypeFilter = function (requestType) {
+  return requestType === 'DOER'
+    ? { requestType: 'DOER' }
+    : { requestType: { $ne: 'DOER' } };
+};
+
+/**
+ * Static: Get pending requests count
+ * Omit requestType to count every queue (previous behaviour).
+ */
+membershipRequestSchema.statics.getPendingCount = function (requestType = null) {
+  const query = { status: 'PENDING', isDeleted: false };
+  if (requestType) {
+    Object.assign(query, this.requestTypeFilter(requestType));
+  }
+  return this.countDocuments(query);
 };
 
 /**
  * Static: Check if phone has a pending request
+ * Omit requestType to check every queue (previous behaviour).
  */
-membershipRequestSchema.statics.hasPendingRequest = async function (phone) {
+membershipRequestSchema.statics.hasPendingRequest = async function (phone, requestType = null) {
   const normalizedPhone = phone.replace(/\D/g, '').slice(-10);
-  const request = await this.findOne({
+  const query = {
     phone: normalizedPhone,
     status: 'PENDING',
     isDeleted: false
-  });
+  };
+  if (requestType) {
+    Object.assign(query, this.requestTypeFilter(requestType));
+  }
+  const request = await this.findOne(query);
   return !!request;
 };
 

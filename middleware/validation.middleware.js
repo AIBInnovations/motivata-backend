@@ -75,11 +75,18 @@ export const validateQuery = (schema) => {
       );
     }
 
-    // Clear existing query params and assign validated values
-    for (const key in req.query) {
-      delete req.query[key];
-    }
-    Object.assign(req.query, value);
+    // In Express 5 req.query is a lazy getter, so deleting keys or Object.assign-ing
+    // onto it silently does nothing — the validated/coerced values never reach the
+    // controller, and a later `req.query.isLive = true` (public event/session
+    // listings do this) is dropped too, leaking non-live records. Replace the
+    // getter with a plain writable property holding the validated object, so both
+    // the coercion here and any downstream assignment stick.
+    Object.defineProperty(req, "query", {
+      value,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
     next();
   };
 };
@@ -1704,6 +1711,10 @@ export const membershipPlanSchemas = {
       "string.empty": "Membership plan description is required",
       "string.max": "Description cannot exceed 2000 characters",
     }),
+    planType: Joi.string()
+      .valid("MEMBERSHIP", "DOER")
+      .optional()
+      .default("MEMBERSHIP"),
     price: Joi.number().min(0).required().messages({
       "number.base": "Price must be a number",
       "number.min": "Price cannot be negative",
@@ -1749,6 +1760,7 @@ export const membershipPlanSchemas = {
   update: Joi.object({
     name: Joi.string().trim().max(200).optional(),
     description: Joi.string().trim().max(2000).optional(),
+    planType: Joi.string().valid("MEMBERSHIP", "DOER").optional(),
     price: Joi.number().min(0).optional(),
     compareAtPrice: Joi.number().min(0).optional().allow(null),
     durationInDays: Joi.number()

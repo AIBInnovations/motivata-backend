@@ -12,8 +12,10 @@ import {
   validateQuery,
   membershipRequestSchemas,
 } from '../../middleware/validation.middleware.js';
+import { publicFormLimiter } from '../../middleware/rateLimit.middleware.js';
 import {
   submitMembershipRequest,
+  previewCoupon,
   getPlansForRequestForm,
   getAllMembershipRequests,
   getMembershipRequestById,
@@ -40,6 +42,14 @@ const router = express.Router();
 router.get('/plans', getPlansForRequestForm);
 
 /**
+ * @route   POST /api/web/membership-requests/validate-coupon
+ * @desc    Preview a coupon against a membership plan — same contract as the Doer
+ *          form, because both use the same modal
+ * @access  Public
+ */
+router.post('/validate-coupon', publicFormLimiter, previewCoupon);
+
+/**
  * @route   GET /api/web/membership-requests/stats
  * @desc    Get membership availability statistics
  * @access  Public
@@ -53,6 +63,7 @@ router.get('/stats', getMembershipStats);
  */
 router.post(
   '/',
+  publicFormLimiter,
   validateBody(membershipRequestSchemas.submit),
   submitMembershipRequest
 );

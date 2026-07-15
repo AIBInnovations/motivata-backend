@@ -35,6 +35,7 @@ export const createMembershipPlan = async (req, res) => {
     const {
       name,
       description,
+      planType,
       price,
       compareAtPrice,
       durationInDays,
@@ -51,6 +52,7 @@ export const createMembershipPlan = async (req, res) => {
     const plan = new MembershipPlan({
       name,
       description,
+      planType,
       price,
       compareAtPrice,
       durationInDays,
@@ -249,6 +251,7 @@ export const updateMembershipPlan = async (req, res) => {
     const allowedFields = [
       "name",
       "description",
+      "planType",
       "price",
       "compareAtPrice",
       "durationInDays",

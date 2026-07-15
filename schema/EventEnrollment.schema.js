@@ -142,8 +142,12 @@ const eventEnrollmentSchema = new mongoose.Schema(
  */
 eventEnrollmentSchema.index({ paymentId: 1 });
 eventEnrollmentSchema.index({ orderId: 1 });
-eventEnrollmentSchema.index({ userId: 1, status: 1 });
-eventEnrollmentSchema.index({ eventId: 1, status: 1 });
+// `status` is per-ticket inside the `tickets` Map, not a top-level field, so the
+// old { userId, status } and { eventId, status } indexes were built on a field
+// that does not exist. userId lookups are already served by the unique
+// { userId, eventId } index below (userId is its prefix); eventId lookups (the
+// admin list filter) get a plain single-field index.
+eventEnrollmentSchema.index({ eventId: 1 });
 eventEnrollmentSchema.index({ createdAt: -1 });
 
 /**

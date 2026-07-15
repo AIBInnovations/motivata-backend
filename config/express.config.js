@@ -5,18 +5,26 @@
 
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import path from "path";
 import { fileURLToPath } from "url";
 
 // route imports
 import adminRoutes from "../routes/admin.routes.js";
 import appRoutes from "../routes/app.routes.js";
+import { generalLimiter } from "../middleware/rateLimit.middleware.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /** @type {express.Application} */
 const app = express();
+
+// The API sits behind one reverse proxy, so req.ip is the proxy's address
+// unless we say how many hops to trust. Rate limiting depends on this: without
+// it every visitor shares a single IP and the first burst locks out everyone.
+// 1 = trust exactly the nearest proxy, so a client cannot forge the header.
+app.set("trust proxy", 1);
 
 // Set up EJS as view engine
 app.set("view engine", "ejs");
@@ -36,35 +44,36 @@ const corsOptions = {
    * @param {Function} callback - Callback to accept/reject the origin
    */
   origin: (origin, callback) => {
-    // In development, allow all origins
-    if (process.env.NODE_ENV !== "production") {
-      callback(null, true);
-      return;
-    }
-
-    // In production, check against allowed origins from .env
-    const allowedOrigins = process.env.ALLOWED_ORIGINS
-      ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+    // Deployed front-ends. From ALLOWED_ORIGINS if set, else these defaults.
+    const configuredOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim())
       : [
           "https://mediumpurple-dotterel-484503.hostingersite.com",
-          "https://mediumpurple-dotterel-484503.hostingersite.com/",
           "https://motivata.in",
-          "https://motivata.in/",
-          "https://lightslategrey-baboon-874891.hostingersite.com/",
           "https://lightslategrey-baboon-874891.hostingersite.com",
-          "http://localhost:3000",
-          "http://localhost:3000/",
-          "http://localhost:5173",
-          "http://localhost:5173/",
-          "https://motivata.synquic.com/",
           "https://motivata.synquic.com",
         ];
 
-    if (!origin || allowedOrigins.includes(origin)) {
+    // Local dev ports (reference app 3000, user-web 3001, admin 5173). Added
+    // only outside production so a bad NODE_ENV can never open prod to them.
+    const devOrigins =
+      process.env.NODE_ENV !== "production"
+        ? ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173"]
+        : [];
+
+    // Trailing slash is not part of a browser Origin, but the config list has
+    // historically carried both forms — normalise so either matches.
+    const allowSet = new Set(
+      [...configuredOrigins, ...devOrigins].map((o) => o.replace(/\/$/, ""))
+    );
+
+    // No Origin header = same-origin, curl, or the mobile app (which sends none).
+    // These are not browser cross-origin requests, so let them through.
+    if (!origin || allowSet.has(origin.replace(/\/$/, ""))) {
       callback(null, true);
     } else {
       console.error(`[CORS] Blocked request from origin: ${origin}`);
-      console.error(`[CORS] Allowed origins: ${allowedOrigins.join(", ")}`);
+      console.error(`[CORS] Allowed origins: ${[...allowSet].join(", ")}`);
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -84,6 +93,20 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Security headers.
+// CSP is off on purpose: the deep-link pages below (/open/events, /open/post,
+// /open/challenge) are HTML with inline <script>, and helmet's default policy
+// would block them, breaking every app deep link. The rest of this app is JSON,
+// which a CSP does nothing for.
+// Resource policy is cross-origin because /api/assets is fetched from the web
+// and admin front-ends, which live on different domains.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+
 // Middleware
 app.use(cors(corsOptions));
 
@@ -96,6 +119,10 @@ app.use(express.urlencoded({ extended: true }));
 
 // Static assets — served under /api/assets/ so the reverse proxy forwards them to Node
 app.use("/api/assets", express.static(path.join(__dirname, "../assets")));
+
+// Flood guard across the whole API. Loose by design — the tight limits live on
+// the endpoints that need them (login, public forms, coupon checks).
+app.use("/api", generalLimiter);
 
 // global routes
 app.use("/api/web", adminRoutes); // only admin uses

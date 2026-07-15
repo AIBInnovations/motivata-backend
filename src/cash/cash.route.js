@@ -11,8 +11,19 @@
 
 import express from 'express';
 import { createCashOrder, createCashPartner } from './cash.controller.js';
+import { authenticate, isAdmin } from '../../middleware/auth.middleware.js';
 
 const router = express.Router();
+
+// These endpoints mint tickets and decrement event seats with no payment record.
+// They shipped unauthenticated (the route docs say "should be protected in
+// production"), so anyone could create a partner and burn seats. No client in
+// any repo calls them and the CashPartner collection is empty — the live cash
+// flow is /api/web/offline-cash, which is already admin-only. Lock these the
+// same way. A future external POS integration should use a partner-secret
+// header, not an open endpoint.
+router.use(authenticate);
+router.use(isAdmin);
 
 /**
  * @route POST /api/web/cash/partner

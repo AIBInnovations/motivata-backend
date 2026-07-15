@@ -12,6 +12,7 @@ import {
   membershipPlanSchemas,
   userMembershipSchemas
 } from '../../middleware/validation.middleware.js';
+import { codeCheckLimiter } from '../../middleware/rateLimit.middleware.js';
 import {
   getAllMembershipPlans,
   getMembershipPlanById,
@@ -61,6 +62,7 @@ router.get(
  */
 router.post(
   '/memberships/validate-coupon',
+  codeCheckLimiter,
   validateBody(userMembershipSchemas.validateCoupon),
   validateMembershipCoupon
 );
