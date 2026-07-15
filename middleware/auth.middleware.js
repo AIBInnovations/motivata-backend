@@ -31,8 +31,11 @@ export const authenticate = async (req, res, next) => {
       return responseUtil.unauthorized(res, 'Invalid or expired token');
     }
 
-    // Attach user info to request
+    // Attach user info to request.
+    // Token payload carries `id`, but 34 call sites across the controllers read
+    // `req.user._id`. Alias both so neither form is undefined.
     req.user = decoded;
+    req.user._id = decoded.id;
     next();
   } catch (error) {
     console.error('Authentication error:', error);
@@ -138,6 +141,7 @@ export const optionalAuth = async (req, res, next) => {
 
       if (decoded) {
         req.user = decoded;
+        req.user._id = decoded.id;
       }
     }
 

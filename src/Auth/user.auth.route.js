@@ -8,6 +8,7 @@ import Joi from 'joi';
 import * as userAuthController from './user.auth.controller.js';
 import { authenticate, isAdmin } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, userSchemas, schemas } from '../../middleware/validation.middleware.js';
+import { loginLimiter } from '../../middleware/rateLimit.middleware.js';
 
 const router = express.Router();
 
@@ -37,6 +38,7 @@ router.post('/register',
  * @returns {Object} User data and tokens
  */
 router.post('/login',
+  loginLimiter,
   validateBody(userSchemas.login),
   userAuthController.login
 );
@@ -49,6 +51,7 @@ router.post('/login',
  * @returns {Object} User data and tokens
  */
 router.post('/login-phone',
+  loginLimiter,
   validateBody(userSchemas.loginWithPhone),
   userAuthController.loginWithPhone
 );

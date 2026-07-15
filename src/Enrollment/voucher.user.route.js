@@ -6,6 +6,7 @@
 import express from 'express';
 import { checkAvailability, redeemVoucher } from './voucher.controller.js';
 import { validateBody, voucherSchemas } from '../../middleware/validation.middleware.js';
+import { codeCheckLimiter } from '../../middleware/rateLimit.middleware.js';
 
 const router = express.Router();
 
@@ -55,6 +56,7 @@ const router = express.Router();
  */
 router.post(
   '/check-availability',
+  codeCheckLimiter,
   validateBody(voucherSchemas.checkAvailability),
   checkAvailability
 );

@@ -16,6 +16,7 @@ import {
   scanCashTicket,
 } from '../cash/offlineCash.controller.js';
 import { authenticate } from '../../middleware/auth.middleware.js';
+import { devOnly } from '../../middleware/devOnly.middleware.js';
 import {
   validateBody,
   validateQuery,
@@ -26,10 +27,14 @@ const router = express.Router();
 
 /**
  * @route   GET /api/app/tickets/mock/qr
- * @desc    Generate mock QR scan link for testing
- * @access  Public (no auth)
+ * @desc    Generate a mock QR scan link for testing
+ * @access  Dev only (404 in production)
+ *
+ * This built a valid scan link for ANY enrollmentId with no auth. No client
+ * invokes it (the mobile app builds its QR client-side), so gate it to
+ * non-production instead of leaving a public ticket-link generator exposed.
  */
-router.get('/mock/qr', generateMockQRLink);
+router.get('/mock/qr', devOnly, generateMockQRLink);
 
 /**
  * @route   GET /api/app/tickets/qr-scan

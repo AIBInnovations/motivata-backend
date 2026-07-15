@@ -6,6 +6,7 @@
 
 import express from 'express';
 import { validateBody, motivataBlendSchemas } from '../../middleware/validation.middleware.js';
+import { publicFormLimiter } from '../../middleware/rateLimit.middleware.js';
 import { submitMotivataBlendRequest } from './motivataBlend.controller.js';
 import { getActiveBanner } from './motivataBlendBanner.controller.js';
 
@@ -29,6 +30,7 @@ router.get('/banner', getActiveBanner);
  */
 router.post(
   '/requests',
+  publicFormLimiter,
   validateBody(motivataBlendSchemas.submit),
   submitMotivataBlendRequest
 );

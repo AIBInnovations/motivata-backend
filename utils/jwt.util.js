@@ -13,13 +13,42 @@ import jwt from "jsonwebtoken";
  * @property {string} accessTokenExpiry - Access token expiration time
  * @property {string} refreshTokenExpiry - Refresh token expiration time
  */
+/**
+ * These used to fall back to two string literals written in this file. Because
+ * neither env var was ever set, production signed every admin and mobile token
+ * with a secret that anyone holding the repo could read — and therefore forge
+ * an admin token with. There is no safe default for a signing key, so refuse to
+ * start instead of quietly using a public one.
+ */
+const requireSecret = (name) => {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `${name} is not set. Refusing to sign or verify: a JWT secret has no safe default.`
+    );
+  }
+  return value;
+};
+
+/**
+ * Read through getters, not once at import time. ES module imports are hoisted
+ * above server.js's dotenv.config(), so a value captured here at module load
+ * could be read before .env exists. Deferring to first use avoids depending on
+ * import order.
+ */
 const config = {
-  accessTokenSecret:
-    process.env.JWT_ACCESS_SECRET || "access-secret-key-change-in-production",
-  refreshTokenSecret:
-    process.env.JWT_REFRESH_SECRET || "refresh-secret-key-change-in-production",
-  accessTokenExpiry: process.env.JWT_ACCESS_EXPIRY || "15d",
-  refreshTokenExpiry: process.env.JWT_REFRESH_EXPIRY || "70d",
+  get accessTokenSecret() {
+    return requireSecret("JWT_ACCESS_SECRET");
+  },
+  get refreshTokenSecret() {
+    return requireSecret("JWT_REFRESH_SECRET");
+  },
+  get accessTokenExpiry() {
+    return process.env.JWT_ACCESS_EXPIRY || "15d";
+  },
+  get refreshTokenExpiry() {
+    return process.env.JWT_REFRESH_EXPIRY || "70d";
+  },
 };
 
 /**

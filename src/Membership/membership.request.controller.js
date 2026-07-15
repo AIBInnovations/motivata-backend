@@ -22,6 +22,26 @@ const normalizePhone = (phone) => {
 };
 
 /**
+ * Which queue this call belongs to. The doer router pins req.requestType to
+ * 'DOER'; the membership router leaves it unset, so it falls back to MEMBERSHIP
+ * and every existing caller keeps its old behaviour.
+ */
+const resolveRequestType = (req) => (req.requestType === 'DOER' ? 'DOER' : 'MEMBERSHIP');
+
+/**
+ * Read a type off a document that may predate the field. Plans and requests
+ * already in the database have no planType/requestType, and they are all
+ * membership ones — anything that is not explicitly DOER is MEMBERSHIP.
+ */
+const typeOf = (value) => (value === 'DOER' ? 'DOER' : 'MEMBERSHIP');
+
+// User-facing label per queue, so error and success copy reads naturally.
+const LABELS = {
+  MEMBERSHIP: { noun: 'membership request', plan: 'membership plan' },
+  DOER: { noun: 'Doer request', plan: 'Doer plan' },
+};
+
+/**
  * PUBLIC ENDPOINTS
  */
 
@@ -32,11 +52,13 @@ const normalizePhone = (phone) => {
 export const submitMembershipRequest = async (req, res) => {
   try {
     const { phone, name, requestedPlanId, couponCode } = req.body;
+    const requestType = resolveRequestType(req);
+    const label = LABELS[requestType];
 
-    console.log('[MEMBERSHIP-REQUEST] New request submission');
-    console.log('[MEMBERSHIP-REQUEST] Phone:', phone, 'Name:', name);
-    console.log('[MEMBERSHIP-REQUEST] Requested Plan ID:', requestedPlanId);
-    console.log('[MEMBERSHIP-REQUEST] Coupon Code:', couponCode || 'None');
+    console.log(`[${requestType}-REQUEST] New request submission`);
+    console.log(`[${requestType}-REQUEST] Phone:`, phone, 'Name:', name);
+    console.log(`[${requestType}-REQUEST] Requested Plan ID:`, requestedPlanId);
+    console.log(`[${requestType}-REQUEST] Coupon Code:`, couponCode || 'None');
 
     const normalizedPhone = normalizePhone(phone);
 
@@ -48,18 +70,20 @@ export const submitMembershipRequest = async (req, res) => {
       return responseUtil.badRequest(res, 'Name is required (minimum 2 characters).');
     }
 
-    // Check for existing pending request
+    // Check for an existing pending request in THIS queue. A pending membership
+    // request must not block a Doer request, or vice versa.
     const pendingRequest = await MembershipRequest.findOne({
       phone: normalizedPhone,
+      ...MembershipRequest.requestTypeFilter(requestType),
       status: 'PENDING',
       isDeleted: false,
     }).select('_id createdAt');
 
     if (pendingRequest) {
-      console.log('[MEMBERSHIP-REQUEST] Pending request already exists for phone:', normalizedPhone);
+      console.log(`[${requestType}-REQUEST] Pending request already exists for phone:`, normalizedPhone);
       return responseUtil.conflict(
         res,
-        'You already have a pending membership request. You can withdraw the existing request and submit a new one.',
+        `You already have a pending ${label.noun}. You can withdraw the existing request and submit a new one.`,
         {
           existingRequestId: pendingRequest._id,
           canWithdraw: true,
@@ -135,17 +159,19 @@ export const submitMembershipRequest = async (req, res) => {
       }
     }
 
-    // Validate requested plan if provided
+    // Validate requested plan if provided. The plan must belong to the same
+    // queue as the form — a Doer form cannot request a lifetime membership plan.
     let requestedPlan = null;
     if (requestedPlanId) {
       requestedPlan = await MembershipPlan.findOne({
         _id: requestedPlanId,
+        ...MembershipPlan.planTypeFilter(requestType),
         isDeleted: false,
         isActive: true,
       });
       if (!requestedPlan) {
-        console.log('[MEMBERSHIP-REQUEST] Invalid plan requested:', requestedPlanId);
-        return responseUtil.badRequest(res, 'Selected membership plan is not available.');
+        console.log(`[${requestType}-REQUEST] Invalid plan requested:`, requestedPlanId);
+        return responseUtil.badRequest(res, `Selected ${label.plan} is not available.`);
       }
     }
 
@@ -199,6 +225,7 @@ export const submitMembershipRequest = async (req, res) => {
     const membershipRequest = new MembershipRequest({
       phone: normalizedPhone,
       name: name.trim(),
+      requestType,
       requestedPlanId: requestedPlan?._id || null,
       existingUserId: existingUser?._id || null,
       status: 'PENDING',
@@ -215,16 +242,17 @@ export const submitMembershipRequest = async (req, res) => {
 
     await membershipRequest.save();
 
-    console.log('[MEMBERSHIP-REQUEST] Request created:', membershipRequest._id);
+    console.log(`[${requestType}-REQUEST] Request created:`, membershipRequest._id);
     if (couponInfo) {
-      console.log('[MEMBERSHIP-REQUEST] Request includes coupon:', couponInfo.couponCode);
+      console.log(`[${requestType}-REQUEST] Request includes coupon:`, couponInfo.couponCode);
     }
 
     return responseUtil.created(
       res,
-      'Membership request submitted successfully. You will be notified once reviewed.',
+      `Your ${label.noun} was submitted successfully. You will be notified once reviewed.`,
       {
         requestId: membershipRequest._id,
+        requestType: membershipRequest.requestType,
         status: membershipRequest.status,
         ...(couponInfo && {
           appliedCoupon: {
@@ -258,9 +286,10 @@ export const submitMembershipRequest = async (req, res) => {
  */
 export const getPlansForRequestForm = async (req, res) => {
   try {
-    console.log('[MEMBERSHIP-REQUEST] Fetching plans for request form');
+    const requestType = resolveRequestType(req);
+    console.log(`[${requestType}-REQUEST] Fetching plans for request form`);
 
-    const plans = await MembershipPlan.findActive(false);
+    const plans = await MembershipPlan.findActive(false, requestType);
 
     // Return only public-facing fields
     const publicPlans = plans.map((plan) => ({
@@ -270,17 +299,262 @@ export const getPlansForRequestForm = async (req, res) => {
       price: plan.price,
       compareAtPrice: plan.compareAtPrice,
       durationInDays: plan.durationInDays,
+      planType: typeOf(plan.planType),
       perks: plan.perks,
       isFeatured: plan.isFeatured,
       isAvailable: plan.isAvailable,
     }));
 
-    return responseUtil.success(res, 'Membership plans fetched successfully', {
+    return responseUtil.success(res, 'Plans fetched successfully', {
       plans: publicPlans,
     });
   } catch (error) {
     console.error('[MEMBERSHIP-REQUEST] Error fetching plans:', error.message);
-    return responseUtil.internalError(res, 'Failed to fetch membership plans', error.message);
+    return responseUtil.internalError(res, 'Failed to fetch plans', error.message);
+  }
+};
+
+/**
+ * Preview a coupon against a plan, before the user commits to anything (public).
+ * Same shape for both queues — the form is identical, only the plan differs.
+ * @route POST /api/web/membership-requests/validate-coupon
+ * @route POST /api/web/doer-requests/validate-coupon
+ */
+export const previewCoupon = async (req, res) => {
+  try {
+    const requestType = resolveRequestType(req);
+    const label = LABELS[requestType];
+    const { couponCode, planId, phone } = req.body;
+
+    if (!couponCode || !planId) {
+      return responseUtil.badRequest(res, 'Coupon code and plan are required.');
+    }
+
+    const plan = await MembershipPlan.findOne({
+      _id: planId,
+      ...MembershipPlan.planTypeFilter(requestType),
+      isDeleted: false,
+      isActive: true,
+    });
+
+    if (!plan) {
+      return responseUtil.badRequest(res, `Selected ${label.plan} is not available.`);
+    }
+
+    // Doer plans are membership plans, so they share the MEMBERSHIP coupon type.
+    const validation = await validateCouponForType(
+      couponCode,
+      plan.price,
+      normalizePhone(phone),
+      'MEMBERSHIP'
+    );
+
+    if (!validation.isValid) {
+      return responseUtil.badRequest(res, validation.error);
+    }
+
+    return responseUtil.success(res, 'Coupon applied', {
+      couponCode: validation.coupon.code,
+      discountPercent: validation.coupon.discountPercent,
+      originalAmount: plan.price,
+      discountAmount: validation.discountAmount,
+      finalAmount: validation.finalAmount,
+    });
+  } catch (error) {
+    console.error('[COUPON-PREVIEW] Error:', error.message);
+    return responseUtil.internalError(res, 'Failed to validate coupon', error.message);
+  }
+};
+
+/**
+ * Doer checkout — buy a Doer plan outright, no admin approval (public).
+ *
+ * A Doer purchase is a normal membership purchase: it creates a Razorpay order, a
+ * pending UserMembership and a Payment of type MEMBERSHIP, which the existing
+ * webhook already knows how to confirm. It ALSO writes a MembershipRequest in the
+ * DOER queue at PAYMENT_SENT so the admin panel shows who bought what, with the
+ * membership attached once the webhook lands.
+ *
+ * @route POST /api/web/doer-requests/checkout
+ */
+export const createDoerCheckout = async (req, res) => {
+  try {
+    const { phone, name, planId, couponCode } = req.body;
+    const normalizedPhone = normalizePhone(phone);
+
+    console.log('[DOER-CHECKOUT] Starting for', normalizedPhone, 'plan', planId);
+
+    if (!normalizedPhone || normalizedPhone.length !== 10) {
+      return responseUtil.badRequest(res, 'Invalid phone number. Please provide a 10-digit phone number.');
+    }
+    if (!name || name.trim().length < 2) {
+      return responseUtil.badRequest(res, 'Name is required (minimum 2 characters).');
+    }
+    if (!planId) {
+      return responseUtil.badRequest(res, 'Please select a plan.');
+    }
+
+    // Step 1 — the plan must be a live Doer plan
+    const plan = await MembershipPlan.findOne({
+      _id: planId,
+      planType: 'DOER',
+      isDeleted: false,
+      isActive: true,
+    });
+
+    if (!plan) {
+      return responseUtil.badRequest(res, 'Selected Doer plan is not available.');
+    }
+
+    const canPurchase = plan.canBePurchased();
+    if (!canPurchase.canPurchase) {
+      return responseUtil.badRequest(res, canPurchase.reason);
+    }
+
+    // Step 2 — an active membership already covers this, don't sell it twice
+    const active = await UserMembership.findActiveMembership(normalizedPhone);
+    if (active) {
+      return responseUtil.conflict(
+        res,
+        'You already have an active membership. There is nothing more to buy right now.'
+      );
+    }
+
+    // Step 3 — price it, applying the coupon if one was given
+    const originalAmount = plan.price;
+    let discountAmount = 0;
+    let finalAmount = originalAmount;
+    let coupon = null;
+
+    if (couponCode) {
+      const validation = await validateCouponForType(
+        couponCode,
+        originalAmount,
+        normalizedPhone,
+        'MEMBERSHIP'
+      );
+      if (!validation.isValid) {
+        return responseUtil.badRequest(res, `Coupon error: ${validation.error}`);
+      }
+      coupon = validation.coupon;
+      discountAmount = validation.discountAmount;
+      finalAmount = validation.finalAmount;
+    }
+
+    // Step 4 — Razorpay order. This is a checkout, not a payment link: the user
+    // pays on the site instead of waiting for WhatsApp.
+    const razorpayOrder = await razorpayInstance.orders.create({
+      amount: Math.round(finalAmount * 100),
+      currency: 'INR',
+      receipt: `doer_${Date.now()}`,
+      notes: {
+        type: 'MEMBERSHIP',
+        planType: 'DOER',
+        phone: normalizedPhone,
+        membershipPlanId: plan._id.toString(),
+        couponCode: coupon?.code || '',
+      },
+    });
+
+    const existingUser = await User.findOne({
+      phone: { $regex: normalizedPhone + '$' },
+      isDeleted: false,
+    });
+
+    // Step 5 — the membership, pending until the webhook confirms the money
+    const startDate = new Date();
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + (plan.durationInDays || 365));
+
+    const userMembership = await UserMembership.create({
+      phone: normalizedPhone,
+      userId: existingUser?._id,
+      membershipPlanId: plan._id,
+      orderId: razorpayOrder.id,
+      purchaseMethod: 'IN_APP',
+      amountPaid: finalAmount,
+      startDate,
+      endDate,
+      status: 'ACTIVE',
+      paymentStatus: 'PENDING',
+      planSnapshot: {
+        name: plan.name,
+        description: plan.description,
+        durationInDays: plan.durationInDays,
+        perks: plan.perks,
+        metadata: plan.metadata,
+      },
+      metadata: {
+        razorpayOrderId: razorpayOrder.id,
+        couponCode: coupon?.code || null,
+        originalAmount,
+        discountAmount,
+      },
+    });
+
+    // Step 6 — the admin's record of this purchase, in the Doer queue
+    const request = await MembershipRequest.create({
+      phone: normalizedPhone,
+      name: name.trim(),
+      requestType: 'DOER',
+      requestedPlanId: plan._id,
+      approvedPlanId: plan._id,
+      existingUserId: existingUser?._id || null,
+      status: 'PAYMENT_SENT',
+      orderId: razorpayOrder.id,
+      originalAmount,
+      paymentAmount: finalAmount,
+      ...(coupon && {
+        couponId: coupon._id,
+        couponCode: coupon.code,
+        discountPercent: coupon.discountPercent,
+        discountAmount,
+      }),
+    });
+
+    // Step 7 — the Payment the webhook will look up by orderId
+    await Payment.create({
+      type: 'MEMBERSHIP',
+      orderId: razorpayOrder.id,
+      phone: normalizedPhone,
+      amount: originalAmount,
+      couponCode: coupon?.code || null,
+      discountAmount,
+      finalAmount,
+      status: 'PENDING',
+      paymentMethod: 'RAZORPAY',
+      metadata: {
+        phone: normalizedPhone,
+        membershipPlanId: plan._id.toString(),
+        userMembershipId: userMembership._id.toString(),
+        membershipRequestId: request._id.toString(),
+        planName: plan.name,
+        durationInDays: plan.durationInDays,
+      },
+    });
+
+    console.log('[DOER-CHECKOUT] Order', razorpayOrder.id, '→ ₹' + finalAmount);
+
+    return responseUtil.created(res, 'Checkout ready', {
+      requestId: request._id,
+      orderId: razorpayOrder.id,
+      key: process.env.RAZORPAY_KEY_ID,
+      currency: 'INR',
+      originalAmount,
+      discountAmount,
+      finalAmount,
+      couponApplied: coupon?.code || null,
+      name: name.trim(),
+      phone: normalizedPhone,
+      plan: {
+        _id: plan._id,
+        name: plan.name,
+        durationInDays: plan.durationInDays,
+      },
+    });
+  } catch (error) {
+    console.error('[DOER-CHECKOUT] Error:', error.message);
+    return responseUtil.internalError(res, 'Failed to start checkout', error.message);
   }
 };
 
@@ -296,9 +570,12 @@ export const getAllMembershipRequests = async (req, res) => {
   try {
     const { page = 1, limit = 20, status, search, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
-    console.log('[MEMBERSHIP-REQUEST] Admin fetching requests - page:', page, 'status:', status);
+    const requestType = resolveRequestType(req);
 
-    const query = { isDeleted: false };
+    console.log(`[${requestType}-REQUEST] Admin fetching requests - page:`, page, 'status:', status);
+
+    // Each admin queue only ever sees its own requests.
+    const query = { isDeleted: false, ...MembershipRequest.requestTypeFilter(requestType) };
 
     if (status) {
       query.status = status;
@@ -379,9 +656,14 @@ export const getMembershipRequestById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log('[MEMBERSHIP-REQUEST] Fetching request:', id);
+    const requestType = resolveRequestType(req);
+    console.log(`[${requestType}-REQUEST] Fetching request:`, id);
 
-    const request = await MembershipRequest.findOne({ _id: id, isDeleted: false })
+    const request = await MembershipRequest.findOne({
+      _id: id,
+      ...MembershipRequest.requestTypeFilter(requestType),
+      isDeleted: false,
+    })
       .populate('requestedPlanId')
       .populate('approvedPlanId')
       .populate('reviewedBy', 'name username')
@@ -448,6 +730,7 @@ export const approveMembershipRequest = async (req, res) => {
     console.log('[MEMBERSHIP-REQUEST-APPROVE] Step 1: Fetching request from database...');
     const request = await MembershipRequest.findOne({
       _id: id,
+      ...MembershipRequest.requestTypeFilter(resolveRequestType(req)),
       isDeleted: false,
     }).populate('existingUserId', 'name email phone');
 
@@ -481,6 +764,26 @@ export const approveMembershipRequest = async (req, res) => {
     if (!plan) {
       console.log('[MEMBERSHIP-REQUEST-APPROVE] ❌ Plan not found:', planId);
       return responseUtil.notFound(res, 'Membership plan not found');
+    }
+
+    // The approved plan must belong to the same queue as the request, so a Doer
+    // request can never be approved onto a lifetime membership plan.
+    // typeOf() is used on both sides because a plan or request created before
+    // these fields existed carries neither, and both are membership ones.
+    const planType = typeOf(plan.planType);
+    const queueType = typeOf(request.requestType);
+
+    if (planType !== queueType) {
+      console.log(
+        '[MEMBERSHIP-REQUEST-APPROVE] ❌ Plan type mismatch:',
+        planType,
+        'vs request',
+        queueType
+      );
+      return responseUtil.badRequest(
+        res,
+        `This is a ${LABELS[queueType].noun}. Select a ${LABELS[queueType].plan}.`
+      );
     }
 
     console.log('[MEMBERSHIP-REQUEST-APPROVE] ✓ Plan found:', plan.name);
@@ -804,6 +1107,7 @@ export const rejectMembershipRequest = async (req, res) => {
 
     const request = await MembershipRequest.findOne({
       _id: id,
+      ...MembershipRequest.requestTypeFilter(resolveRequestType(req)),
       isDeleted: false,
     });
 
@@ -853,6 +1157,7 @@ export const resendPaymentLink = async (req, res) => {
 
     const request = await MembershipRequest.findOne({
       _id: id,
+      ...MembershipRequest.requestTypeFilter(resolveRequestType(req)),
       isDeleted: false,
     })
       .populate('approvedPlanId')
@@ -963,6 +1268,7 @@ export const withdrawMembershipRequest = async (req, res) => {
     // Find the request
     const request = await MembershipRequest.findOne({
       _id: id,
+      ...MembershipRequest.requestTypeFilter(resolveRequestType(req)),
       phone: normalizedPhone,
       isDeleted: false,
     });
@@ -1003,7 +1309,7 @@ export const withdrawMembershipRequest = async (req, res) => {
  */
 export const getPendingCount = async (req, res) => {
   try {
-    const count = await MembershipRequest.getPendingCount();
+    const count = await MembershipRequest.getPendingCount(resolveRequestType(req));
     return responseUtil.success(res, 'Pending count fetched', { count });
   } catch (error) {
     console.error('[MEMBERSHIP-REQUEST] Error fetching pending count:', error.message);

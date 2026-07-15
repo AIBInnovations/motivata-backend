@@ -2204,6 +2204,23 @@ const confirmMembershipPayment = async (payment) => {
 
     console.log('[MEMBERSHIP-WEBHOOK] Membership payment confirmed');
 
+    // A Doer checkout writes a MembershipRequest in the DOER queue alongside the
+    // membership, so the admin panel can show who bought what. Close it out here.
+    // Plain in-app membership purchases have no such record — this is a no-op then.
+    const linkedRequest = await MembershipRequest.findOne({
+      orderId: payment.orderId,
+      isDeleted: false,
+    });
+    if (linkedRequest && linkedRequest.status !== 'COMPLETED') {
+      await linkedRequest.markCompleted(payment.paymentId, membership._id);
+      console.log(
+        '[MEMBERSHIP-WEBHOOK] Linked',
+        linkedRequest.requestType,
+        'request marked COMPLETED:',
+        linkedRequest._id
+      );
+    }
+
     const plan = await MembershipPlan.findById(membershipPlanId || membership.membershipPlanId);
     if (plan) {
       await plan.incrementPurchaseCount();

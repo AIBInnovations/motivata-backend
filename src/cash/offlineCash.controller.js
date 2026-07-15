@@ -14,7 +14,7 @@ import responseUtil from "../../utils/response.util.js";
 import { sendTicketWhatsApp, sendRedemptionLinkWhatsApp, sendBulkVoucherWhatsApp } from "../../utils/whatsapp.util.js";
 import { uploadQRCodeToCloudinary, generateVoucherQRCode, uploadVoucherQRCodeToCloudinary } from "../../utils/qrcode.util.js";
 import { generateTicketImage, uploadTicketImageToCloudinary } from "../../utils/ticketImage.util.js";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 const BASE_URL = process.env.BASE_URL || "https://motivata.synquic.com/api";
 

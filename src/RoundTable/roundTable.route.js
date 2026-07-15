@@ -6,6 +6,7 @@
 
 import express from 'express';
 import { validateBody, roundTableSchemas } from '../../middleware/validation.middleware.js';
+import { publicFormLimiter } from '../../middleware/rateLimit.middleware.js';
 import { submitRoundTableRequest } from './roundTable.controller.js';
 
 const router = express.Router();
@@ -21,6 +22,7 @@ const router = express.Router();
  */
 router.post(
   '/requests',
+  publicFormLimiter,
   validateBody(roundTableSchemas.submit),
   submitRoundTableRequest
 );

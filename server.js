@@ -15,9 +15,13 @@ const PORT = process.env.PORT || 3000;
 
 // Environment validation
 const validateEnvironment = () => {
+  // JWT_SECRET used to be listed here, but no code reads it — the signing keys
+  // are JWT_ACCESS_SECRET and JWT_REFRESH_SECRET. Checking the wrong name is why
+  // a missing signing key never failed the boot.
   const requiredEnvVars = [
     'MONGODB_URL',
-    'JWT_SECRET',
+    'JWT_ACCESS_SECRET',
+    'JWT_REFRESH_SECRET',
     'CLOUDINARY_CLOUD_NAME',
     'CLOUDINARY_API_KEY',
     'CLOUDINARY_API_SECRET'
