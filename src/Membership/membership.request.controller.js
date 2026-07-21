@@ -379,8 +379,13 @@ export const previewCoupon = async (req, res) => {
  */
 export const createDoerCheckout = async (req, res) => {
   try {
-    const { phone, name, planId, couponCode } = req.body;
+    const { phone, name, planId, couponCode, joinReason } = req.body;
     const normalizedPhone = normalizePhone(phone);
+    // Keep the applicant's note tidy and within the schema limit.
+    const cleanJoinReason =
+      typeof joinReason === 'string' && joinReason.trim()
+        ? joinReason.trim().slice(0, 800)
+        : null;
 
     console.log('[DOER-CHECKOUT] Starting for', normalizedPhone, 'plan', planId);
 
@@ -392,6 +397,9 @@ export const createDoerCheckout = async (req, res) => {
     }
     if (!planId) {
       return responseUtil.badRequest(res, 'Please select a plan.');
+    }
+    if (!cleanJoinReason) {
+      return responseUtil.badRequest(res, 'Please tell us why you want to join the community.');
     }
 
     // Step 1 — the plan must be a live Doer plan
@@ -504,6 +512,7 @@ export const createDoerCheckout = async (req, res) => {
       orderId: razorpayOrder.id,
       originalAmount,
       paymentAmount: finalAmount,
+      joinReason: cleanJoinReason,
       ...(coupon && {
         couponId: coupon._id,
         couponCode: coupon.code,

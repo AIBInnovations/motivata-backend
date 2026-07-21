@@ -119,6 +119,16 @@ const membershipRequestSchema = new mongoose.Schema(
     },
 
     /**
+     * Applicant's own note on why they want to join (Doer form, required, max
+     * ~100 words). Captured at checkout so the admin sees intent behind each buy.
+     */
+    joinReason: {
+      type: String,
+      maxlength: [800, 'Join reason cannot exceed 800 characters'],
+      default: null
+    },
+
+    /**
      * Alternative phone number for payment link notifications (transaction-specific)
      */
     alternativePhone: {
