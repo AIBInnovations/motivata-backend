@@ -319,6 +319,7 @@ export const eventSchemas = {
       }),
     joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional().default(false),
+    isBanner: Joi.boolean().optional().default(false),
     audience: Joi.string().valid("ALL", "MEMBERS_ONLY").optional().default("ALL"),
     category: Joi.string()
       .valid(
@@ -391,6 +392,7 @@ export const eventSchemas = {
       }),
     joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional(),
+    isBanner: Joi.boolean().optional(),
     audience: Joi.string().valid("ALL", "MEMBERS_ONLY").optional(),
     category: Joi.string()
       .valid(

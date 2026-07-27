@@ -127,6 +127,17 @@ const eventSchema = new mongoose.Schema(
     },
 
     /**
+     * Banner flag - the ONE event shown in the website's "Upcoming Session"
+     * banner. Only a single event may carry this at a time; setting it true on
+     * one event clears it on every other (enforced in the event controller).
+     */
+    isBanner: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    /**
      * Audience / access level for the event.
      * - ALL: open to everyone (default)
      * - MEMBERS_ONLY: only users with an active membership can book/access;
@@ -478,6 +489,18 @@ eventSchema.methods.updateEventStatus = function () {
   }
 
   return Promise.resolve(this);
+};
+
+/**
+ * Keep the banner unique: clear isBanner on every event except the given one.
+ * Call this whenever an event is set as the banner (create or update).
+ * @param {mongoose.Types.ObjectId|string} exceptId - the event that stays banner
+ */
+eventSchema.statics.clearOtherBanners = function (exceptId) {
+  return this.updateMany(
+    { _id: { $ne: exceptId }, isBanner: true },
+    { $set: { isBanner: false } }
+  );
 };
 
 /**

@@ -75,6 +75,11 @@ export const createEvent = async (req, res) => {
     const event = new Event(eventData);
     await event.save();
 
+    // Only one event may be the website banner — clear it off any other.
+    if (event.isBanner) {
+      await Event.clearOtherBanners(event._id);
+    }
+
     // Send push notification to all app users (non-blocking)
     sendNewEventNotification({
       eventId: event._id,
@@ -312,6 +317,11 @@ export const updateEvent = async (req, res) => {
       }
     ).populate('createdBy', 'name email')
      .populate('updatedBy', 'name email');
+
+    // Only one event may be the website banner — clear it off any other.
+    if (event && event.isBanner) {
+      await Event.clearOtherBanners(event._id);
+    }
 
     return responseUtil.success(res, 'Event updated successfully', { event });
   } catch (error) {
@@ -696,6 +706,65 @@ export const getFeaturedEvents = async (req, res) => {
 };
 
 /**
+ * Get the single website banner event ("Upcoming Session").
+ * Returns { event: <Event> | null }. Null lets the website fall back to its
+ * static banner copy.
+ */
+export const getBannerEvent = async (req, res) => {
+  try {
+    await Event.updateExpiredEvents();
+
+    const event = await Event.findOne({ isBanner: true, isLive: true })
+      .sort({ startDate: 1 })
+      .populate('createdBy', 'name email');
+
+    if (!event) {
+      return responseUtil.success(res, 'No banner event set', { event: null });
+    }
+
+    const viewerIsMember = await getViewerIsMember(req.user);
+    const withFlags = withAccessFlags(event.toObject(), viewerIsMember);
+
+    return responseUtil.success(res, 'Banner event fetched successfully', { event: withFlags });
+  } catch (error) {
+    console.error('Get banner event error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch banner event', error.message);
+  }
+};
+
+/**
+ * Get live events for the public website, soonest first. Unlike featured, this
+ * returns every currently-live event so the website can list them and top up
+ * with its static formats.
+ */
+export const getWebsiteEvents = async (req, res) => {
+  try {
+    await Event.updateExpiredEvents();
+
+    const { limit = 12 } = req.query;
+
+    const [events, savedSet, viewerIsMember] = await Promise.all([
+      Event.find({ isLive: true })
+        .sort({ startDate: 1 })
+        .limit(Number(limit))
+        .populate('createdBy', 'name email'),
+      getSavedSet(req.user?.id),
+      getViewerIsMember(req.user)
+    ]);
+
+    const eventsWithSaved = events.map((e) => withAccessFlags({
+      ...e.toObject(),
+      isSaved: savedSet.has(e._id.toString())
+    }, viewerIsMember));
+
+    return responseUtil.success(res, 'Website events fetched successfully', { events: eventsWithSaved });
+  } catch (error) {
+    console.error('Get website events error:', error);
+    return responseUtil.internalError(res, 'Failed to fetch website events', error.message);
+  }
+};
+
+/**
  * Get single event by ID for public website (no auth required)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -873,6 +942,8 @@ export default {
   getEventTicketStats,
   getEventsForDropdown,
   getFeaturedEvents,
+  getBannerEvent,
+  getWebsiteEvents,
   getWebEventById,
   saveEvent,
   unsaveEvent,

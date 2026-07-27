@@ -17,6 +17,8 @@ import {
   getEventTicketStats,
   getEventsForDropdown,
   getFeaturedEvents,
+  getBannerEvent,
+  getWebsiteEvents,
   getWebEventById
 } from './event.controller.js';
 import { authenticate, isAdmin, isSuperAdmin } from '../../middleware/auth.middleware.js';
@@ -41,6 +43,31 @@ router.get(
     limit: Joi.number().integer().min(1).max(50).default(10)
   })),
   getFeaturedEvents
+);
+
+/**
+ * @route   GET /api/web/events/website/banner
+ * @desc    Get the single "Upcoming Session" banner event for the website
+ * @access  Public
+ *
+ * MUST stay above GET /website/:id — otherwise "banner" is parsed as an id.
+ */
+router.get('/website/banner', getBannerEvent);
+
+/**
+ * @route   GET /api/web/events/website/list
+ * @desc    Get live events for the website grid (soonest first)
+ * @access  Public
+ * @query   {number} [limit=12]
+ *
+ * MUST stay above GET /website/:id.
+ */
+router.get(
+  '/website/list',
+  validateQuery(Joi.object({
+    limit: Joi.number().integer().min(1).max(50).default(12)
+  })),
+  getWebsiteEvents
 );
 
 /**
