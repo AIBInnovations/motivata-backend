@@ -16,6 +16,7 @@ import SessionBooking from '../../schema/SessionBooking.schema.js';
 import MembershipPlan from '../../schema/MembershipPlan.schema.js';
 import UserMembership from '../../schema/UserMembership.schema.js';
 import MembershipRequest from '../../schema/MembershipRequest.schema.js';
+import ReferralCode from '../../schema/ReferralCode.schema.js';
 import Service from '../../schema/Service.schema.js';
 import ServiceOrder from '../../schema/ServiceOrder.schema.js';
 import UserServiceSubscription from '../../schema/UserServiceSubscription.schema.js';
@@ -2155,6 +2156,77 @@ const handleSessionRefund = async (payment) => {
 };
 
 /**
+ * Count one use against a student referral code, now that the money has cleared.
+ *
+ * This is the ONLY place usedCount goes up. Validation at checkout is
+ * deliberately read-only, so a student who merely checks a code — or abandons
+ * the payment — never burns one of its uses.
+ *
+ * Idempotent in practice: the callers bail out before reaching here when a
+ * payment is already marked SUCCESS, so a retried webhook won't double count.
+ *
+ * @param {Object} payment - Payment document from database
+ * @returns {Promise<void>}
+ * @private
+ */
+const consumeReferralCode = async (payment) => {
+  const referralCodeId = payment.metadata?.referralCodeId;
+
+  if (!referralCodeId) {
+    return;
+  }
+
+  try {
+    const updated = await ReferralCode.consume(referralCodeId);
+
+    if (updated) {
+      console.log('[REFERRAL-WEBHOOK] Use counted:', {
+        code: updated.code,
+        usedCount: updated.usedCount,
+        maxUses: updated.maxUses ?? 'Unlimited',
+      });
+    } else {
+      // The code ran out or was deleted between checkout and payment. The
+      // membership is paid for and stays valid — this is only a reporting gap.
+      console.warn(
+        '[REFERRAL-WEBHOOK] Could not count use (exhausted or removed):',
+        referralCodeId
+      );
+    }
+  } catch (error) {
+    console.error('[REFERRAL-WEBHOOK] Error counting referral use:', error.message);
+  }
+};
+
+/**
+ * Give a referral use back after a refund, so the code is not silently burned.
+ *
+ * @param {Object} payment - Payment document from database
+ * @returns {Promise<void>}
+ * @private
+ */
+const releaseReferralCode = async (payment) => {
+  const referralCodeId = payment.metadata?.referralCodeId;
+
+  if (!referralCodeId) {
+    return;
+  }
+
+  try {
+    const updated = await ReferralCode.release(referralCodeId);
+
+    if (updated) {
+      console.log('[REFERRAL-REFUND] Use returned:', {
+        code: updated.code,
+        usedCount: updated.usedCount,
+      });
+    }
+  } catch (error) {
+    console.error('[REFERRAL-REFUND] Error returning referral use:', error.message);
+  }
+};
+
+/**
  * Confirm membership payment and activate membership
  * Updates UserMembership status and increments plan purchase count
  *
@@ -2226,6 +2298,9 @@ const confirmMembershipPayment = async (payment) => {
       await plan.incrementPurchaseCount();
       console.log('[MEMBERSHIP-WEBHOOK] Plan purchase count incremented');
     }
+
+    // Student referral: money has cleared, so the use is now real.
+    await consumeReferralCode(payment);
 
     // Increment coupon usage if coupon was used
     if (payment.couponCode) {
@@ -2348,6 +2423,9 @@ const handleMembershipRefund = async (payment) => {
       await plan.decrementPurchaseCount();
       console.log('[MEMBERSHIP-REFUND] Plan purchase count decremented');
     }
+
+    // Give the student's referral use back — the sale was reversed.
+    await releaseReferralCode(payment);
 
     // Decrement coupon usage if coupon was used
     if (payment.couponCode) {
@@ -2488,6 +2566,10 @@ const confirmMembershipRequestPayment = async (payment) => {
       status: 'ACTIVE',
       paymentStatus: 'SUCCESS',
       paymentId: payment.paymentId,
+      // Carry the student's verified college onto the membership, so college
+      // reports read straight off memberships.
+      referralCodeId: request.referralCodeId || null,
+      collegeId: request.collegeId || null,
       planSnapshot: {
         name: plan.name,
         description: plan.description,
@@ -2509,6 +2591,9 @@ const confirmMembershipRequestPayment = async (payment) => {
     // Update MembershipRequest to COMPLETED
     await request.markCompleted(payment.paymentId, userMembership._id);
     console.log('[MEMBERSHIP-REQUEST-WEBHOOK] MembershipRequest marked as COMPLETED');
+
+    // Student referral: money has cleared, so the use is now real.
+    await consumeReferralCode(payment);
 
     console.log('[MEMBERSHIP-REQUEST-WEBHOOK] ========== CONFIRM MEMBERSHIP REQUEST PAYMENT END ==========');
   } catch (error) {

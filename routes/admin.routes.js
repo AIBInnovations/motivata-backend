@@ -35,6 +35,8 @@ import roundTableAdminRoutes from "../src/RoundTable/roundTable.admin.route.js";
 import adminConnectPostRoutes from "../src/Connect/post.admin.route.js";
 import adminJobRoutes from "../src/Job/job.admin.route.js";
 import adminRecommendationRoutes from "../src/Recommendation/recommendation.admin.route.js";
+import adminCollegeRoutes from "../src/Referral/college.admin.route.js";
+import referralCodeRoutes from "../src/Referral/referralCode.route.js";
 
 const router = express.Router();
 
@@ -117,6 +119,13 @@ router.use("/membership-requests", membershipRequestRoutes);
 // Same controller as membership-requests, pinned to the DOER queue.
 // IMPORTANT: Must come BEFORE adminMembershipRoutes to avoid auth middleware
 router.use("/doer-requests", doerRequestRoutes);
+
+// College routes - /api/web/colleges (admin only)
+router.use("/colleges", adminCollegeRoutes);
+
+// Referral code routes - /api/web/referral-codes (public validate + admin CRUD)
+// IMPORTANT: Must come BEFORE root-mounted routes to avoid auth middleware
+router.use("/referral-codes", referralCodeRoutes);
 
 // Feature Access routes - /api/web/feature-access (includes public check endpoint)
 // IMPORTANT: Must come BEFORE root-mounted routes to avoid auth middleware

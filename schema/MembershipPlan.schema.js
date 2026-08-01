@@ -103,6 +103,17 @@ const membershipPlanSchema = new mongoose.Schema(
       default: true
     },
 
+    /**
+     * Student plans require a college referral code at checkout — it verifies
+     * the buyer really is a student. This is a flag, not a name match, so both
+     * student plans (DOER ₹999 and MEMBERSHIP ₹2000) are handled identically.
+     * Referral is verification only; it never changes the price.
+     */
+    requiresReferral: {
+      type: Boolean,
+      default: false
+    },
+
     // Availability
     maxPurchases: {
       type: Number,

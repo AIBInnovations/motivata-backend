@@ -44,6 +44,7 @@ export const createMembershipPlan = async (req, res) => {
       displayOrder,
       isFeatured,
       isActive,
+      requiresReferral,
       maxPurchases,
     } = req.body;
 
@@ -61,6 +62,7 @@ export const createMembershipPlan = async (req, res) => {
       displayOrder,
       isFeatured,
       isActive,
+      requiresReferral,
       maxPurchases,
       createdBy: userId,
     });
@@ -260,6 +262,7 @@ export const updateMembershipPlan = async (req, res) => {
       "displayOrder",
       "isFeatured",
       "isActive",
+      "requiresReferral",
       "maxPurchases",
     ];
 

@@ -10,6 +10,7 @@ import MembershipPlan from '../../schema/MembershipPlan.schema.js';
 import UserMembership from '../../schema/UserMembership.schema.js';
 import Payment from '../../schema/Payment.schema.js';
 import User from '../../schema/User.schema.js';
+import ReferralCode from '../../schema/ReferralCode.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { razorpayInstance } from '../../utils/razorpay.util.js';
 import { sendPaymentLinkNotifications } from '../../utils/notification.util.js';
@@ -42,6 +43,47 @@ const LABELS = {
 };
 
 /**
+ * Enforce the student referral gate for a plan.
+ *
+ * Student plans carry `requiresReferral`, so a college code is compulsory on
+ * them and optional-but-still-validated nowhere else: a plan that does not ask
+ * for a referral simply ignores any code that was sent, which keeps every
+ * existing non-student checkout working untouched.
+ *
+ * Read-only. The use is counted on payment success in the webhook, so an
+ * abandoned checkout never burns one.
+ *
+ * @param {object} plan - MembershipPlan document
+ * @param {string} [code] - referral code as typed by the user
+ * @returns {Promise<{ok: true, tag: object}|{ok: false, error: string}>}
+ *   `tag` holds the fields to persist, and is empty when no referral applies.
+ */
+const enforceReferralGate = async (plan, code) => {
+  if (!plan?.requiresReferral) {
+    return { ok: true, tag: {} };
+  }
+
+  if (!code || !String(code).trim()) {
+    return { ok: false, error: 'A referral code is required for this plan.' };
+  }
+
+  const result = await ReferralCode.validateCode(code);
+
+  if (!result.isValid) {
+    return { ok: false, error: result.error };
+  }
+
+  return {
+    ok: true,
+    tag: {
+      referralCodeId: result.referral._id,
+      collegeId: result.college._id,
+      referralCode: result.referral.code,
+    },
+  };
+};
+
+/**
  * PUBLIC ENDPOINTS
  */
 
@@ -51,7 +93,7 @@ const LABELS = {
  */
 export const submitMembershipRequest = async (req, res) => {
   try {
-    const { phone, name, requestedPlanId, couponCode } = req.body;
+    const { phone, name, requestedPlanId, couponCode, referralCode } = req.body;
     const requestType = resolveRequestType(req);
     const label = LABELS[requestType];
 
@@ -175,6 +217,15 @@ export const submitMembershipRequest = async (req, res) => {
       }
     }
 
+    // Student plans are gated on a college referral code. This runs before any
+    // pricing work so an unverified student never reaches a payment.
+    const referralGate = await enforceReferralGate(requestedPlan, referralCode);
+    if (!referralGate.ok) {
+      console.log(`[${requestType}-REQUEST] Referral rejected:`, referralGate.error);
+      return responseUtil.badRequest(res, referralGate.error);
+    }
+    const referralTag = referralGate.tag;
+
     // Validate coupon if provided (requires a plan to be selected)
     let couponInfo = null;
     if (couponCode) {
@@ -229,6 +280,8 @@ export const submitMembershipRequest = async (req, res) => {
       requestedPlanId: requestedPlan?._id || null,
       existingUserId: existingUser?._id || null,
       status: 'PENDING',
+      // Verified student referral, when the plan required one
+      ...referralTag,
       // Store user's requested coupon (admin can override during approval)
       ...(couponInfo && {
         couponId: couponInfo.couponId,
@@ -303,6 +356,8 @@ export const getPlansForRequestForm = async (req, res) => {
       perks: plan.perks,
       isFeatured: plan.isFeatured,
       isAvailable: plan.isAvailable,
+      // Drives the compulsory referral field on the form. Student plans only.
+      requiresReferral: !!plan.requiresReferral,
     }));
 
     return responseUtil.success(res, 'Plans fetched successfully', {
@@ -379,7 +434,7 @@ export const previewCoupon = async (req, res) => {
  */
 export const createDoerCheckout = async (req, res) => {
   try {
-    const { phone, name, planId, couponCode, joinReason } = req.body;
+    const { phone, name, planId, couponCode, joinReason, referralCode } = req.body;
     const normalizedPhone = normalizePhone(phone);
     // Keep the applicant's note tidy and within the schema limit.
     const cleanJoinReason =
@@ -428,7 +483,16 @@ export const createDoerCheckout = async (req, res) => {
       );
     }
 
-    // Step 3 — price it, applying the coupon if one was given
+    // Step 3 — student plans need a valid college referral code before we take
+    // any money. Verification only: it never changes the price below.
+    const referralGate = await enforceReferralGate(plan, referralCode);
+    if (!referralGate.ok) {
+      console.log('[DOER-CHECKOUT] Referral rejected:', referralGate.error);
+      return responseUtil.badRequest(res, referralGate.error);
+    }
+    const referralTag = referralGate.tag;
+
+    // Step 4 — price it, applying the coupon if one was given
     const originalAmount = plan.price;
     let discountAmount = 0;
     let finalAmount = originalAmount;
@@ -449,7 +513,7 @@ export const createDoerCheckout = async (req, res) => {
       finalAmount = validation.finalAmount;
     }
 
-    // Step 4 — Razorpay order. This is a checkout, not a payment link: the user
+    // Step 5 — Razorpay order. This is a checkout, not a payment link: the user
     // pays on the site instead of waiting for WhatsApp.
     const razorpayOrder = await razorpayInstance.orders.create({
       amount: Math.round(finalAmount * 100),
@@ -461,6 +525,7 @@ export const createDoerCheckout = async (req, res) => {
         phone: normalizedPhone,
         membershipPlanId: plan._id.toString(),
         couponCode: coupon?.code || '',
+        referralCode: referralTag.referralCode || '',
       },
     });
 
@@ -469,7 +534,7 @@ export const createDoerCheckout = async (req, res) => {
       isDeleted: false,
     });
 
-    // Step 5 — the membership, pending until the webhook confirms the money
+    // Step 6 — the membership, pending until the webhook confirms the money
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + (plan.durationInDays || 365));
@@ -485,6 +550,9 @@ export const createDoerCheckout = async (req, res) => {
       endDate,
       status: 'ACTIVE',
       paymentStatus: 'PENDING',
+      // Tagged here too, so college reports run straight off memberships
+      referralCodeId: referralTag.referralCodeId || null,
+      collegeId: referralTag.collegeId || null,
       planSnapshot: {
         name: plan.name,
         description: plan.description,
@@ -497,10 +565,11 @@ export const createDoerCheckout = async (req, res) => {
         couponCode: coupon?.code || null,
         originalAmount,
         discountAmount,
+        referralCode: referralTag.referralCode || null,
       },
     });
 
-    // Step 6 — the admin's record of this purchase, in the Doer queue
+    // Step 7 — the admin's record of this purchase, in the Doer queue
     const request = await MembershipRequest.create({
       phone: normalizedPhone,
       name: name.trim(),
@@ -513,6 +582,7 @@ export const createDoerCheckout = async (req, res) => {
       originalAmount,
       paymentAmount: finalAmount,
       joinReason: cleanJoinReason,
+      ...referralTag,
       ...(coupon && {
         couponId: coupon._id,
         couponCode: coupon.code,
@@ -521,7 +591,7 @@ export const createDoerCheckout = async (req, res) => {
       }),
     });
 
-    // Step 7 — the Payment the webhook will look up by orderId
+    // Step 8 — the Payment the webhook will look up by orderId
     await Payment.create({
       type: 'MEMBERSHIP',
       orderId: razorpayOrder.id,
@@ -539,6 +609,8 @@ export const createDoerCheckout = async (req, res) => {
         membershipRequestId: request._id.toString(),
         planName: plan.name,
         durationInDays: plan.durationInDays,
+        // The webhook counts the referral use off this on payment success
+        referralCodeId: referralTag.referralCodeId?.toString() || null,
       },
     });
 
@@ -610,7 +682,13 @@ export const getAllMembershipRequests = async (req, res) => {
         .populate('approvedPlanId', 'name price durationInDays')
         .populate('reviewedBy', 'name username')
         .populate('existingUserId', 'name email phone enrollments')
-        .populate('userMembershipId')
+        .populate({
+          path: 'userMembershipId',
+          populate: [
+            { path: 'referralCodeId', select: 'code' },
+            { path: 'collegeId', select: 'name city' },
+          ],
+        })
         .populate('couponId', 'code discountPercent maxDiscountAmount'),
       MembershipRequest.countDocuments(query),
     ]);
@@ -677,7 +755,13 @@ export const getMembershipRequestById = async (req, res) => {
       .populate('approvedPlanId')
       .populate('reviewedBy', 'name username')
       .populate('existingUserId', 'name email phone enrollments createdAt')
-      .populate('userMembershipId')
+      .populate({
+        path: 'userMembershipId',
+        populate: [
+          { path: 'referralCodeId', select: 'code' },
+          { path: 'collegeId', select: 'name city' },
+        ],
+      })
       .populate('couponId', 'code discountPercent maxDiscountAmount');
 
     if (!request) {
@@ -965,6 +1049,9 @@ export const approveMembershipRequest = async (req, res) => {
         paymentLinkId: paymentLink.id,
         source: 'MEMBERSHIP_REQUEST',
         couponId: appliedCouponId?.toString() || null,
+        // Carried from the request so the webhook can count the referral use
+        // once this link is actually paid.
+        referralCodeId: request.referralCodeId?.toString() || null,
       },
     });
 
