@@ -142,6 +142,23 @@ const userMembershipSchema = new mongoose.Schema(
       maxlength: [1000, 'Admin notes cannot exceed 1000 characters']
     },
 
+    // Student verification — set only when the plan required a college referral
+    // code. Tagged here so "how many students from college X" is one query on
+    // memberships, without walking back through the request.
+    referralCodeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ReferralCode',
+      default: null,
+      index: true
+    },
+
+    collegeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'College',
+      default: null,
+      index: true
+    },
+
     // Metadata for additional info
     metadata: {
       type: Map,
