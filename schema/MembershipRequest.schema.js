@@ -234,6 +234,39 @@ const membershipRequestSchema = new mongoose.Schema(
     },
 
     /**
+     * Referral code used to verify this buyer is a student of a college.
+     * Only set for plans with `requiresReferral`. Carries no discount — it
+     * exists so the admin can report how many students came from each college.
+     */
+    referralCodeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ReferralCode',
+      default: null,
+      index: true
+    },
+
+    /**
+     * The college behind that referral code, denormalised so college reports
+     * don't need to join through ReferralCode.
+     */
+    collegeId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'College',
+      default: null,
+      index: true
+    },
+
+    /**
+     * Referral code as typed, kept for reference even if the code is deleted.
+     */
+    referralCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: null
+    },
+
+    /**
      * Razorpay payment link ID
      */
     paymentLinkId: {

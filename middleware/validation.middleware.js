@@ -1753,6 +1753,7 @@ export const membershipPlanSchemas = {
     displayOrder: Joi.number().integer().min(0).optional().default(0),
     isFeatured: Joi.boolean().optional().default(false),
     isActive: Joi.boolean().optional().default(true),
+    requiresReferral: Joi.boolean().optional().default(false),
     maxPurchases: Joi.number().integer().min(0).optional().allow(null),
   }),
 
@@ -1790,6 +1791,7 @@ export const membershipPlanSchemas = {
     displayOrder: Joi.number().integer().min(0).optional(),
     isFeatured: Joi.boolean().optional(),
     isActive: Joi.boolean().optional(),
+    requiresReferral: Joi.boolean().optional(),
     maxPurchases: Joi.number().integer().min(0).optional().allow(null),
   }),
 
@@ -2457,6 +2459,9 @@ export const membershipRequestSchemas = {
     couponCode: Joi.string().trim().uppercase().max(50).optional().messages({
       "string.max": "Coupon code cannot exceed 50 characters",
     }),
+    referralCode: Joi.string().trim().uppercase().max(50).optional().messages({
+      "string.max": "Referral code cannot exceed 50 characters",
+    }),
   }),
 
   /**
@@ -2642,6 +2647,114 @@ export const roundTableSchemas = {
   }),
 };
 
+/**
+ * College validation schemas
+ */
+export const collegeSchemas = {
+  create: Joi.object({
+    name: Joi.string().trim().max(200).required().messages({
+      "string.empty": "College name is required",
+      "any.required": "College name is required",
+      "string.max": "College name cannot exceed 200 characters",
+    }),
+    city: Joi.string().trim().max(100).required().messages({
+      "string.empty": "City is required",
+      "any.required": "City is required",
+      "string.max": "City cannot exceed 100 characters",
+    }),
+    isActive: Joi.boolean().optional().default(true),
+  }),
+
+  update: Joi.object({
+    name: Joi.string().trim().max(200).optional(),
+    city: Joi.string().trim().max(100).optional(),
+    isActive: Joi.boolean().optional(),
+  }),
+
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string().valid("name", "city", "createdAt").default("name"),
+    sortOrder: Joi.string().valid("asc", "desc").default("asc"),
+    isActive: Joi.boolean().optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  collegeId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+};
+
+/**
+ * Referral code validation schemas
+ *
+ * A referral code verifies a student belongs to a college. It carries no
+ * discount, so there is no percent/amount here — only how many times it may be
+ * used in total and when it stops working.
+ */
+export const referralCodeSchemas = {
+  create: Joi.object({
+    collegeId: schemas.mongoId.required().messages({
+      "any.required": "College is required",
+    }),
+    code: Joi.string().trim().uppercase().min(3).max(50).required().messages({
+      "string.empty": "Referral code is required",
+      "any.required": "Referral code is required",
+      "string.min": "Referral code must be at least 3 characters",
+      "string.max": "Referral code cannot exceed 50 characters",
+    }),
+    // null = unlimited uses
+    maxUses: Joi.number().integer().min(1).optional().allow(null).messages({
+      "number.min": "Max uses must be at least 1",
+    }),
+    // Full timestamp so an expiry can be hours away, not just days. null = never.
+    expiresAt: Joi.date().iso().greater("now").optional().allow(null).messages({
+      "date.greater": "Expiry must be in the future",
+    }),
+    description: Joi.string().trim().max(500).optional().allow(""),
+    isActive: Joi.boolean().optional().default(true),
+  }),
+
+  update: Joi.object({
+    collegeId: schemas.mongoId.optional(),
+    code: Joi.string().trim().uppercase().min(3).max(50).optional(),
+    maxUses: Joi.number().integer().min(1).optional().allow(null),
+    // No greater('now') on update: an admin editing an already-expired code
+    // should not be forced to change its expiry date to save other fields.
+    expiresAt: Joi.date().iso().optional().allow(null),
+    description: Joi.string().trim().max(500).optional().allow(""),
+    isActive: Joi.boolean().optional(),
+  }),
+
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string()
+      .valid("code", "usedCount", "expiresAt", "createdAt")
+      .default("createdAt"),
+    sortOrder: Joi.string().valid("asc", "desc").default("desc"),
+    isActive: Joi.boolean().optional(),
+    collegeId: schemas.mongoId.optional(),
+    search: Joi.string().trim().optional(),
+  }),
+
+  referralCodeId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Public pre-payment check. planId is required so the endpoint can confirm
+   * the plan actually needs a referral before saying "verified".
+   */
+  validate: Joi.object({
+    referralCode: Joi.string().trim().uppercase().min(3).max(50).required().messages({
+      "string.empty": "Referral code is required",
+      "any.required": "Referral code is required",
+    }),
+    planId: schemas.mongoId.optional(),
+  }),
+};
+
 export default {
   validateBody,
   validateParams,
@@ -2670,4 +2783,6 @@ export default {
   userServiceSubscriptionSchemas,
   motivataBlendSchemas,
   roundTableSchemas,
+  collegeSchemas,
+  referralCodeSchemas,
 };
