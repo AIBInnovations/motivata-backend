@@ -32,6 +32,8 @@ import motivataBlendRoutes from "../src/MotivataBlend/motivataBlend.route.js";
 import roundTableRoutes from "../src/RoundTable/roundTable.route.js";
 import motivataBlendAdminRoutes from "../src/MotivataBlend/motivataBlend.admin.route.js";
 import roundTableAdminRoutes from "../src/RoundTable/roundTable.admin.route.js";
+import eventRequestRoutes from "../src/EventRequest/eventRequest.route.js";
+import eventRequestAdminRoutes from "../src/EventRequest/eventRequest.admin.route.js";
 import adminConnectPostRoutes from "../src/Connect/post.admin.route.js";
 import adminJobRoutes from "../src/Job/job.admin.route.js";
 import adminRecommendationRoutes from "../src/Recommendation/recommendation.admin.route.js";
@@ -151,6 +153,13 @@ router.use("/round-table", roundTableRoutes);
 
 // Round Table admin routes - /api/web/round-table/admin (admin only)
 router.use("/round-table/admin", roundTableAdminRoutes);
+
+// Event Request routes - /api/web/event-requests (public submit)
+// IMPORTANT: Public endpoint - no auth middleware on the public route file
+router.use("/event-requests", eventRequestRoutes);
+
+// Event Request admin routes - /api/web/event-requests/admin (admin only)
+router.use("/event-requests/admin", eventRequestAdminRoutes);
 
 // Membership routes - /api/web/membership-plans and /api/web/user-memberships
 router.use("/", adminMembershipRoutes);
