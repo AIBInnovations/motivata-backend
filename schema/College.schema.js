@@ -24,6 +24,16 @@ const collegeSchema = new mongoose.Schema(
       maxlength: [100, 'City cannot exceed 100 characters']
     },
 
+    // 'college' = student organisation, 'leader' = individual ambassador who
+    // distributes codes without a college. Same table, same referral logic; the
+    // admin UI uses this flag to render Colleges and Leaders as separate pages.
+    kind: {
+      type: String,
+      enum: ['college', 'leader'],
+      default: 'college',
+      index: true
+    },
+
     isActive: {
       type: Boolean,
       default: true
@@ -66,8 +76,10 @@ const collegeSchema = new mongoose.Schema(
 // The same college name can exist in two cities, so neither field is unique on
 // its own — the pair is. Partial filter keeps soft-deleted rows out of the way,
 // so a deleted college's name can be reused.
+// kind included so a college and a leader can share the same name — they are
+// different entities even if labelled the same in the admin panel.
 collegeSchema.index(
-  { name: 1, city: 1 },
+  { name: 1, city: 1, kind: 1 },
   { unique: true, partialFilterExpression: { isDeleted: false } }
 );
 collegeSchema.index({ isDeleted: 1, isActive: 1 });

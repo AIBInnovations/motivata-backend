@@ -50,6 +50,7 @@ const corsOptions = {
       : [
           "https://mediumpurple-dotterel-484503.hostingersite.com",
           "https://motivata.in",
+          "https://www.motivata.in",
           "https://lightslategrey-baboon-874891.hostingersite.com",
           "https://motivata.synquic.com",
         ];
