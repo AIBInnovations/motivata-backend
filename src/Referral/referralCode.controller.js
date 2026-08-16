@@ -37,7 +37,7 @@ export const createReferralCode = async (req, res) => {
     });
 
     await referralCode.save();
-    await referralCode.populate('collegeId', 'name city isActive');
+    await referralCode.populate('collegeId', 'name city isActive kind');
 
     console.log('[REFERRAL] Created:', referralCode.code, 'for', college.name);
 
@@ -102,7 +102,7 @@ export const getAllReferralCodes = async (req, res) => {
         .sort(sort)
         .skip(skip)
         .limit(Number(limit))
-        .populate('collegeId', 'name city isActive'),
+        .populate('collegeId', 'name city isActive kind'),
       ReferralCode.countDocuments(query),
     ]);
 
@@ -134,7 +134,7 @@ export const getReferralCodeById = async (req, res) => {
     const referralCode = await ReferralCode.findOne({
       _id: req.params.id,
       isDeleted: false,
-    }).populate('collegeId', 'name city isActive');
+    }).populate('collegeId', 'name city isActive kind');
 
     if (!referralCode) {
       return responseUtil.notFound(res, 'Referral code not found');
@@ -183,7 +183,7 @@ export const updateReferralCode = async (req, res) => {
       req.params.id,
       { ...req.body, updatedBy: req.user?._id || req.user?.id },
       { new: true, runValidators: true }
-    ).populate('collegeId', 'name city isActive');
+    ).populate('collegeId', 'name city isActive kind');
 
     console.log('[REFERRAL] Updated:', referralCode.code);
 

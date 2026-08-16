@@ -54,12 +54,16 @@ export const createCollege = async (req, res) => {
  */
 export const getAllColleges = async (req, res) => {
   try {
-    const { page = 1, limit = 20, sortBy = 'name', sortOrder = 'asc', isActive, search } = req.query;
+    const { page = 1, limit = 20, sortBy = 'name', sortOrder = 'asc', isActive, kind, search } = req.query;
 
     const query = { isDeleted: false };
 
     if (typeof isActive !== 'undefined') {
       query.isActive = isActive;
+    }
+
+    if (kind) {
+      query.kind = kind;
     }
 
     if (search) {
@@ -206,6 +210,8 @@ export const deleteCollege = async (req, res) => {
  */
 export const getCollegeReport = async (req, res) => {
   try {
+    const { kind } = req.query;
+
     const rows = await UserMembership.aggregate([
       {
         $match: {
@@ -231,12 +237,16 @@ export const getCollegeReport = async (req, res) => {
         },
       },
       { $unwind: '$college' },
+      // Filter after the lookup so kind lives on the college doc, not the
+      // membership. Omit kind → both colleges and leaders combined.
+      ...(kind ? [{ $match: { 'college.kind': kind } }] : []),
       {
         $project: {
           _id: 0,
           collegeId: '$_id',
           collegeName: '$college.name',
           city: '$college.city',
+          kind: '$college.kind',
           isActive: '$college.isActive',
           studentCount: 1,
           totalRevenue: 1,

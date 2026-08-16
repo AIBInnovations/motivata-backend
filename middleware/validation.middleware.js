@@ -2648,6 +2648,59 @@ export const roundTableSchemas = {
 };
 
 /**
+ * Event Request validation schemas (invite-only event registration)
+ */
+export const eventRequestSchemas = {
+  /**
+   * Submit Event invite request (public form)
+   */
+  submit: Joi.object({
+    phone: schemas.phone.required(),
+    name: schemas.name.required(),
+    email: schemas.email.required(),
+    eventId: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Query parameters for listing requests
+   */
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    sortBy: Joi.string().valid('submittedAt', 'status', 'name').default('submittedAt'),
+    sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+    status: Joi.string().valid('PENDING', 'APPROVED', 'REJECTED').optional(),
+    search: Joi.string().trim().optional(),
+    eventId: schemas.mongoId.optional(),
+  }),
+
+  /**
+   * Request ID parameter validation
+   */
+  requestId: Joi.object({
+    id: schemas.mongoId.required(),
+  }),
+
+  /**
+   * Approve request
+   */
+  approve: Joi.object({
+    notes: Joi.string().trim().max(1000).optional(),
+  }),
+
+  /**
+   * Reject request
+   */
+  reject: Joi.object({
+    notes: Joi.string().trim().min(1).max(1000).required().messages({
+      'string.empty': 'Rejection notes are required',
+      'any.required': 'Rejection notes are required',
+      'string.max': 'Rejection notes cannot exceed 1000 characters',
+    }),
+  }),
+};
+
+/**
  * College validation schemas
  */
 export const collegeSchemas = {
@@ -2662,12 +2715,14 @@ export const collegeSchemas = {
       "any.required": "City is required",
       "string.max": "City cannot exceed 100 characters",
     }),
+    kind: Joi.string().valid("college", "leader").optional().default("college"),
     isActive: Joi.boolean().optional().default(true),
   }),
 
   update: Joi.object({
     name: Joi.string().trim().max(200).optional(),
     city: Joi.string().trim().max(100).optional(),
+    kind: Joi.string().valid("college", "leader").optional(),
     isActive: Joi.boolean().optional(),
   }),
 
@@ -2677,6 +2732,7 @@ export const collegeSchemas = {
     sortBy: Joi.string().valid("name", "city", "createdAt").default("name"),
     sortOrder: Joi.string().valid("asc", "desc").default("asc"),
     isActive: Joi.boolean().optional(),
+    kind: Joi.string().valid("college", "leader").optional(),
     search: Joi.string().trim().optional(),
   }),
 
@@ -2783,6 +2839,7 @@ export default {
   userServiceSubscriptionSchemas,
   motivataBlendSchemas,
   roundTableSchemas,
+  eventRequestSchemas,
   collegeSchemas,
   referralCodeSchemas,
 };
