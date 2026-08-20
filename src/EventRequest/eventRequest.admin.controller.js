@@ -63,7 +63,7 @@ export const getAllEventRequests = async (req, res) => {
         .skip(skip)
         .limit(parseInt(limit))
         .populate('reviewedBy', 'name email')
-        .populate('eventId', 'title startDate'),
+        .populate('eventId', 'name startDate'),
       EventRequest.countDocuments(query)
     ]);
 
@@ -108,7 +108,7 @@ export const getEventRequestById = async (req, res) => {
       isDeleted: false
     })
       .populate('reviewedBy', 'name email')
-      .populate('eventId', 'title startDate');
+      .populate('eventId', 'name startDate');
 
     if (!request) {
       return responseUtil.notFound(res, 'Event invite request not found');
@@ -169,7 +169,7 @@ export const approveEventRequest = async (req, res) => {
 
     // Populate for response
     await request.populate('reviewedBy', 'name email');
-    await request.populate('eventId', 'title startDate');
+    await request.populate('eventId', 'name startDate');
 
     console.log('[EVENT-REQUEST-ADMIN] Request approved successfully');
 
@@ -231,7 +231,7 @@ export const rejectEventRequest = async (req, res) => {
 
     // Populate for response
     await request.populate('reviewedBy', 'name email');
-    await request.populate('eventId', 'title startDate');
+    await request.populate('eventId', 'name startDate');
 
     console.log('[EVENT-REQUEST-ADMIN] Request rejected successfully');
 
@@ -333,7 +333,7 @@ export const getEventRequestStats = async (req, res) => {
           $project: {
             _id: 0,
             eventId: '$_id',
-            eventTitle: { $arrayElemAt: ['$event.title', 0] },
+            eventTitle: { $arrayElemAt: ['$event.name', 0] },
             totalCount: 1,
             pendingCount: 1,
             approvedCount: 1,
