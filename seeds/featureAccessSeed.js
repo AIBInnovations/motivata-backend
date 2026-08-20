@@ -1,6 +1,6 @@
 /**
  * @fileoverview Seed data for feature access settings
- * Initializes the 3 main features: SOS, CONNECT, CHALLENGE
+ * Initializes the 3 main features:===== SOS, CONNECT, CHALLENGE
  * @module seeds/featureAccessSeed
  */
 
