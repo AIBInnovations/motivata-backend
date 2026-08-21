@@ -44,12 +44,13 @@ export const submitEventRequest = async (req, res) => {
       );
     }
 
-    // Validate email
+    // Validate email (optional — must be valid when provided)
     const emailRegex = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
-    if (!email || !emailRegex.test(email)) {
+    const normalizedEmail = email ? String(email).toLowerCase().trim() : null;
+    if (normalizedEmail && !emailRegex.test(normalizedEmail)) {
       return responseUtil.badRequest(
         res,
-        'Valid email address is required.'
+        'Please provide a valid email address.'
       );
     }
 
@@ -70,7 +71,7 @@ export const submitEventRequest = async (req, res) => {
     // Check for duplicate request within 7 days for this event
     const duplicateRequest = await EventRequest.checkDuplicateRequest(
       normalizedPhone,
-      email.toLowerCase(),
+      normalizedEmail,
       eventId
     );
 
@@ -96,7 +97,7 @@ export const submitEventRequest = async (req, res) => {
       eventId,
       phone: normalizedPhone,
       name: name.trim(),
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       submittedAt: new Date()
     });
 
