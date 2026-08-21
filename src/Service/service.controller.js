@@ -1750,7 +1750,7 @@ export const createServiceRequest = async (req, res) => {
     const serviceRequest = new ServiceRequest({
       phone: normalizedPhone,
       name: name || user?.name,
-      email: email || user?.email,
+      email,
       services: services.map((s) => ({
         serviceId: s._id,
         serviceName: s.name,

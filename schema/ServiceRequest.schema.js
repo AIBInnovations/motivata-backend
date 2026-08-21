@@ -24,10 +24,11 @@ const serviceRequestSchema = new mongoose.Schema(
       maxlength: 100,
     },
     /**
-     * Email of the requester (optional)
+     * Email of the requester
      */
     email: {
       type: String,
+      required: true,
       trim: true,
       lowercase: true,
     },
