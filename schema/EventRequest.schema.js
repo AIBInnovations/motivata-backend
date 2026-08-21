@@ -56,16 +56,17 @@ const eventRequestSchema = new mongoose.Schema(
     },
 
     /**
-     * User's email address
+     * User's email address (optional — validated only when provided)
      */
     email: {
       type: String,
-      required: [true, 'Email is required'],
+      default: null,
       trim: true,
       lowercase: true,
       index: true,
       validate: {
         validator: function (v) {
+          if (!v) return true;
           return /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/.test(v);
         },
         message: 'Email must be valid'
@@ -142,10 +143,11 @@ eventRequestSchema.index({ isDeleted: 1, status: 1 });
 
 /**
  * Check for a duplicate request within 7 days, scoped to the same event.
- * Same phone OR same email for the same eventId within the window counts as a duplicate.
+ * Same phone (always) OR same email (when provided) for the same eventId
+ * within the window counts as a duplicate.
  *
  * @param {string} phone - Normalized 10-digit phone
- * @param {string} email - Lowercase email
+ * @param {string|null} email - Lowercase email, or null when not provided
  * @param {ObjectId|string} eventId - The event being requested
  * @returns {Promise<Document|null>} Existing request document, or null
  */
@@ -153,12 +155,14 @@ eventRequestSchema.statics.checkDuplicateRequest = async function (phone, email,
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
+  const orConditions = [{ phone, submittedAt: { $gte: sevenDaysAgo } }];
+  if (email) {
+    orConditions.push({ email, submittedAt: { $gte: sevenDaysAgo } });
+  }
+
   const duplicate = await this.findOne({
     eventId,
-    $or: [
-      { phone, submittedAt: { $gte: sevenDaysAgo } },
-      { email, submittedAt: { $gte: sevenDaysAgo } }
-    ],
+    $or: orConditions,
     isDeleted: false
   });
 
