@@ -2657,7 +2657,9 @@ export const eventRequestSchemas = {
   submit: Joi.object({
     phone: schemas.phone.required(),
     name: schemas.name.required(),
-    email: schemas.email.required(),
+    email: schemas.email.allow("", null).optional().messages({
+      "string.email": "Invalid email format",
+    }),
     eventId: schemas.mongoId.required(),
   }),
 
