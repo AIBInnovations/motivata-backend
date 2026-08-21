@@ -2283,7 +2283,7 @@ export const serviceOrderSchemas = {
   createServiceRequest: Joi.object({
     phone: schemas.phone.required(),
     name: schemas.name.optional(),
-    email: schemas.email.optional().allow(null, ""),
+    email: schemas.email.required(),
     serviceIds: Joi.array()
       .items(schemas.mongoId)
       .min(1)
@@ -2306,7 +2306,7 @@ export const serviceRequestSchemas = {
   submit: Joi.object({
     phone: schemas.phone.required(),
     name: schemas.name.optional(),
-    email: schemas.email.optional().allow(null, ""),
+    email: schemas.email.required(),
     serviceIds: Joi.array()
       .items(schemas.mongoId)
       .min(1)
