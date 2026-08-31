@@ -75,12 +75,57 @@ const eventRequestSchema = new mongoose.Schema(
 
     /**
      * Request status
+     * PENDING → PAYMENT_SENT (admin approved, payment link sent) → COMPLETED (paid, ticket sent)
+     * PENDING → REJECTED
+     * APPROVED is a legacy terminal status from before the payment-link flow existed.
      */
     status: {
       type: String,
-      enum: ['PENDING', 'APPROVED', 'REJECTED'],
+      enum: ['PENDING', 'APPROVED', 'REJECTED', 'PAYMENT_SENT', 'COMPLETED'],
       default: 'PENDING',
       index: true
+    },
+
+    /**
+     * Razorpay payment link id, set once the invite is approved and a link is sent
+     */
+    paymentLinkId: {
+      type: String,
+      default: null
+    },
+
+    /**
+     * Razorpay payment link short URL sent to the applicant
+     */
+    paymentUrl: {
+      type: String,
+      default: null
+    },
+
+    /**
+     * Custom orderId used to look up the Payment record from the webhook
+     */
+    orderId: {
+      type: String,
+      default: null,
+      index: true
+    },
+
+    /**
+     * Amount (INR) the applicant is charged, set on approval
+     */
+    paymentAmount: {
+      type: Number,
+      default: null
+    },
+
+    /**
+     * EventEnrollment created once the payment link is paid
+     */
+    enrollmentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'EventEnrollment',
+      default: null
     },
 
     /**
@@ -142,9 +187,11 @@ eventRequestSchema.index({ status: 1, submittedAt: -1 });
 eventRequestSchema.index({ isDeleted: 1, status: 1 });
 
 /**
- * Check for a duplicate request within 7 days, scoped to the same event.
+ * Check for a blocking duplicate request, scoped to the same event.
  * Same phone (always) OR same email (when provided) for the same eventId
- * within the window counts as a duplicate.
+ * counts as a duplicate ONLY while that request is still PENDING or already
+ * APPROVED. A REJECTED request never blocks a fresh request — the user is
+ * allowed to re-apply and the new request goes back to admin as PENDING.
  *
  * @param {string} phone - Normalized 10-digit phone
  * @param {string|null} email - Lowercase email, or null when not provided
@@ -152,17 +199,15 @@ eventRequestSchema.index({ isDeleted: 1, status: 1 });
  * @returns {Promise<Document|null>} Existing request document, or null
  */
 eventRequestSchema.statics.checkDuplicateRequest = async function (phone, email, eventId) {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-  const orConditions = [{ phone, submittedAt: { $gte: sevenDaysAgo } }];
+  const orConditions = [{ phone }];
   if (email) {
-    orConditions.push({ email, submittedAt: { $gte: sevenDaysAgo } });
+    orConditions.push({ email });
   }
 
   const duplicate = await this.findOne({
     eventId,
     $or: orConditions,
+    status: { $in: ['PENDING', 'APPROVED', 'PAYMENT_SENT', 'COMPLETED'] },
     isDeleted: false
   });
 

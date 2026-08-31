@@ -68,7 +68,7 @@ export const submitEventRequest = async (req, res) => {
       );
     }
 
-    // Check for duplicate request within 7 days for this event
+    // Check for an active (PENDING/APPROVED) duplicate request for this event
     const duplicateRequest = await EventRequest.checkDuplicateRequest(
       normalizedPhone,
       normalizedEmail,
@@ -76,20 +76,18 @@ export const submitEventRequest = async (req, res) => {
     );
 
     if (duplicateRequest) {
-      console.log('[EVENT-REQUEST] Duplicate request found within 7 days for event:', eventId);
-      const daysSince = Math.ceil(
-        (new Date() - duplicateRequest.submittedAt) / (1000 * 60 * 60 * 24)
-      );
+      console.log('[EVENT-REQUEST] Active duplicate request found for event:', eventId);
 
-      return responseUtil.conflict(
-        res,
-        `You have already submitted a request for this event ${daysSince} day(s) ago. Please wait 7 days before submitting another request.`,
-        {
-          existingRequestId: duplicateRequest._id,
-          submittedAt: duplicateRequest.submittedAt,
-          status: duplicateRequest.status
-        }
-      );
+      const message =
+        duplicateRequest.status === 'APPROVED'
+          ? 'Your request for this event has already been approved.'
+          : 'You already have a pending request for this event. Please wait for admin review.';
+
+      return responseUtil.conflict(res, message, {
+        existingRequestId: duplicateRequest._id,
+        submittedAt: duplicateRequest.submittedAt,
+        status: duplicateRequest.status
+      });
     }
 
     // Create new request

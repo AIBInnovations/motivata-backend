@@ -41,6 +41,7 @@ import adminCollegeRoutes from "../src/Referral/college.admin.route.js";
 import referralCodeRoutes from "../src/Referral/referralCode.route.js";
 
 
+
 const router = express.Router();
 
 /**
