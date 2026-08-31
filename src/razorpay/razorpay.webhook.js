@@ -11,6 +11,7 @@ import Voucher from '../../schema/Voucher.Schema.js';
 import User from '../../schema/User.schema.js';
 import Event from '../../schema/Event.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
+import EventRequest from '../../schema/EventRequest.schema.js';
 import Session from '../../schema/Session.schema.js';
 import SessionBooking from '../../schema/SessionBooking.schema.js';
 import MembershipPlan from '../../schema/MembershipPlan.schema.js';
@@ -3138,6 +3139,21 @@ const updateRelatedEntities = async (payment) => {
   if (enrollmentData) {
     const { enrollment, buyerUser, otherUsers, event } = enrollmentData;
     await sendEnrollmentEmails(payment, enrollment, buyerUser, otherUsers, event);
+  }
+
+  // If this payment came from an approved invite-only EventRequest, close the
+  // loop: flip it to COMPLETED and record the enrollment/ticket it produced.
+  if (payment.metadata?.eventRequestId) {
+    try {
+      await EventRequest.findByIdAndUpdate(payment.metadata.eventRequestId, {
+        status: 'COMPLETED',
+        enrollmentId: enrollmentData?.enrollment?._id || null,
+      });
+      console.log('[UPDATE-ENTITIES] EventRequest marked COMPLETED:', payment.metadata.eventRequestId);
+    } catch (eventRequestError) {
+      console.error('[UPDATE-ENTITIES] Failed to update EventRequest:', eventRequestError.message);
+      // Don't fail the webhook — the ticket is already created and sent.
+    }
   }
 
   // Send voucher QR codes if voucher was used
