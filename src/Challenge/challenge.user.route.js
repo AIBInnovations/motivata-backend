@@ -6,6 +6,7 @@
 import express from "express";
 import {
   getAvailableChallenges,
+  getChallengeCategories,
   getChallengeShareLink,
   joinChallenge,
   getMyChallenges,
@@ -28,6 +29,13 @@ const router = express.Router();
  * @access  Public (optional auth)
  */
 router.get("/", optionalAuth, validateQuery(challengeSchemas.list), getAvailableChallenges);
+
+/**
+ * @route   GET /api/app/challenges/categories
+ * @desc    Category → sub-category → difficulty catalog with live counts
+ * @access  Public
+ */
+router.get("/categories", getChallengeCategories);
 
 /**
  * @route   GET /api/app/challenges/:challengeId/share
