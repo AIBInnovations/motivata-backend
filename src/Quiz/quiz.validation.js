@@ -21,6 +21,7 @@ const mongoId = Joi.string().regex(mongoIdPattern).messages({
  * SOS Option schema for quiz questions
  */
 const sosOptionSchema = Joi.object({
+  _id: mongoId.optional(),
   text: Joi.string().required().trim().max(500).messages({
     "string.empty": "Option text is required",
     "string.max": "Option text cannot exceed 500 characters",
@@ -39,6 +40,7 @@ const sosOptionSchema = Joi.object({
  * Supports: text, text-list, text-group, single-choice, multiple-choice, scale, boolean
  */
 const sosQuestionSchema = Joi.object({
+  _id: mongoId.optional(),
   questionText: Joi.string().required().trim().max(1000).messages({
     "string.empty": "Question text is required",
     "string.max": "Question text cannot exceed 1000 characters",
@@ -78,6 +80,12 @@ const sosQuestionSchema = Joi.object({
   order: Joi.number().integer().min(0).default(0),
   points: Joi.number().integer().min(0).default(0),
   metadata: Joi.object().optional(),
+});
+
+const sosQuestionUpdateSchema = sosQuestionSchema.keys({
+  isRequired: Joi.boolean().optional(),
+  order: Joi.number().integer().min(0).optional(),
+  points: Joi.number().integer().min(0).optional(),
 });
 
 /**
@@ -194,7 +202,7 @@ export const sosQuizSchemas = {
     description: Joi.string().trim().max(1000).optional().allow("").messages({
       "string.max": "Description cannot exceed 1000 characters",
     }),
-    questions: Joi.array().items(sosQuestionSchema).min(1).messages({
+    questions: Joi.array().items(sosQuestionUpdateSchema).min(1).messages({
       "array.min": "Quiz must have at least one question",
     }),
     isActive: Joi.boolean(),
@@ -240,6 +248,164 @@ export const sosQuizSchemas = {
 /**
  * User progress validation schemas
  */
+export const sosArticleSchemas = {
+  create: Joi.object({
+    programId: mongoId.required().messages({
+      "string.pattern.base": "Invalid program ID format",
+    }),
+    dayNumber: Joi.number().required().integer().min(1).messages({
+      "number.min": "Day number must be at least 1",
+    }),
+    title: Joi.string().required().trim().max(200).messages({
+      "string.empty": "Article title is required",
+      "string.max": "Title cannot exceed 200 characters",
+    }),
+    body: Joi.string().required().trim().max(20000).messages({
+      "string.empty": "Article body is required",
+      "string.max": "Article body cannot exceed 20000 characters",
+    }),
+    audioUrl: Joi.string().trim().uri().optional().allow(null, "").messages({
+      "string.uri": "Please provide a valid audio URL",
+    }),
+    isActive: Joi.boolean().default(true),
+  }),
+
+  update: Joi.object({
+    title: Joi.string().trim().max(200).messages({
+      "string.max": "Title cannot exceed 200 characters",
+    }),
+    body: Joi.string().trim().max(20000).messages({
+      "string.max": "Article body cannot exceed 20000 characters",
+    }),
+    audioUrl: Joi.string().trim().uri().optional().allow(null, "").messages({
+      "string.uri": "Please provide a valid audio URL",
+    }),
+    isActive: Joi.boolean(),
+  }).min(1),
+
+  list: Joi.object({
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(50),
+    programId: mongoId.optional(),
+    isActive: Joi.boolean().optional(),
+  }),
+
+  articleIdParam: Joi.object({
+    articleId: mongoId.required().messages({
+      "string.pattern.base": "Invalid article ID format",
+    }),
+  }),
+};
+
+const dailyOptionSchema = Joi.object({
+  _id: mongoId.optional(),
+  text: Joi.string().required().trim().max(500),
+  value: Joi.alternatives().try(Joi.string(), Joi.number(), Joi.boolean()).required(),
+  order: Joi.number().integer().min(0).default(0),
+});
+
+const dateKeyRule = Joi.string()
+  .pattern(/^\d{4}-\d{2}-\d{2}$/)
+  .messages({ "string.pattern.base": "Date must be in YYYY-MM-DD format" });
+
+export const dailySosSchemas = {
+  create: Joi.object({
+    dateKey: dateKeyRule.required(),
+    questionText: Joi.string().required().trim().max(1000).messages({
+      "string.empty": "Question text is required",
+    }),
+    questionType: Joi.string()
+      .valid("text", "single-choice", "multiple-choice", "scale", "boolean")
+      .default("text"),
+    options: Joi.array().items(dailyOptionSchema).when("questionType", {
+      is: Joi.string().valid("single-choice", "multiple-choice", "scale"),
+      then: Joi.array().min(2).required().messages({
+        "array.min": "Choice-based questions must have at least 2 options",
+      }),
+      otherwise: Joi.array().optional(),
+    }),
+    isActive: Joi.boolean().default(true),
+  }),
+
+  update: Joi.object({
+    questionText: Joi.string().trim().max(1000),
+    questionType: Joi.string().valid("text", "single-choice", "multiple-choice", "scale", "boolean"),
+    options: Joi.array().items(dailyOptionSchema),
+    isActive: Joi.boolean(),
+  }).min(1),
+
+  list: Joi.object({
+    from: dateKeyRule.optional(),
+    to: dateKeyRule.optional(),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(400).default(120),
+  }),
+
+  questionIdParam: Joi.object({
+    questionId: mongoId.required(),
+  }),
+
+  submitAnswer: Joi.object({
+    answer: Joi.alternatives()
+      .try(
+        Joi.string().trim().max(2000),
+        Joi.number(),
+        Joi.boolean(),
+        Joi.array().items(Joi.alternatives().try(Joi.string(), Joi.number()))
+      )
+      .required()
+      .messages({ "any.required": "Answer is required" }),
+  }),
+
+  history: Joi.object({
+    limit: Joi.number().integer().min(1).max(100).default(30),
+  }),
+};
+
+export const qolSchemas = {
+  submitEntry: Joi.object({
+    scores: Joi.array()
+      .items(
+        Joi.object({
+          factorId: mongoId.required(),
+          current: Joi.number().integer().min(1).max(10).required().messages({
+            "number.min": "Scores must be between 1 and 10",
+            "number.max": "Scores must be between 1 and 10",
+          }),
+          required: Joi.number().integer().min(1).max(10).required().messages({
+            "number.min": "Scores must be between 1 and 10",
+            "number.max": "Scores must be between 1 and 10",
+          }),
+        })
+      )
+      .min(1)
+      .required()
+      .messages({ "array.min": "Rate at least one area" }),
+  }),
+
+  history: Joi.object({
+    limit: Joi.number().integer().min(1).max(60).default(12),
+  }),
+
+  createFactor: Joi.object({
+    name: Joi.string().required().trim().max(100).messages({
+      "string.empty": "Factor name is required",
+    }),
+    order: Joi.number().integer().min(0).default(0),
+    isActive: Joi.boolean().default(true),
+  }),
+
+  updateFactor: Joi.object({
+    name: Joi.string().trim().max(100),
+    order: Joi.number().integer().min(0),
+    isActive: Joi.boolean(),
+  }).min(1),
+
+  factorIdParam: Joi.object({
+    factorId: mongoId.required(),
+  }),
+};
+
 export const progressSchemas = {
   /**
    * Start program validation

@@ -15,3 +15,6 @@ motivata-bd969-firebase-adminsdk-fbsvc-1a8015c788.json
 logs
 
 .jarvis/
+
+# DB data dumps — never commit (contains user data)
+scripts/backup/**/*.json

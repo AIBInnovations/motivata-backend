@@ -5,6 +5,7 @@
 
 import Session from "../../schema/Session.schema.js";
 import SessionBooking from "../../schema/SessionBooking.schema.js";
+import UserMembership from "../../schema/UserMembership.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
 import { sendNewSessionNotification } from "../../utils/fcm.util.js";
@@ -901,6 +902,18 @@ export const bookSession = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) {
       return responseUtil.notFound(res, "User not found");
+    }
+
+    if (session.membersOnly) {
+      const isMember = user.phone
+        ? await UserMembership.hasActiveMembership(user.phone)
+        : false;
+      if (!isMember) {
+        return responseUtil.forbidden(
+          res,
+          "This session is available to Motivata members only"
+        );
+      }
     }
 
     // Create booking
