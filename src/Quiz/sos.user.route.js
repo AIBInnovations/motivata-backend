@@ -19,10 +19,18 @@ import {
   retryProgram,
   getScheduleInfo,
   confirmSchedule,
+  getDayArticle,
+  getTodayDailyQuestion,
+  submitDailyAnswer,
+  getDailyAnswerHistory,
+  getQoLFactors,
+  submitQoLEntry,
+  getLatestQoLEntry,
+  getQoLHistory,
 } from "./sos.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
-import { progressSchemas } from "./quiz.validation.js";
+import { progressSchemas, dailySosSchemas, qolSchemas } from "./quiz.validation.js";
 
 /** @type {express.Router} */
 const router = express.Router();
@@ -199,5 +207,67 @@ router.get("/programs/:programId/schedule-info", validateParams(programIdParam),
  * @body    {string} [calendlyInviteeUri] - Calendly invitee URI
  */
 router.post("/programs/:programId/confirm-schedule", validateParams(programIdParam), confirmSchedule);
+
+/**
+ * @route   GET /api/app/sos/programs/:programId/days/:dayNumber/article
+ * @desc    Get the article for a specific day of a program
+ * @access  User (authenticated)
+ * @param   {string} programId - Program ID
+ * @param   {number} dayNumber - Day number
+ */
+router.get(
+  "/programs/:programId/days/:dayNumber/article",
+  validateParams(daySubmitParamsSchema),
+  getDayArticle
+);
+
+/**
+ * @route   GET /api/app/sos/daily-question
+ * @desc    Get today's daily SOS question (IST) and whether the user answered it
+ * @access  User (authenticated)
+ */
+router.get("/daily-question", getTodayDailyQuestion);
+
+/**
+ * @route   POST /api/app/sos/daily-question/answer
+ * @desc    Submit the answer for today's daily SOS question
+ * @access  User (authenticated)
+ */
+router.post("/daily-question/answer", validateBody(dailySosSchemas.submitAnswer), submitDailyAnswer);
+
+/**
+ * @route   GET /api/app/sos/daily-question/history
+ * @desc    Get the user's past daily SOS answers
+ * @access  User (authenticated)
+ */
+router.get("/daily-question/history", validateQuery(dailySosSchemas.history), getDailyAnswerHistory);
+
+/**
+ * @route   GET /api/app/sos/quality-of-life/factors
+ * @desc    Get the active quality of life factors to rate
+ * @access  User (authenticated)
+ */
+router.get("/quality-of-life/factors", getQoLFactors);
+
+/**
+ * @route   POST /api/app/sos/quality-of-life
+ * @desc    Submit current + required scores for every factor
+ * @access  User (authenticated)
+ */
+router.post("/quality-of-life", validateBody(qolSchemas.submitEntry), submitQoLEntry);
+
+/**
+ * @route   GET /api/app/sos/quality-of-life/latest
+ * @desc    Get the user's most recent quality of life entry
+ * @access  User (authenticated)
+ */
+router.get("/quality-of-life/latest", getLatestQoLEntry);
+
+/**
+ * @route   GET /api/app/sos/quality-of-life/history
+ * @desc    Get the user's past quality of life entries
+ * @access  User (authenticated)
+ */
+router.get("/quality-of-life/history", validateQuery(qolSchemas.history), getQoLHistory);
 
 export default router;
