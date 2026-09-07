@@ -39,9 +39,8 @@ import adminJobRoutes from "../src/Job/job.admin.route.js";
 import adminRecommendationRoutes from "../src/Recommendation/recommendation.admin.route.js";
 import adminCollegeRoutes from "../src/Referral/college.admin.route.js";
 import referralCodeRoutes from "../src/Referral/referralCode.route.js";
-import { createRequire } from "module";
 
-const require = createRequire(import.meta.url);
+
 
 const router = express.Router();
 
