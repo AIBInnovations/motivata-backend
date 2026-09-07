@@ -10,6 +10,7 @@ import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
 import { notifyPeersOnTaskComplete, notifyConnectionsToUpdate, notifyReferrerOnJoin } from "../../services/peerNotification.service.js";
 import { getIconCatalog } from "./challenge.icons.js";
+import { getCategoryCatalog, isSubCategoryOfCategory } from "./challenge.categories.js";
 
 const MAX_ACTIVE_CHALLENGES = 5;
 
@@ -61,6 +62,7 @@ export const getAllChallenges = async (req, res) => {
       sortBy = "createdAt",
       sortOrder = "desc",
       category,
+      subCategory,
       difficulty,
       isActive,
       search,
@@ -72,6 +74,10 @@ export const getAllChallenges = async (req, res) => {
 
     if (category) {
       query.category = category;
+    }
+
+    if (subCategory) {
+      query.subCategory = subCategory;
     }
 
     if (difficulty) {
@@ -164,6 +170,23 @@ export const updateChallenge = async (req, res) => {
     delete updates.isDeleted;
     delete updates.deletedAt;
     delete updates.deletedBy;
+
+    if (updates.subCategory) {
+      const existing = await Challenge.findById(challengeId).select("category");
+      if (!existing) {
+        return responseUtil.notFound(res, "Challenge not found");
+      }
+
+      const effectiveCategory = updates.category || existing.category;
+      if (!isSubCategoryOfCategory(effectiveCategory, updates.subCategory)) {
+        return responseUtil.validationError(res, "Validation failed", [
+          {
+            field: "subCategory",
+            message: `${updates.subCategory} does not belong to the ${effectiveCategory} category`,
+          },
+        ]);
+      }
+    }
 
     const challenge = await Challenge.findByIdAndUpdate(challengeId, updates, {
       new: true,
@@ -265,22 +288,39 @@ export const toggleChallengeStatus = async (req, res) => {
  */
 export const getChallengeCategories = async (_req, res) => {
   try {
-    const categories = await Challenge.aggregate([
-      { $match: { isDeleted: false } },
-      { $group: { _id: "$category", count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
+    const counts = await Challenge.aggregate([
+      { $match: { isDeleted: false, isActive: true } },
+      {
+        $group: {
+          _id: { category: "$category", subCategory: "$subCategory", difficulty: "$difficulty" },
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
-    const categoryLabels = {
-      personal: "Personal",
-      professional: "Professional",
-      relational: "Relational",
-    };
+    const countFor = (category, subCategory, difficulty) =>
+      counts
+        .filter(
+          (c) =>
+            c._id.category === category &&
+            (subCategory === undefined || c._id.subCategory === subCategory) &&
+            (difficulty === undefined || c._id.difficulty === difficulty)
+        )
+        .reduce((n, c) => n + c.count, 0);
 
-    const result = categories.map((c) => ({
-      key: c._id,
-      label: categoryLabels[c._id] || c._id,
-      count: c.count,
+    const result = getCategoryCatalog().map((category) => ({
+      key: category.key,
+      label: category.label,
+      count: countFor(category.key),
+      subCategories: category.subCategories.map((sub) => ({
+        key: sub.key,
+        label: sub.label,
+        count: countFor(category.key, sub.key),
+        difficulties: ["easy", "medium", "hard"].map((difficulty) => ({
+          key: difficulty,
+          count: countFor(category.key, sub.key, difficulty),
+        })),
+      })),
     }));
 
     return responseUtil.success(res, "Categories retrieved successfully", { categories: result });
@@ -318,7 +358,7 @@ export const getIconOptions = async (_req, res) => {
  */
 export const getAvailableChallenges = async (req, res) => {
   try {
-    const { category, difficulty, search, page = 1, limit = 20 } = req.query;
+    const { category, subCategory, difficulty, search, page = 1, limit = 20 } = req.query;
     const userId = req.user?.id;
 
     const { skip, limitNum, sortOptions } = buildPaginationOptions({
@@ -332,6 +372,10 @@ export const getAvailableChallenges = async (req, res) => {
 
     if (category) {
       query.category = category;
+    }
+
+    if (subCategory) {
+      query.subCategory = subCategory;
     }
 
     if (difficulty) {
@@ -571,7 +615,7 @@ export const getMyChallenges = async (req, res) => {
     const challenges = await UserChallenge.find(query)
       .populate({
         path: "challengeId",
-        select: "title description category difficulty tasks imageUrl icon durationDays createdBy",
+        select: "title description category subCategory difficulty tasks imageUrl icon durationDays createdBy",
         populate: { path: "createdBy", select: "name" },
       })
       .sort({ lastActivityAt: -1 });
@@ -610,7 +654,7 @@ export const getChallengeProgress = async (req, res) => {
 
     const userChallenge = await UserChallenge.findOne({ userId, challengeId }).populate(
       "challengeId",
-      "title description category difficulty tasks imageUrl icon durationDays"
+      "title description category subCategory difficulty tasks imageUrl icon durationDays"
     );
 
     if (!userChallenge) {
