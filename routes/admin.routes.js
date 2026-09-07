@@ -40,8 +40,6 @@ import adminRecommendationRoutes from "../src/Recommendation/recommendation.admi
 import adminCollegeRoutes from "../src/Referral/college.admin.route.js";
 import referralCodeRoutes from "../src/Referral/referralCode.route.js";
 
-
-
 const router = express.Router();
 
 /**
@@ -300,4 +298,4 @@ router.get("/delete-account", (req, res) => {
   res.send(html);
 });
 
-export default router;
+export default router;  

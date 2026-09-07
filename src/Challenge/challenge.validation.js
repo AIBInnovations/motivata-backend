@@ -5,6 +5,11 @@
 
 import Joi from "joi";
 import { ICON_KEYS } from "./challenge.icons.js";
+import {
+  CATEGORY_KEYS,
+  SUB_CATEGORY_KEYS,
+  SUB_CATEGORY_KEYS_BY_CATEGORY,
+} from "./challenge.categories.js";
 
 const mongoIdPattern = /^[0-9a-fA-F]{24}$/;
 
@@ -18,6 +23,25 @@ const iconField = Joi.string()
 const mongoId = Joi.string().regex(mongoIdPattern).messages({
   "string.pattern.base": "Invalid ID format",
 });
+
+const subCategoryField = Joi.alternatives()
+  .conditional("category", {
+    switch: CATEGORY_KEYS.map((key) => ({
+      is: key,
+      then: Joi.string()
+        .valid(...SUB_CATEGORY_KEYS_BY_CATEGORY[key])
+        .messages({
+          "any.only": `subCategory for ${key} must be one of: ${SUB_CATEGORY_KEYS_BY_CATEGORY[key].join(", ")}`,
+        }),
+    })),
+    otherwise: Joi.string()
+      .valid(...SUB_CATEGORY_KEYS)
+      .messages({
+        "any.only": `subCategory must be one of: ${SUB_CATEGORY_KEYS.join(", ")}`,
+      }),
+  })
+  .optional()
+  .allow(null, "");
 
 /**
  * Task schema for challenge tasks
@@ -52,10 +76,11 @@ export const challengeSchemas = {
     }),
     category: Joi.string()
       .required()
-      .valid("personal", "professional", "relational")
+      .valid(...CATEGORY_KEYS)
       .messages({
         "any.only": "Invalid category",
       }),
+    subCategory: subCategoryField,
     difficulty: Joi.string().valid("easy", "medium", "hard").default("medium"),
     tasks: Joi.array().items(taskSchema).min(1).required().messages({
       "array.min": "Challenge must have at least one task",
@@ -92,10 +117,11 @@ export const challengeSchemas = {
       "string.max": "Description cannot exceed 2000 characters",
     }),
     category: Joi.string()
-      .valid("personal", "professional", "relational")
+      .valid(...CATEGORY_KEYS)
       .messages({
         "any.only": "Invalid category",
       }),
+    subCategory: subCategoryField,
     difficulty: Joi.string().valid("easy", "medium", "hard"),
     tasks: Joi.array().items(taskSchema).min(1).messages({
       "array.min": "Challenge must have at least one task",
@@ -123,7 +149,10 @@ export const challengeSchemas = {
     sortBy: Joi.string().valid("createdAt", "title", "category", "difficulty", "order").default("createdAt"),
     sortOrder: Joi.string().valid("asc", "desc").default("desc"),
     category: Joi.string()
-      .valid("personal", "professional", "relational")
+      .valid(...CATEGORY_KEYS)
+      .optional(),
+    subCategory: Joi.string()
+      .valid(...SUB_CATEGORY_KEYS)
       .optional(),
     difficulty: Joi.string().valid("easy", "medium", "hard").optional(),
     isActive: Joi.boolean().optional(),

@@ -19,9 +19,22 @@ import {
   deleteQuiz,
   getAllUserProgress,
   getProgramStats,
+  createArticle,
+  getAllArticles,
+  getArticleById,
+  updateArticle,
+  deleteArticle,
+  createDailyQuestion,
+  getDailyQuestions,
+  updateDailyQuestion,
+  deleteDailyQuestion,
+  createQoLFactor,
+  getAllQoLFactors,
+  updateQoLFactor,
+  deleteQoLFactor,
 } from "./sos.controller.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
-import { programSchemas, sosQuizSchemas, progressSchemas } from "./quiz.validation.js";
+import { programSchemas, sosQuizSchemas, progressSchemas, sosArticleSchemas, dailySosSchemas, qolSchemas } from "./quiz.validation.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 
 /** @type {express.Router} */
@@ -181,5 +194,127 @@ router.delete("/quizzes/:quizId", validateParams(sosQuizSchemas.quizId), deleteQ
  * @query   {string} [userId] - Filter by user
  */
 router.get("/progress", validateQuery(progressSchemas.adminListProgress), getAllUserProgress);
+
+// ============================================
+// SOS ARTICLE ROUTES
+// ============================================
+
+/**
+ * @route   POST /api/web/sos/articles
+ * @desc    Create an article for a program day
+ * @access  Admin
+ */
+router.post("/articles", validateBody(sosArticleSchemas.create), createArticle);
+
+/**
+ * @route   GET /api/web/sos/articles
+ * @desc    List articles
+ * @access  Admin
+ */
+router.get("/articles", validateQuery(sosArticleSchemas.list), getAllArticles);
+
+/**
+ * @route   GET /api/web/sos/articles/:articleId
+ * @desc    Get a single article
+ * @access  Admin
+ */
+router.get("/articles/:articleId", validateParams(sosArticleSchemas.articleIdParam), getArticleById);
+
+/**
+ * @route   PUT /api/web/sos/articles/:articleId
+ * @desc    Update an article
+ * @access  Admin
+ */
+router.put(
+  "/articles/:articleId",
+  validateParams(sosArticleSchemas.articleIdParam),
+  validateBody(sosArticleSchemas.update),
+  updateArticle
+);
+
+/**
+ * @route   DELETE /api/web/sos/articles/:articleId
+ * @desc    Soft delete an article
+ * @access  Admin
+ */
+router.delete("/articles/:articleId", validateParams(sosArticleSchemas.articleIdParam), deleteArticle);
+
+// ============================================
+// DAILY SOS QUESTION ROUTES
+// ============================================
+
+/**
+ * @route   POST /api/web/sos/daily-questions
+ * @desc    Schedule a daily SOS question for a date
+ * @access  Admin
+ */
+router.post("/daily-questions", validateBody(dailySosSchemas.create), createDailyQuestion);
+
+/**
+ * @route   GET /api/web/sos/daily-questions
+ * @desc    List scheduled daily questions (optionally between two dates)
+ * @access  Admin
+ */
+router.get("/daily-questions", validateQuery(dailySosSchemas.list), getDailyQuestions);
+
+/**
+ * @route   PUT /api/web/sos/daily-questions/:questionId
+ * @desc    Update a scheduled question (date cannot be changed)
+ * @access  Admin
+ */
+router.put(
+  "/daily-questions/:questionId",
+  validateParams(dailySosSchemas.questionIdParam),
+  validateBody(dailySosSchemas.update),
+  updateDailyQuestion
+);
+
+/**
+ * @route   DELETE /api/web/sos/daily-questions/:questionId
+ * @desc    Remove a scheduled question
+ * @access  Admin
+ */
+router.delete(
+  "/daily-questions/:questionId",
+  validateParams(dailySosSchemas.questionIdParam),
+  deleteDailyQuestion
+);
+
+// ============================================
+// QUALITY OF LIFE FACTOR ROUTES
+// ============================================
+
+/**
+ * @route   POST /api/web/sos/qol-factors
+ * @desc    Add a quality of life factor
+ * @access  Admin
+ */
+router.post("/qol-factors", validateBody(qolSchemas.createFactor), createQoLFactor);
+
+/**
+ * @route   GET /api/web/sos/qol-factors
+ * @desc    List all quality of life factors
+ * @access  Admin
+ */
+router.get("/qol-factors", getAllQoLFactors);
+
+/**
+ * @route   PUT /api/web/sos/qol-factors/:factorId
+ * @desc    Update a factor
+ * @access  Admin
+ */
+router.put(
+  "/qol-factors/:factorId",
+  validateParams(qolSchemas.factorIdParam),
+  validateBody(qolSchemas.updateFactor),
+  updateQoLFactor
+);
+
+/**
+ * @route   DELETE /api/web/sos/qol-factors/:factorId
+ * @desc    Remove a factor
+ * @access  Admin
+ */
+router.delete("/qol-factors/:factorId", validateParams(qolSchemas.factorIdParam), deleteQoLFactor);
 
 export default router;

@@ -50,6 +50,11 @@ const getISTDateParts = (dateObj) => {
  * const utcDate = new Date('2026-01-04T10:00:00.000Z');
  * const normalized = toIST(utcDate);
  */
+export const dateKeyIST = (date = new Date()) => {
+  const { year, month, day } = getISTDateParts(new Date(date));
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
 export const toIST = (date) => {
   if (!date) {
     return null;

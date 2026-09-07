@@ -942,6 +942,7 @@ export const sessionSchemas = {
       "string.uri": "Please provide a valid image URL",
     }),
     isLive: Joi.boolean().optional().default(true),
+    membersOnly: Joi.boolean().optional().default(false),
   }),
 
   /**
@@ -1017,6 +1018,7 @@ export const sessionSchemas = {
       "string.uri": "Please provide a valid image URL",
     }),
     isLive: Joi.boolean().optional(),
+    membersOnly: Joi.boolean().optional(),
   }),
 
   /**
@@ -1043,6 +1045,7 @@ export const sessionSchemas = {
       )
       .optional(),
     isLive: Joi.boolean().optional(),
+    membersOnly: Joi.boolean().optional(),
     host: Joi.string().trim().optional(),
     minPrice: Joi.number().min(0).optional(),
     maxPrice: Joi.number().min(0).optional(),

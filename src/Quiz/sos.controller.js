@@ -6,6 +6,12 @@
 import SOSProgram from "./schemas/sosProgram.schema.js";
 import SOSQuiz from "./schemas/sosQuiz.schema.js";
 import UserSOSProgress from "./schemas/userSOSProgress.schema.js";
+import SOSArticle from "./schemas/sosArticle.schema.js";
+import DailySOSQuestion from "./schemas/dailySosQuestion.schema.js";
+import DailySOSAnswer from "./schemas/dailySosAnswer.schema.js";
+import { dateKeyIST } from "../../utils/timezone.util.js";
+import QoLFactor from "./schemas/qolFactor.schema.js";
+import QoLEntry from "./schemas/qolEntry.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
 
@@ -411,6 +417,40 @@ export const getQuizById = async (req, res) => {
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  */
+const isAnswerEmpty = (answer) => {
+  if (answer === undefined || answer === null || answer === "") return true;
+  if (typeof answer === "boolean" || typeof answer === "number") return false;
+  if (Array.isArray(answer)) return answer.every((a) => !a || !String(a).trim());
+  if (typeof answer === "object") {
+    return Object.values(answer).every((v) => !v || !String(v).trim());
+  }
+  return !String(answer).trim();
+};
+
+const mergeQuizQuestions = (storedQuestions, incomingQuestions) => {
+  const storedById = new Map(
+    storedQuestions.map((question) => [String(question._id), question])
+  );
+
+  return incomingQuestions.map((incoming) => {
+    const stored = incoming._id ? storedById.get(String(incoming._id)) : null;
+
+    if (!stored) {
+      const { _id, ...withoutId } = incoming;
+      return withoutId;
+    }
+
+    const merged = stored.toObject();
+    for (const [key, value] of Object.entries(incoming)) {
+      if (key !== "_id" && value !== undefined) {
+        merged[key] = value;
+      }
+    }
+    merged._id = stored._id;
+    return merged;
+  });
+};
+
 export const updateQuiz = async (req, res) => {
   try {
     const { quizId } = req.params;
@@ -427,17 +467,25 @@ export const updateQuiz = async (req, res) => {
     delete updates.deletedAt;
     delete updates.deletedBy;
 
-    const quiz = await SOSQuiz.findByIdAndUpdate(quizId, updates, {
-      new: true,
-      runValidators: true,
-    })
-      .populate("programId", "title type durationDays")
-      .populate("createdBy", "name email")
-      .populate("updatedBy", "name email");
+    const quiz = await SOSQuiz.findById(quizId);
 
     if (!quiz) {
       return responseUtil.notFound(res, "Quiz not found");
     }
+
+    if (Array.isArray(updates.questions)) {
+      quiz.questions = mergeQuizQuestions(quiz.questions, updates.questions);
+      delete updates.questions;
+    }
+
+    Object.assign(quiz, updates);
+    await quiz.save();
+
+    await quiz.populate([
+      { path: "programId", select: "title type durationDays" },
+      { path: "createdBy", select: "name email" },
+      { path: "updatedBy", select: "name email" },
+    ]);
 
     return responseUtil.success(res, "Quiz updated successfully", { quiz });
   } catch (error) {
@@ -681,6 +729,10 @@ export const getProgramProgress = async (req, res) => {
     // Get quiz for current day
     const currentDayQuiz = await SOSQuiz.findByDay(programId, progress.currentDay);
 
+    const allDayQuizzes = await SOSQuiz.find({ programId, isActive: true })
+      .select("dayNumber title description")
+      .sort({ dayNumber: 1 });
+
     return responseUtil.success(res, "Progress fetched successfully", {
       progress,
       program: {
@@ -697,6 +749,11 @@ export const getProgramProgress = async (req, res) => {
             questionCount: currentDayQuiz.questionCount,
           }
         : null,
+      days: allDayQuizzes.map((q) => ({
+        dayNumber: q.dayNumber,
+        title: q.title,
+        description: q.description,
+      })),
     });
   } catch (error) {
     console.error("Get program progress error:", error);
@@ -882,6 +939,21 @@ export const submitDayQuiz = async (req, res) => {
     const quiz = await SOSQuiz.findByDay(programId, day);
     if (!quiz) {
       return responseUtil.notFound(res, `No quiz found for day ${day}`);
+    }
+
+    const unansweredRequired = quiz.questions.filter((question) => {
+      if (question.isRequired === false) return false;
+      const userResponse = responses.find(
+        (r) => r.questionId === question._id.toString()
+      );
+      return isAnswerEmpty(userResponse?.answer);
+    });
+
+    if (unansweredRequired.length > 0) {
+      return responseUtil.badRequest(
+        res,
+        `Please answer all required questions before submitting. ${unansweredRequired.length} of ${quiz.questions.length} still unanswered.`
+      );
     }
 
     // Calculate score
@@ -1421,4 +1493,591 @@ export default {
   // Admin progress controllers
   getAllUserProgress,
   getProgramStats,
+};
+
+// ============================================
+// SOS ARTICLE CONTROLLERS
+// ============================================
+
+export const createArticle = async (req, res) => {
+  try {
+    const article = new SOSArticle({ ...req.body, createdBy: req.user.id });
+    await article.save();
+
+    return responseUtil.created(res, "Article created successfully", { article });
+  } catch (error) {
+    console.error("Create SOS article error:", error);
+
+    if (error.code === 11000) {
+      return responseUtil.conflict(res, "An article already exists for this day");
+    }
+
+    if (error.name === "ValidationError") {
+      const errors = Object.keys(error.errors).map((key) => ({
+        field: key,
+        message: error.errors[key].message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+
+    if (error.message.includes("Day number") || error.message.includes("Program not found")) {
+      return responseUtil.badRequest(res, error.message);
+    }
+
+    return responseUtil.internalError(res, "Failed to create article", error.message);
+  }
+};
+
+export const getAllArticles = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, programId, isActive } = req.query;
+    const { skip, limitNum } = buildPaginationOptions({ page, limit, sortBy: "dayNumber", sortOrder: "asc" });
+
+    const query = {};
+    if (programId) query.programId = programId;
+    if (typeof isActive !== "undefined") {
+      query.isActive = isActive === "true" || isActive === true;
+    }
+
+    const [articles, totalCount] = await Promise.all([
+      SOSArticle.find(query)
+        .sort({ programId: 1, dayNumber: 1 })
+        .skip(skip)
+        .limit(limitNum)
+        .populate("programId", "title type durationDays"),
+      SOSArticle.countDocuments(query),
+    ]);
+
+    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+
+    return responseUtil.success(res, "Articles fetched successfully", { articles, pagination });
+  } catch (error) {
+    console.error("Get all articles error:", error);
+    return responseUtil.internalError(res, "Failed to fetch articles", error.message);
+  }
+};
+
+export const getArticleById = async (req, res) => {
+  try {
+    const { articleId } = req.params;
+
+    const article = await SOSArticle.findById(articleId)
+      .populate("programId", "title type durationDays")
+      .populate("createdBy", "name email")
+      .populate("updatedBy", "name email");
+
+    if (!article) {
+      return responseUtil.notFound(res, "Article not found");
+    }
+
+    return responseUtil.success(res, "Article fetched successfully", { article });
+  } catch (error) {
+    console.error("Get article by ID error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid article ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to fetch article", error.message);
+  }
+};
+
+export const updateArticle = async (req, res) => {
+  try {
+    const { articleId } = req.params;
+    const updates = { ...req.body, updatedBy: req.user.id };
+
+    delete updates.programId;
+    delete updates.dayNumber;
+    delete updates.createdBy;
+    delete updates.isDeleted;
+    delete updates.deletedAt;
+    delete updates.deletedBy;
+
+    const article = await SOSArticle.findByIdAndUpdate(articleId, updates, {
+      new: true,
+      runValidators: true,
+    }).populate("programId", "title type durationDays");
+
+    if (!article) {
+      return responseUtil.notFound(res, "Article not found");
+    }
+
+    return responseUtil.success(res, "Article updated successfully", { article });
+  } catch (error) {
+    console.error("Update article error:", error);
+
+    if (error.name === "ValidationError") {
+      const errors = Object.keys(error.errors).map((key) => ({
+        field: key,
+        message: error.errors[key].message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid article ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to update article", error.message);
+  }
+};
+
+export const deleteArticle = async (req, res) => {
+  try {
+    const { articleId } = req.params;
+
+    const article = await SOSArticle.findById(articleId);
+
+    if (!article) {
+      return responseUtil.notFound(res, "Article not found");
+    }
+
+    await article.softDelete(req.user.id);
+
+    return responseUtil.success(res, "Article deleted successfully");
+  } catch (error) {
+    console.error("Delete article error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid article ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to delete article", error.message);
+  }
+};
+
+export const getDayArticle = async (req, res) => {
+  try {
+    const { programId, dayNumber } = req.params;
+    const day = parseInt(dayNumber, 10);
+
+    const article = await SOSArticle.findByDay(programId, day);
+
+    if (!article) {
+      return responseUtil.notFound(res, `No article available for day ${day}`);
+    }
+
+    return responseUtil.success(res, "Article fetched successfully", {
+      article: {
+        _id: article._id,
+        dayNumber: article.dayNumber,
+        title: article.title,
+        body: article.body,
+        audioUrl: article.audioUrl,
+      },
+    });
+  } catch (error) {
+    console.error("Get day article error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to fetch article", error.message);
+  }
+};
+
+// ============================================
+// DAILY SOS QUESTION CONTROLLERS
+// ============================================
+
+export const createDailyQuestion = async (req, res) => {
+  try {
+    const question = new DailySOSQuestion({ ...req.body, createdBy: req.user.id });
+    await question.save();
+
+    return responseUtil.created(res, "Daily question scheduled successfully", { question });
+  } catch (error) {
+    console.error("Create daily SOS question error:", error);
+
+    if (error.code === 11000) {
+      return responseUtil.conflict(res, "A question is already scheduled for this date");
+    }
+
+    if (error.name === "ValidationError") {
+      const errors = Object.keys(error.errors).map((key) => ({
+        field: key,
+        message: error.errors[key].message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+
+    return responseUtil.internalError(res, "Failed to schedule question", error.message);
+  }
+};
+
+export const getDailyQuestions = async (req, res) => {
+  try {
+    const { from, to } = req.query;
+
+    const query = {};
+    if (from || to) {
+      query.dateKey = {};
+      if (from) query.dateKey.$gte = from;
+      if (to) query.dateKey.$lte = to;
+    }
+
+    const questions = await DailySOSQuestion.find(query).sort({ dateKey: 1 });
+
+    const answerCounts = await DailySOSAnswer.aggregate([
+      { $match: { questionId: { $in: questions.map((q) => q._id) } } },
+      { $group: { _id: "$questionId", count: { $sum: 1 } } },
+    ]);
+    const countMap = new Map(answerCounts.map((a) => [String(a._id), a.count]));
+
+    const withCounts = questions.map((q) => ({
+      ...q.toObject(),
+      answerCount: countMap.get(String(q._id)) || 0,
+    }));
+
+    return responseUtil.success(res, "Daily questions fetched successfully", {
+      questions: withCounts,
+      today: dateKeyIST(),
+    });
+  } catch (error) {
+    console.error("Get daily SOS questions error:", error);
+    return responseUtil.internalError(res, "Failed to fetch questions", error.message);
+  }
+};
+
+export const updateDailyQuestion = async (req, res) => {
+  try {
+    const { questionId } = req.params;
+    const updates = { ...req.body, updatedBy: req.user.id };
+
+    delete updates.dateKey;
+    delete updates.createdBy;
+    delete updates.isDeleted;
+
+    const question = await DailySOSQuestion.findByIdAndUpdate(questionId, updates, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!question) {
+      return responseUtil.notFound(res, "Question not found");
+    }
+
+    return responseUtil.success(res, "Question updated successfully", { question });
+  } catch (error) {
+    console.error("Update daily SOS question error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid question ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to update question", error.message);
+  }
+};
+
+export const deleteDailyQuestion = async (req, res) => {
+  try {
+    const { questionId } = req.params;
+
+    const question = await DailySOSQuestion.findById(questionId);
+    if (!question) {
+      return responseUtil.notFound(res, "Question not found");
+    }
+
+    await question.softDelete(req.user.id);
+
+    return responseUtil.success(res, "Question removed successfully");
+  } catch (error) {
+    console.error("Delete daily SOS question error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid question ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to remove question", error.message);
+  }
+};
+
+export const getTodayDailyQuestion = async (req, res) => {
+  try {
+    const today = dateKeyIST();
+    const question = await DailySOSQuestion.findByDateKey(today);
+
+    if (!question) {
+      return responseUtil.success(res, "No question scheduled for today", {
+        question: null,
+        answered: false,
+        date: today,
+      });
+    }
+
+    const existing = await DailySOSAnswer.findForUserOnDate(req.user.id, today);
+
+    return responseUtil.success(res, "Today's question fetched successfully", {
+      question: {
+        _id: question._id,
+        questionText: question.questionText,
+        questionType: question.questionType,
+        options: question.options,
+      },
+      answered: !!existing,
+      answer: existing ? existing.answer : null,
+      date: today,
+    });
+  } catch (error) {
+    console.error("Get today's daily SOS question error:", error);
+    return responseUtil.internalError(res, "Failed to fetch today's question", error.message);
+  }
+};
+
+export const submitDailyAnswer = async (req, res) => {
+  try {
+    const today = dateKeyIST();
+    const question = await DailySOSQuestion.findByDateKey(today);
+
+    if (!question) {
+      return responseUtil.notFound(res, "No question is scheduled for today");
+    }
+
+    const existing = await DailySOSAnswer.findForUserOnDate(req.user.id, today);
+    if (existing) {
+      return responseUtil.conflict(res, "You have already answered today's question");
+    }
+
+    const answer = await DailySOSAnswer.create({
+      userId: req.user.id,
+      questionId: question._id,
+      dateKey: today,
+      answer: req.body.answer,
+    });
+
+    return responseUtil.created(res, "Answer saved successfully", {
+      answer: { _id: answer._id, dateKey: answer.dateKey, answeredAt: answer.answeredAt },
+    });
+  } catch (error) {
+    console.error("Submit daily SOS answer error:", error);
+
+    if (error.code === 11000) {
+      return responseUtil.conflict(res, "You have already answered today's question");
+    }
+
+    return responseUtil.internalError(res, "Failed to save your answer", error.message);
+  }
+};
+
+export const getDailyAnswerHistory = async (req, res) => {
+  try {
+    const { limit = 30 } = req.query;
+
+    const answers = await DailySOSAnswer.find({ userId: req.user.id })
+      .sort({ dateKey: -1 })
+      .limit(Number(limit))
+      .populate("questionId", "questionText questionType");
+
+    return responseUtil.success(res, "History fetched successfully", {
+      answers: answers.map((a) => ({
+        _id: a._id,
+        dateKey: a.dateKey,
+        answer: a.answer,
+        answeredAt: a.answeredAt,
+        questionText: a.questionId ? a.questionId.questionText : null,
+      })),
+    });
+  } catch (error) {
+    console.error("Get daily SOS history error:", error);
+    return responseUtil.internalError(res, "Failed to fetch history", error.message);
+  }
+};
+
+// ============================================
+// QUALITY OF LIFE CONTROLLERS
+// ============================================
+
+const summariseScores = (scores) => {
+  if (!scores.length) return { mostDegrading: null, mostSorted: null };
+
+  const diffs = scores.map((s) => s.difference);
+  const maxDiff = Math.max(...diffs);
+  const minDiff = Math.min(...diffs);
+
+  const atMax = scores.filter((s) => s.difference === maxDiff);
+  const atMin = scores.filter((s) => s.difference === minDiff);
+
+  return {
+    mostDegrading: {
+      factorName: atMax[0].factorName,
+      difference: maxDiff,
+      tiedWith: atMax.slice(1).map((s) => s.factorName),
+    },
+    mostSorted: {
+      factorName: atMin[0].factorName,
+      difference: minDiff,
+      tiedWith: atMin.slice(1).map((s) => s.factorName),
+    },
+  };
+};
+
+export const getQoLFactors = async (req, res) => {
+  try {
+    const factors = await QoLFactor.findActiveOrdered();
+    return responseUtil.success(res, "Factors fetched successfully", {
+      factors: factors.map((f) => ({ _id: f._id, name: f.name, order: f.order })),
+    });
+  } catch (error) {
+    console.error("Get QoL factors error:", error);
+    return responseUtil.internalError(res, "Failed to fetch factors", error.message);
+  }
+};
+
+export const submitQoLEntry = async (req, res) => {
+  try {
+    const { scores } = req.body;
+    const userId = req.user.id;
+    const today = dateKeyIST();
+
+    const factors = await QoLFactor.findActiveOrdered();
+    if (!factors.length) {
+      return responseUtil.badRequest(res, "No quality of life factors are configured yet");
+    }
+
+    const factorMap = new Map(factors.map((f) => [String(f._id), f]));
+
+    const enriched = [];
+    for (const entry of scores) {
+      const factor = factorMap.get(String(entry.factorId));
+      if (!factor) {
+        return responseUtil.badRequest(res, `Unknown factor: ${entry.factorId}`);
+      }
+      enriched.push({
+        factorId: factor._id,
+        factorName: factor.name,
+        current: entry.current,
+        required: entry.required,
+        difference: entry.required - entry.current,
+      });
+    }
+
+    if (enriched.length !== factors.length) {
+      return responseUtil.badRequest(
+        res,
+        `Please rate all ${factors.length} areas before submitting`
+      );
+    }
+
+    const summary = summariseScores(enriched);
+
+    const saved = await QoLEntry.findOneAndUpdate(
+      { userId, dateKey: today },
+      { userId, dateKey: today, scores: enriched, ...summary },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+
+    return responseUtil.success(res, "Quality of life saved successfully", { entry: saved });
+  } catch (error) {
+    console.error("Submit QoL entry error:", error);
+
+    if (error.name === "ValidationError") {
+      const errors = Object.keys(error.errors).map((key) => ({
+        field: key,
+        message: error.errors[key].message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+
+    return responseUtil.internalError(res, "Failed to save your ratings", error.message);
+  }
+};
+
+export const getLatestQoLEntry = async (req, res) => {
+  try {
+    const entry = await QoLEntry.findLatestForUser(req.user.id);
+
+    return responseUtil.success(res, "Latest entry fetched successfully", {
+      entry,
+      today: dateKeyIST(),
+      hasEntryToday: !!entry && entry.dateKey === dateKeyIST(),
+    });
+  } catch (error) {
+    console.error("Get latest QoL entry error:", error);
+    return responseUtil.internalError(res, "Failed to fetch your ratings", error.message);
+  }
+};
+
+export const getQoLHistory = async (req, res) => {
+  try {
+    const { limit = 12 } = req.query;
+
+    const entries = await QoLEntry.find({ userId: req.user.id })
+      .sort({ dateKey: -1 })
+      .limit(Number(limit));
+
+    return responseUtil.success(res, "History fetched successfully", { entries });
+  } catch (error) {
+    console.error("Get QoL history error:", error);
+    return responseUtil.internalError(res, "Failed to fetch history", error.message);
+  }
+};
+
+export const createQoLFactor = async (req, res) => {
+  try {
+    const factor = await QoLFactor.create({ ...req.body, createdBy: req.user.id });
+    return responseUtil.created(res, "Factor added successfully", { factor });
+  } catch (error) {
+    console.error("Create QoL factor error:", error);
+    return responseUtil.internalError(res, "Failed to add factor", error.message);
+  }
+};
+
+export const getAllQoLFactors = async (req, res) => {
+  try {
+    const factors = await QoLFactor.find({}).sort({ order: 1, name: 1 });
+    return responseUtil.success(res, "Factors fetched successfully", { factors });
+  } catch (error) {
+    console.error("Get all QoL factors error:", error);
+    return responseUtil.internalError(res, "Failed to fetch factors", error.message);
+  }
+};
+
+export const updateQoLFactor = async (req, res) => {
+  try {
+    const { factorId } = req.params;
+    const factor = await QoLFactor.findByIdAndUpdate(
+      factorId,
+      { ...req.body, updatedBy: req.user.id },
+      { new: true, runValidators: true }
+    );
+
+    if (!factor) {
+      return responseUtil.notFound(res, "Factor not found");
+    }
+
+    return responseUtil.success(res, "Factor updated successfully", { factor });
+  } catch (error) {
+    console.error("Update QoL factor error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid factor ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to update factor", error.message);
+  }
+};
+
+export const deleteQoLFactor = async (req, res) => {
+  try {
+    const { factorId } = req.params;
+
+    const factor = await QoLFactor.findById(factorId);
+    if (!factor) {
+      return responseUtil.notFound(res, "Factor not found");
+    }
+
+    await factor.softDelete(req.user.id);
+
+    return responseUtil.success(res, "Factor removed successfully");
+  } catch (error) {
+    console.error("Delete QoL factor error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid factor ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to remove factor", error.message);
+  }
 };
