@@ -126,6 +126,11 @@ const sessionSchema = new mongoose.Schema(
       default: true,
     },
 
+    membersOnly: {
+      type: Boolean,
+      default: false,
+    },
+
     /**
      * Name of the session host
      */

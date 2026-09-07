@@ -165,7 +165,7 @@ async function seed() {
   // Multiple GSOS programs can exist, so a bare findOne({type:'GSOS'}) is ambiguous.
   // Precedence: explicit GSOS_PROGRAM_ID env  >  exact canonical title  >  legacy findOne.
   const TARGET_PROGRAM_ID = process.env.GSOS_PROGRAM_ID;
-  const CANONICAL_TITLE = "SOS - ONE DAY PROGRAM";
+  const CANONICAL_TITLES = ["Simple SOS", "SOS - ONE DAY PROGRAM"];
 
   let program = null;
   if (TARGET_PROGRAM_ID) {
@@ -174,12 +174,24 @@ async function seed() {
   if (!program) {
     program = await SOSProgram.findOne({
       type: "GSOS",
-      title: CANONICAL_TITLE,
+      title: { $in: CANONICAL_TITLES },
       isDeleted: { $ne: true },
     });
   }
   if (!program) {
-    program = await SOSProgram.findOne({ type: "GSOS", isDeleted: { $ne: true } });
+    const candidates = await SOSProgram.find({
+      type: "GSOS",
+      isActive: true,
+      isDeleted: { $ne: true },
+    });
+    if (candidates.length > 1) {
+      console.error(
+        `Ambiguous: ${candidates.length} active GSOS programs found. Set GSOS_PROGRAM_ID to pick one:\n` +
+          candidates.map((c) => `  ${c._id}  "${c.title}"`).join("\n")
+      );
+      process.exit(1);
+    }
+    program = candidates[0] || null;
   }
   if (!program) {
     console.error("No GSOS program found. Create a GSOS program first.");
@@ -205,7 +217,11 @@ async function seed() {
   if (existing) {
     existing.title = QUIZ_TITLE;
     existing.description = QUIZ_DESCRIPTION;
-    existing.questions = QUESTIONS;
+    existing.questions = QUESTIONS.map((question, index) => {
+      const stored = existing.questions[index];
+      if (!stored) return question;
+      return { ...question, _id: stored._id };
+    });
     existing.isActive = true;
     existing.order = 1;
     existing.updatedBy = admin._id;

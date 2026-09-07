@@ -5,6 +5,11 @@
 
 import mongoose from "mongoose";
 import { ICON_KEYS } from "./challenge.icons.js";
+import {
+  CATEGORY_KEYS,
+  SUB_CATEGORY_KEYS,
+  isSubCategoryOfCategory,
+} from "./challenge.categories.js";
 
 /**
  * Task sub-schema for challenge tasks
@@ -69,12 +74,37 @@ const challengeSchema = new mongoose.Schema(
       type: String,
       required: [true, "Category is required"],
       enum: {
-        values: [
-          "personal",
-          "professional",
-          "relational",
-        ],
+        values: CATEGORY_KEYS,
         message: "{VALUE} is not a valid category",
+      },
+    },
+
+    /**
+     * Challenge sub-category — must belong to the chosen category
+     */
+    subCategory: {
+      type: String,
+      default: null,
+      enum: {
+        values: [...SUB_CATEGORY_KEYS, null],
+        message: "{VALUE} is not a valid sub-category",
+      },
+      validate: {
+        validator: function (value) {
+          if (!value) return true;
+
+          let category = this.category;
+          if (typeof this.getUpdate === "function") {
+            const update = this.getUpdate() || {};
+            category = (update.$set || update).category;
+          }
+
+          if (!category) return true;
+          return isSubCategoryOfCategory(category, value);
+        },
+        message: function (props) {
+          return `${props.value} does not belong to the selected category`;
+        },
       },
     },
 
@@ -218,6 +248,7 @@ const challengeSchema = new mongoose.Schema(
  * Indexes for query performance
  */
 challengeSchema.index({ category: 1, isActive: 1, isDeleted: 1 });
+challengeSchema.index({ category: 1, subCategory: 1, difficulty: 1, isActive: 1, isDeleted: 1 });
 challengeSchema.index({ isActive: 1, isDeleted: 1 });
 challengeSchema.index({ difficulty: 1 });
 challengeSchema.index({ createdAt: -1 });

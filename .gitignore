@@ -16,3 +16,8 @@ logs
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
+
+.jarvis/
+
+# DB data dumps — never commit (contains user data)
+scripts/backup/**/*.json
