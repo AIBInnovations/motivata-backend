@@ -1033,24 +1033,30 @@ export const checkActiveMembership = async (req, res) => {
     }
 
     const now = new Date();
+    // Include lifetime memberships (isLifetime:true, null endDate, or epoch endDate)
+    // alongside time-limited memberships whose endDate is still in the future.
+    const notExpired = [
+      { isLifetime: true },
+      { endDate: null },
+      { endDate: { $lte: new Date(1000) } },
+      { endDate: { $gt: now } },
+    ];
+
     const query = {
       isDeleted: false,
       status: "ACTIVE",
       paymentStatus: "SUCCESS",
       startDate: { $lte: now },
-      // Include lifetime memberships (isLifetime:true, null endDate, or epoch endDate)
-      // alongside time-limited memberships whose endDate is still in the future.
-      $or: [
-        { isLifetime: true },
-        { endDate: null },
-        { endDate: { $lte: new Date(1000) } },
-        { endDate: { $gt: now } },
-      ],
+      $or: notExpired,
     };
 
     if (phone && userId) {
       const normalizedPhone = normalizePhone(phone);
-      query.$or = [{ phone: normalizedPhone }, { userId: userId }];
+      delete query.$or;
+      query.$and = [
+        { $or: notExpired },
+        { $or: [{ phone: normalizedPhone }, { userId: userId }] },
+      ];
       // console.log('[CHECK-ACTIVE-MEMBERSHIP] Checking with both phone and userId');
     } else if (phone) {
       const normalizedPhone = normalizePhone(phone);
