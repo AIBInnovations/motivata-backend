@@ -791,6 +791,99 @@ export const markTaskComplete = async (req, res) => {
 };
 
 /**
+ * Mark the whole of today done in one action — the only way to complete a
+ * day on a challenge that carries no tasks.
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const markDayComplete = async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+    const userId = req.user.id;
+
+    const userChallenge = await UserChallenge.findOne({ userId, challengeId });
+
+    if (!userChallenge) {
+      return responseUtil.notFound(res, "You are not participating in this challenge");
+    }
+
+    if (userChallenge.status !== "active") {
+      return responseUtil.badRequest(res, "This challenge is no longer active");
+    }
+
+    if (userChallenge.endsAt && new Date() > userChallenge.endsAt) {
+      userChallenge.status = "expired";
+      await userChallenge.save();
+      return responseUtil.badRequest(res, "This challenge has expired");
+    }
+
+    await userChallenge.markDayComplete();
+
+    const todayProgress = await userChallenge.getTodayProgress();
+
+    return responseUtil.success(res, "Today marked as complete", {
+      todayProgress,
+      daysCompleted: userChallenge.daysCompleted,
+      currentStreak: userChallenge.currentStreak,
+      longestStreak: userChallenge.longestStreak,
+      allTasksCompletedToday: todayProgress.allTasksCompleted,
+      status: userChallenge.status,
+    });
+  } catch (error) {
+    console.error("Mark day complete error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to mark today as complete", error.message);
+  }
+};
+
+/**
+ * Undo today's completion
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const unmarkDayComplete = async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+    const userId = req.user.id;
+
+    const userChallenge = await UserChallenge.findOne({ userId, challengeId });
+
+    if (!userChallenge) {
+      return responseUtil.notFound(res, "You are not participating in this challenge");
+    }
+
+    await userChallenge.unmarkDayComplete();
+
+    const todayProgress = await userChallenge.getTodayProgress();
+
+    return responseUtil.success(res, "Today's completion undone", {
+      todayProgress,
+      daysCompleted: userChallenge.daysCompleted,
+      currentStreak: userChallenge.currentStreak,
+      longestStreak: userChallenge.longestStreak,
+      allTasksCompletedToday: todayProgress?.allTasksCompleted ?? false,
+      status: userChallenge.status,
+    });
+  } catch (error) {
+    console.error("Unmark day complete error:", error);
+
+    if (error.message === "No progress for today") {
+      return responseUtil.badRequest(res, error.message);
+    }
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to undo today's completion", error.message);
+  }
+};
+
+/**
  * Unmark task (toggle off)
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
