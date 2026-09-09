@@ -82,9 +82,7 @@ export const challengeSchemas = {
       }),
     subCategory: subCategoryField,
     difficulty: Joi.string().valid("easy", "medium", "hard").default("medium"),
-    tasks: Joi.array().items(taskSchema).min(1).required().messages({
-      "array.min": "Challenge must have at least one task",
-    }),
+    tasks: Joi.array().items(taskSchema).optional().default([]),
     durationDays: Joi.number().integer().min(1).max(365).optional().allow(null).messages({
       "number.min": "Duration must be at least 1 day",
       "number.max": "Duration cannot exceed 365 days",
@@ -123,9 +121,7 @@ export const challengeSchemas = {
       }),
     subCategory: subCategoryField,
     difficulty: Joi.string().valid("easy", "medium", "hard"),
-    tasks: Joi.array().items(taskSchema).min(1).messages({
-      "array.min": "Challenge must have at least one task",
-    }),
+    tasks: Joi.array().items(taskSchema).optional(),
     durationDays: Joi.number().integer().min(1).max(365).optional().allow(null),
     allowedDurations: Joi.array()
       .items(Joi.number().integer().min(1).max(365))

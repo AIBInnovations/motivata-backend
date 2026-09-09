@@ -14,6 +14,8 @@ import {
   nudgeConnections,
   markTaskComplete,
   unmarkTask,
+  markDayComplete,
+  unmarkDayComplete,
   abandonChallenge,
 } from "./challenge.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
@@ -76,6 +78,20 @@ router.get("/:challengeId/progress", validateParams(challengeSchemas.challengeId
  * @access  User (authenticated)
  */
 router.post("/:challengeId/nudge", validateParams(challengeSchemas.challengeId), nudgeConnections);
+
+/**
+ * @route   POST /api/app/challenges/:challengeId/complete-day
+ * @desc    Mark the whole of today done — works with or without tasks
+ * @access  User (authenticated)
+ */
+router.post("/:challengeId/complete-day", validateParams(challengeSchemas.challengeId), markDayComplete);
+
+/**
+ * @route   POST /api/app/challenges/:challengeId/uncomplete-day
+ * @desc    Undo today's completion
+ * @access  User (authenticated)
+ */
+router.post("/:challengeId/uncomplete-day", validateParams(challengeSchemas.challengeId), unmarkDayComplete);
 
 /**
  * @route   POST /api/app/challenges/:challengeId/tasks/:taskId/complete

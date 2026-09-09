@@ -122,12 +122,7 @@ const challengeSchema = new mongoose.Schema(
      */
     tasks: {
       type: [taskSchema],
-      validate: {
-        validator: function (v) {
-          return v && v.length > 0;
-        },
-        message: "Challenge must have at least one task",
-      },
+      default: [],
     },
 
     /**
