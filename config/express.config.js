@@ -203,9 +203,15 @@ app.get("/open/post/:postId", (req, res) => {
 // falls back to Play Store / App Store if the app is not installed.
 // Mounted under /api/ because the reverse proxy at motivata.synquic.com only forwards
 // /api/* to this Node backend; everything else goes to the admin panel.
-const challengeDeepLinkHandler = (_req, res) => {
+const challengeDeepLinkHandler = (req, res) => {
   const playStoreLink = "https://play.google.com/store/apps/details?id=com.synquic.motivata";
   const appStoreLink = process.env.APP_STORE_URL || playStoreLink;
+  const challengeId = String(req.params.challengeId || "").replace(/[^a-fA-F0-9]/g, "");
+  const ref = String(req.query.ref || "").replace(/[^a-fA-F0-9]/g, "");
+  const appPath = ref
+    ? `challenge/${challengeId}?ref=${ref}`
+    : `challenge/${challengeId}`;
+  const safeAppPath = JSON.stringify(appPath);
   // JSON-encoded so the value is safe to drop into inline JS regardless of contents.
   const safePlayStore = JSON.stringify(playStoreLink);
   const safeAppStore = JSON.stringify(appStoreLink);
@@ -221,6 +227,7 @@ const challengeDeepLinkHandler = (_req, res) => {
   var isIOS = /iPhone|iPad|iPod/i.test(ua);
   var playStore = ${safePlayStore};
   var appStore = ${safeAppStore};
+  var appPath = ${safeAppPath};
 
   if (isAndroid) {
     // intent:// opens the Motivata app on the Challenges list screen. The
@@ -229,7 +236,7 @@ const challengeDeepLinkHandler = (_req, res) => {
     // browser_fallback_url sends the user to the Play Store automatically if
     // the app isn't installed.
     var intentUrl =
-      "intent://challenges#Intent;scheme=motivata;package=com.synquic.motivata;" +
+      "intent://" + appPath + "#Intent;scheme=motivata;package=com.synquic.motivata;" +
       "S.browser_fallback_url=" + encodeURIComponent(playStore) + ";end";
     window.location.replace(intentUrl);
     return;
@@ -239,7 +246,7 @@ const challengeDeepLinkHandler = (_req, res) => {
     // iOS doesn't support intent://. Try the custom scheme; if the app isn't
     // installed the page stays visible, so after 1.5s send them to the App Store.
     var clickedAt = Date.now();
-    window.location.replace("motivata://challenges");
+    window.location.replace("motivata://" + appPath);
     setTimeout(function () {
       if (Date.now() - clickedAt < 2000) {
         window.location.replace(appStore);

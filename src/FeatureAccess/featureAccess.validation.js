@@ -16,11 +16,11 @@ export const featureAccessSchemas = {
     featureKey: Joi.string()
       .trim()
       .uppercase()
-      .valid('SOS', 'CONNECT', 'CHALLENGE')
+      .valid('SOS', 'SOS_INTENSIVE', 'CONNECT', 'CHALLENGE')
       .required()
       .messages({
         'any.required': 'Feature key is required',
-        'any.only': 'Feature key must be one of: SOS, CONNECT, CHALLENGE',
+        'any.only': 'Feature key must be one of: SOS, SOS_INTENSIVE, CONNECT, CHALLENGE',
       }),
     requiresMembership: Joi.boolean().optional().messages({
       'boolean.base': 'requiresMembership must be a boolean',
@@ -37,11 +37,11 @@ export const featureAccessSchemas = {
     featureKey: Joi.string()
       .trim()
       .uppercase()
-      .valid('SOS', 'CONNECT', 'CHALLENGE')
+      .valid('SOS', 'SOS_INTENSIVE', 'CONNECT', 'CHALLENGE')
       .required()
       .messages({
         'any.required': 'Feature key is required',
-        'any.only': 'Feature key must be one of: SOS, CONNECT, CHALLENGE',
+        'any.only': 'Feature key must be one of: SOS, SOS_INTENSIVE, CONNECT, CHALLENGE',
       }),
     phone: Joi.string()
       .trim()

@@ -13,6 +13,7 @@ import { getIconCatalog } from "./challenge.icons.js";
 import { getCategoryCatalog, isSubCategoryOfCategory } from "./challenge.categories.js";
 
 const MAX_ACTIVE_CHALLENGES = 5;
+const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 // ============================================
 // ADMIN CONTROLLERS
@@ -68,7 +69,7 @@ export const getAllChallenges = async (req, res) => {
       search,
     } = req.query;
 
-    const { skip, limitNum, sortOptions } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
+    const { skip, limit: limitNum, sort: sortOptions, page: pageNum } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
 
     const query = {};
 
@@ -98,7 +99,7 @@ export const getAllChallenges = async (req, res) => {
       Challenge.countDocuments(query),
     ]);
 
-    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+    const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
 
     return responseUtil.success(res, "Challenges fetched successfully", {
       challenges,
@@ -170,6 +171,10 @@ export const updateChallenge = async (req, res) => {
     delete updates.isDeleted;
     delete updates.deletedAt;
     delete updates.deletedBy;
+
+    if ("leaderName" in updates && !String(updates.leaderName ?? "").trim()) {
+      updates.leaderName = "Motivata";
+    }
 
     if (updates.subCategory) {
       const existing = await Challenge.findById(challengeId).select("category");
@@ -361,7 +366,7 @@ export const getAvailableChallenges = async (req, res) => {
     const { category, subCategory, difficulty, search, page = 1, limit = 20 } = req.query;
     const userId = req.user?.id;
 
-    const { skip, limitNum, sortOptions } = buildPaginationOptions({
+    const { skip, limit: limitNum, sort: sortOptions, page: pageNum } = buildPaginationOptions({
       page,
       limit,
       sortBy: "order",
@@ -415,7 +420,7 @@ export const getAvailableChallenges = async (req, res) => {
       };
     });
 
-    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+    const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
 
     return responseUtil.success(res, "Challenges fetched successfully", {
       challenges: challengesWithStatus,
@@ -446,12 +451,12 @@ export const getChallengeShareLink = async (req, res) => {
       return responseUtil.notFound(res, "Challenge not found");
     }
 
-    const baseUrl = process.env.SHARE_BASE_URL || "https://motivata.synquic.com";
+    const baseUrl = process.env.SHARE_BASE_URL || "https://motivata.in";
     // Embed the inviter's id (when authenticated) so we can notify them when someone joins
     const referrerId = req.user?.id;
     const shareUrl = referrerId
-      ? `${baseUrl}/api/open/challenge/${challengeId}?ref=${referrerId}`
-      : `${baseUrl}/api/open/challenge/${challengeId}`;
+      ? `${baseUrl}/open/challenge/${challengeId}?ref=${referrerId}`
+      : `${baseUrl}/open/challenge/${challengeId}`;
 
     const shareText =
       `Check out this challenge on Motivata: *${challenge.title}*\n\n` +
@@ -615,7 +620,7 @@ export const getMyChallenges = async (req, res) => {
     const challenges = await UserChallenge.find(query)
       .populate({
         path: "challengeId",
-        select: "title description category subCategory difficulty tasks imageUrl icon durationDays createdBy",
+        select: "title description leaderName category subCategory difficulty tasks imageUrl icon durationDays createdBy",
         populate: { path: "createdBy", select: "name" },
       })
       .sort({ lastActivityAt: -1 });
@@ -654,7 +659,7 @@ export const getChallengeProgress = async (req, res) => {
 
     const userChallenge = await UserChallenge.findOne({ userId, challengeId }).populate(
       "challengeId",
-      "title description category subCategory difficulty tasks imageUrl icon durationDays"
+      "title description leaderName category subCategory difficulty tasks imageUrl icon durationDays"
     );
 
     if (!userChallenge) {
@@ -712,6 +717,23 @@ export const nudgeConnections = async (req, res) => {
     if (!userChallenge) {
       return responseUtil.notFound(res, "You are not participating in this challenge");
     }
+
+    const now = new Date();
+    if (userChallenge.lastNudgeAt) {
+      const elapsed = now - userChallenge.lastNudgeAt;
+      if (elapsed < NUDGE_COOLDOWN_MS) {
+        const retryAfterSeconds = Math.ceil((NUDGE_COOLDOWN_MS - elapsed) / 1000);
+        return responseUtil.custom(
+          res,
+          429,
+          "You have already nudged your connections for this challenge today",
+          { retryAfterSeconds }
+        );
+      }
+    }
+
+    userChallenge.lastNudgeAt = now;
+    await userChallenge.save();
 
     const { notified } = await notifyConnectionsToUpdate({ challengeId, requesterId: userId });
 
@@ -787,6 +809,99 @@ export const markTaskComplete = async (req, res) => {
     }
 
     return responseUtil.internalError(res, "Failed to mark task complete", error.message);
+  }
+};
+
+/**
+ * Mark the whole of today done in one action — the only way to complete a
+ * day on a challenge that carries no tasks.
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const markDayComplete = async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+    const userId = req.user.id;
+
+    const userChallenge = await UserChallenge.findOne({ userId, challengeId });
+
+    if (!userChallenge) {
+      return responseUtil.notFound(res, "You are not participating in this challenge");
+    }
+
+    if (userChallenge.status !== "active") {
+      return responseUtil.badRequest(res, "This challenge is no longer active");
+    }
+
+    if (userChallenge.endsAt && new Date() > userChallenge.endsAt) {
+      userChallenge.status = "expired";
+      await userChallenge.save();
+      return responseUtil.badRequest(res, "This challenge has expired");
+    }
+
+    await userChallenge.markDayComplete();
+
+    const todayProgress = await userChallenge.getTodayProgress();
+
+    return responseUtil.success(res, "Today marked as complete", {
+      todayProgress,
+      daysCompleted: userChallenge.daysCompleted,
+      currentStreak: userChallenge.currentStreak,
+      longestStreak: userChallenge.longestStreak,
+      allTasksCompletedToday: todayProgress.allTasksCompleted,
+      status: userChallenge.status,
+    });
+  } catch (error) {
+    console.error("Mark day complete error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to mark today as complete", error.message);
+  }
+};
+
+/**
+ * Undo today's completion
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const unmarkDayComplete = async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+    const userId = req.user.id;
+
+    const userChallenge = await UserChallenge.findOne({ userId, challengeId });
+
+    if (!userChallenge) {
+      return responseUtil.notFound(res, "You are not participating in this challenge");
+    }
+
+    await userChallenge.unmarkDayComplete();
+
+    const todayProgress = await userChallenge.getTodayProgress();
+
+    return responseUtil.success(res, "Today's completion undone", {
+      todayProgress,
+      daysCompleted: userChallenge.daysCompleted,
+      currentStreak: userChallenge.currentStreak,
+      longestStreak: userChallenge.longestStreak,
+      allTasksCompletedToday: todayProgress?.allTasksCompleted ?? false,
+      status: userChallenge.status,
+    });
+  } catch (error) {
+    console.error("Unmark day complete error:", error);
+
+    if (error.message === "No progress for today") {
+      return responseUtil.badRequest(res, error.message);
+    }
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to undo today's completion", error.message);
   }
 };
 
@@ -879,7 +994,7 @@ export const getAllUserProgress = async (req, res) => {
   try {
     const { page = 1, limit = 20, challengeId, userId, status, sortBy = "lastActivityAt", sortOrder = "desc" } = req.query;
 
-    const { skip, limitNum, sortOptions } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
+    const { skip, limit: limitNum, sort: sortOptions, page: pageNum } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
 
     const query = {};
     if (challengeId) query.challengeId = challengeId;
@@ -896,7 +1011,7 @@ export const getAllUserProgress = async (req, res) => {
       UserChallenge.countDocuments(query),
     ]);
 
-    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+    const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
 
     return responseUtil.success(res, "User progress fetched successfully", {
       progress,
