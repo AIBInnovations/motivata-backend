@@ -28,12 +28,20 @@ export const buildPaginationOptions = (query, defaults = {}) => {
  * @param {number} limit - Items per page
  * @returns {Object} Pagination metadata
  */
-export const buildPaginationMeta = (total, page, limit) => ({
-  page,
-  limit,
-  total,
-  totalPages: Math.ceil(total / limit)
-});
+export const buildPaginationMeta = (total, page, limit) => {
+  const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
+
+  return {
+    page,
+    currentPage: page,
+    limit,
+    total,
+    totalCount: total,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPrevPage: page > 1
+  };
+};
 
 export default {
   buildPaginationOptions,

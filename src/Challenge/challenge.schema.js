@@ -67,6 +67,13 @@ const challengeSchema = new mongoose.Schema(
       maxlength: [2000, "Description cannot exceed 2000 characters"],
     },
 
+    leaderName: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Leader name cannot exceed 100 characters"],
+      default: "Motivata",
+    },
+
     /**
      * Challenge category
      */

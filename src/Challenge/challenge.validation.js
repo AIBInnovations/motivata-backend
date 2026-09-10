@@ -74,6 +74,9 @@ export const challengeSchemas = {
       "string.empty": "Challenge description is required",
       "string.max": "Description cannot exceed 2000 characters",
     }),
+    leaderName: Joi.string().trim().max(100).optional().empty(Joi.valid("", null)).default("Motivata").messages({
+      "string.max": "Leader name cannot exceed 100 characters",
+    }),
     category: Joi.string()
       .required()
       .valid(...CATEGORY_KEYS)
@@ -113,6 +116,9 @@ export const challengeSchemas = {
     }),
     description: Joi.string().trim().max(2000).messages({
       "string.max": "Description cannot exceed 2000 characters",
+    }),
+    leaderName: Joi.string().trim().max(100).optional().allow("", null).messages({
+      "string.max": "Leader name cannot exceed 100 characters",
     }),
     category: Joi.string()
       .valid(...CATEGORY_KEYS)

@@ -316,7 +316,7 @@ const run = async () => {
       difficulty: c.difficulty,
       tasks: [],
       durationDays: 30,
-      allowedDurations: [7, 15, 30],
+      allowedDurations: [7, 14, 21, 30, 45],
       icon: ICON_BY_SUB_CATEGORY[c.subCategory] ?? null,
       isActive: true,
       order: i,
