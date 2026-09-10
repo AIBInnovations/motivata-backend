@@ -126,6 +126,11 @@ const userChallengeSchema = new mongoose.Schema(
       default: Date.now,
     },
 
+    lastNudgeAt: {
+      type: Date,
+      default: null,
+    },
+
     /**
      * Daily progress tracking
      */

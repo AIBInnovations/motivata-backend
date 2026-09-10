@@ -17,6 +17,23 @@ import {
 } from "./challenge.controller.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
 import { challengeSchemas } from "./challenge.validation.js";
+import {
+  createDailyChallenge,
+  bulkScheduleDailyChallenges,
+  getDailyChallenges,
+  updateDailyChallenge,
+  deleteDailyChallenge,
+} from "./dailyChallenge.controller.js";
+import { dailyChallengeSchemas } from "./dailyChallenge.validation.js";
+import {
+  createChallengeReward,
+  getChallengeRewards,
+  updateChallengeReward,
+  deleteChallengeReward,
+  verifyRewardCode,
+  redeemRewardCode,
+} from "./challengeReward.controller.js";
+import { challengeRewardSchemas } from "./challengeReward.validation.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 
 /** @type {express.Router} */
@@ -41,6 +58,101 @@ router.get("/categories", getChallengeCategories);
  * @access  Admin
  */
 router.get("/icons", getIconOptions);
+
+/**
+ * @route   GET /api/web/challenges/daily
+ * @desc    List scheduled daily challenges in a date range
+ * @access  Admin
+ */
+router.get("/daily", validateQuery(dailyChallengeSchemas.list), getDailyChallenges);
+
+/**
+ * @route   GET /api/web/challenges/rewards
+ * @desc    List rewards, optionally for one challenge
+ * @access  Admin
+ */
+router.get("/rewards", validateQuery(challengeRewardSchemas.list), getChallengeRewards);
+
+/**
+ * @route   POST /api/web/challenges/rewards
+ * @desc    Create a reward and attach it to a challenge
+ * @access  Admin
+ */
+router.post("/rewards", validateBody(challengeRewardSchemas.create), createChallengeReward);
+
+/**
+ * @route   GET /api/web/challenges/rewards/verify
+ * @desc    Look up a scanned redemption code without consuming it
+ * @access  Admin
+ */
+router.get("/rewards/verify", validateQuery(challengeRewardSchemas.code), verifyRewardCode);
+
+/**
+ * @route   POST /api/web/challenges/rewards/redeem
+ * @desc    Consume a redemption code (one time only)
+ * @access  Admin
+ */
+router.post("/rewards/redeem", validateBody(challengeRewardSchemas.code), redeemRewardCode);
+
+/**
+ * @route   PUT /api/web/challenges/rewards/:rewardId
+ * @desc    Update a reward
+ * @access  Admin
+ */
+router.put(
+  "/rewards/:rewardId",
+  validateParams(challengeRewardSchemas.rewardId),
+  validateBody(challengeRewardSchemas.update),
+  updateChallengeReward
+);
+
+/**
+ * @route   DELETE /api/web/challenges/rewards/:rewardId
+ * @desc    Remove a reward
+ * @access  Admin
+ */
+router.delete(
+  "/rewards/:rewardId",
+  validateParams(challengeRewardSchemas.rewardId),
+  deleteChallengeReward
+);
+
+/**
+ * @route   POST /api/web/challenges/daily
+ * @desc    Schedule a daily challenge for one date
+ * @access  Admin
+ */
+router.post("/daily", validateBody(dailyChallengeSchemas.create), createDailyChallenge);
+
+/**
+ * @route   POST /api/web/challenges/daily/bulk
+ * @desc    Schedule many dates at once
+ * @access  Admin
+ */
+router.post("/daily/bulk", validateBody(dailyChallengeSchemas.bulk), bulkScheduleDailyChallenges);
+
+/**
+ * @route   PUT /api/web/challenges/daily/:dailyChallengeId
+ * @desc    Update one scheduled daily challenge
+ * @access  Admin
+ */
+router.put(
+  "/daily/:dailyChallengeId",
+  validateParams(dailyChallengeSchemas.dailyChallengeId),
+  validateBody(dailyChallengeSchemas.update),
+  updateDailyChallenge
+);
+
+/**
+ * @route   DELETE /api/web/challenges/daily/:dailyChallengeId
+ * @desc    Remove one scheduled daily challenge
+ * @access  Admin
+ */
+router.delete(
+  "/daily/:dailyChallengeId",
+  validateParams(dailyChallengeSchemas.dailyChallengeId),
+  deleteDailyChallenge
+);
 
 /**
  * @route   POST /api/web/challenges

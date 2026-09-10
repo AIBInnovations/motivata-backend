@@ -28,6 +28,13 @@ const initialFeatures = [
     requiresMembership: false,
     isActive: true,
   },
+  {
+    featureKey: 'SOS_INTENSIVE',
+    featureName: 'Intensive SOS (7-day program)',
+    description: 'Access to the Intensive SOS program - members and doers only',
+    requiresMembership: true,
+    isActive: true,
+  },
 ];
 
 /**
@@ -41,7 +48,7 @@ async function seedFeatureAccess() {
     for (const feature of initialFeatures) {
       const result = await FeatureAccess.findOneAndUpdate(
         { featureKey: feature.featureKey },
-        feature,
+        { $setOnInsert: feature },
         { upsert: true, new: true }
       );
       console.log(`[SEED] ✅ ${feature.featureKey} - ${result.featureName}`);

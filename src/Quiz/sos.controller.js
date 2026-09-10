@@ -63,7 +63,7 @@ export const getAllPrograms = async (req, res) => {
   try {
     const { page = 1, limit = 10, sortBy = "createdAt", sortOrder = "desc", type, isActive, search } = req.query;
 
-    const { skip, limitNum, sortOptions } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
+    const { skip, limit: limitNum, sort: sortOptions, page: pageNum } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
 
     const query = {};
 
@@ -85,7 +85,7 @@ export const getAllPrograms = async (req, res) => {
       SOSProgram.countDocuments(query),
     ]);
 
-    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+    const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
 
     return responseUtil.success(res, "Programs fetched successfully", {
       programs,
@@ -306,7 +306,7 @@ export const getAllQuizzes = async (req, res) => {
       isActive,
     } = req.query;
 
-    const { skip, limitNum, sortOptions } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
+    const { skip, limit: limitNum, sort: sortOptions, page: pageNum } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
 
     const query = {};
 
@@ -332,7 +332,7 @@ export const getAllQuizzes = async (req, res) => {
       SOSQuiz.countDocuments(query),
     ]);
 
-    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+    const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
 
     return responseUtil.success(res, "Quizzes fetched successfully", {
       quizzes,
@@ -1077,7 +1077,7 @@ export const getAllUserProgress = async (req, res) => {
       userId,
     } = req.query;
 
-    const { skip, limitNum, sortOptions } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
+    const { skip, limit: limitNum, sort: sortOptions, page: pageNum } = buildPaginationOptions({ page, limit, sortBy, sortOrder });
 
     const query = {};
 
@@ -1103,7 +1103,7 @@ export const getAllUserProgress = async (req, res) => {
       UserSOSProgress.countDocuments(query),
     ]);
 
-    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+    const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
 
     return responseUtil.success(res, "Progress list fetched successfully", {
       progressList,
@@ -1531,7 +1531,7 @@ export const createArticle = async (req, res) => {
 export const getAllArticles = async (req, res) => {
   try {
     const { page = 1, limit = 50, programId, isActive } = req.query;
-    const { skip, limitNum } = buildPaginationOptions({ page, limit, sortBy: "dayNumber", sortOrder: "asc" });
+    const { skip, limit: limitNum, page: pageNum } = buildPaginationOptions({ page, limit, sortBy: "dayNumber", sortOrder: "asc" });
 
     const query = {};
     if (programId) query.programId = programId;
@@ -1548,7 +1548,7 @@ export const getAllArticles = async (req, res) => {
       SOSArticle.countDocuments(query),
     ]);
 
-    const pagination = buildPaginationMeta({ page, limit: limitNum, totalCount });
+    const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
 
     return responseUtil.success(res, "Articles fetched successfully", { articles, pagination });
   } catch (error) {
