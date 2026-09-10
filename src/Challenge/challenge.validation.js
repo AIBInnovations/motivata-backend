@@ -74,6 +74,9 @@ export const challengeSchemas = {
       "string.empty": "Challenge description is required",
       "string.max": "Description cannot exceed 2000 characters",
     }),
+    leaderName: Joi.string().trim().max(100).optional().empty(Joi.valid("", null)).default("Motivata").messages({
+      "string.max": "Leader name cannot exceed 100 characters",
+    }),
     category: Joi.string()
       .required()
       .valid(...CATEGORY_KEYS)
@@ -82,9 +85,7 @@ export const challengeSchemas = {
       }),
     subCategory: subCategoryField,
     difficulty: Joi.string().valid("easy", "medium", "hard").default("medium"),
-    tasks: Joi.array().items(taskSchema).min(1).required().messages({
-      "array.min": "Challenge must have at least one task",
-    }),
+    tasks: Joi.array().items(taskSchema).optional().default([]),
     durationDays: Joi.number().integer().min(1).max(365).optional().allow(null).messages({
       "number.min": "Duration must be at least 1 day",
       "number.max": "Duration cannot exceed 365 days",
@@ -116,6 +117,9 @@ export const challengeSchemas = {
     description: Joi.string().trim().max(2000).messages({
       "string.max": "Description cannot exceed 2000 characters",
     }),
+    leaderName: Joi.string().trim().max(100).optional().allow("", null).messages({
+      "string.max": "Leader name cannot exceed 100 characters",
+    }),
     category: Joi.string()
       .valid(...CATEGORY_KEYS)
       .messages({
@@ -123,9 +127,7 @@ export const challengeSchemas = {
       }),
     subCategory: subCategoryField,
     difficulty: Joi.string().valid("easy", "medium", "hard"),
-    tasks: Joi.array().items(taskSchema).min(1).messages({
-      "array.min": "Challenge must have at least one task",
-    }),
+    tasks: Joi.array().items(taskSchema).optional(),
     durationDays: Joi.number().integer().min(1).max(365).optional().allow(null),
     allowedDurations: Joi.array()
       .items(Joi.number().integer().min(1).max(365))

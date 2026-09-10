@@ -29,6 +29,7 @@ import {
   getQoLHistory,
 } from "./sos.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
+import { requireProgramAccess } from "../FeatureAccess/programAccess.middleware.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
 import { progressSchemas, dailySosSchemas, qolSchemas } from "./quiz.validation.js";
 
@@ -116,7 +117,7 @@ router.use(authenticate);
  * @access  User (authenticated)
  * @body    {string} programId - Program ID to start
  */
-router.post("/programs/start", validateBody(progressSchemas.startProgram), startProgram);
+router.post("/programs/start", validateBody(progressSchemas.startProgram), requireProgramAccess, startProgram);
 
 /**
  * @route   POST /api/app/sos/programs/reset
@@ -148,7 +149,7 @@ router.get("/programs/:programId/progress", validateParams(programIdParam), getP
  * @access  User (authenticated)
  * @param   {string} programId - Program ID
  */
-router.get("/programs/:programId/today-quiz", validateParams(programIdParam), getTodayQuiz);
+router.get("/programs/:programId/today-quiz", validateParams(programIdParam), requireProgramAccess, getTodayQuiz);
 
 /**
  * @route   GET /api/app/sos/programs/:programId/days/:dayNumber/quiz
@@ -157,7 +158,12 @@ router.get("/programs/:programId/today-quiz", validateParams(programIdParam), ge
  * @param   {string} programId - Program ID
  * @param   {number} dayNumber - Day number
  */
-router.get("/programs/:programId/days/:dayNumber/quiz", validateParams(daySubmitParamsSchema), getDayQuiz);
+router.get(
+  "/programs/:programId/days/:dayNumber/quiz",
+  validateParams(daySubmitParamsSchema),
+  requireProgramAccess,
+  getDayQuiz
+);
 
 /**
  * @route   POST /api/app/sos/programs/:programId/days/:dayNumber/submit
@@ -171,6 +177,7 @@ router.post(
   "/programs/:programId/days/:dayNumber/submit",
   validateParams(daySubmitParamsSchema),
   validateBody(progressSchemas.submitQuiz),
+  requireProgramAccess,
   submitDayQuiz
 );
 
@@ -188,7 +195,7 @@ router.get("/programs/:programId/certificate", validateParams(programIdParam), d
  * @access  User (authenticated)
  * @param   {string} programId - Program ID
  */
-router.post("/programs/:programId/retry", validateParams(programIdParam), retryProgram);
+router.post("/programs/:programId/retry", validateParams(programIdParam), requireProgramAccess, retryProgram);
 
 /**
  * @route   GET /api/app/sos/programs/:programId/schedule-info
@@ -196,7 +203,7 @@ router.post("/programs/:programId/retry", validateParams(programIdParam), retryP
  * @access  User (authenticated)
  * @param   {string} programId - Program ID
  */
-router.get("/programs/:programId/schedule-info", validateParams(programIdParam), getScheduleInfo);
+router.get("/programs/:programId/schedule-info", validateParams(programIdParam), requireProgramAccess, getScheduleInfo);
 
 /**
  * @route   POST /api/app/sos/programs/:programId/confirm-schedule
@@ -206,7 +213,12 @@ router.get("/programs/:programId/schedule-info", validateParams(programIdParam),
  * @body    {string} [scheduledAt] - ISO date string of scheduled time
  * @body    {string} [calendlyInviteeUri] - Calendly invitee URI
  */
-router.post("/programs/:programId/confirm-schedule", validateParams(programIdParam), confirmSchedule);
+router.post(
+  "/programs/:programId/confirm-schedule",
+  validateParams(programIdParam),
+  requireProgramAccess,
+  confirmSchedule
+);
 
 /**
  * @route   GET /api/app/sos/programs/:programId/days/:dayNumber/article
@@ -218,6 +230,7 @@ router.post("/programs/:programId/confirm-schedule", validateParams(programIdPar
 router.get(
   "/programs/:programId/days/:dayNumber/article",
   validateParams(daySubmitParamsSchema),
+  requireProgramAccess,
   getDayArticle
 );
 

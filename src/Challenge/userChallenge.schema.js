@@ -126,6 +126,11 @@ const userChallengeSchema = new mongoose.Schema(
       default: Date.now,
     },
 
+    lastNudgeAt: {
+      type: Date,
+      default: null,
+    },
+
     /**
      * Daily progress tracking
      */
@@ -358,6 +363,111 @@ userChallengeSchema.methods.unmarkTask = async function (taskId) {
   this.dailyProgress[progressIndex].completedAt = null;
 
   this.lastActivityAt = new Date();
+
+  return this.save();
+};
+
+/**
+ * Instance method to mark the whole of today done in one action.
+ * Works for challenges that carry no tasks at all, and for task-based ones
+ * it ticks every task so both flows leave the same shape behind.
+ * @returns {Promise<UserChallenge>} Updated document
+ */
+userChallengeSchema.methods.markDayComplete = async function () {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const startDate = new Date(this.startedAt);
+  startDate.setHours(0, 0, 0, 0);
+  const dayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+  const Challenge = mongoose.model("Challenge");
+  const challenge = await Challenge.findById(this.challengeId);
+  if (!challenge) throw new Error("Challenge not found");
+
+  let progressIndex = this.dailyProgress.findIndex((d) => {
+    const progressDate = new Date(d.date);
+    progressDate.setHours(0, 0, 0, 0);
+    return progressDate.getTime() === today.getTime();
+  });
+
+  if (progressIndex === -1) {
+    this.dailyProgress.push({
+      date: today,
+      dayNumber,
+      tasks: (challenge.tasks || []).map((t) => ({ taskId: t._id, completed: false })),
+      allTasksCompleted: false,
+    });
+    progressIndex = this.dailyProgress.length - 1;
+  }
+
+  const progress = this.dailyProgress[progressIndex];
+
+  if (progress.allTasksCompleted) {
+    return this;
+  }
+
+  const now = new Date();
+  progress.tasks.forEach((t) => {
+    if (!t.completed) {
+      t.completed = true;
+      t.completedAt = now;
+    }
+  });
+
+  progress.allTasksCompleted = true;
+  progress.completedAt = now;
+  this.daysCompleted += 1;
+  this.updateStreak();
+  this.lastActivityAt = now;
+
+  const duration = this.selectedDurationDays || challenge.durationDays;
+  if (duration && this.daysCompleted >= duration) {
+    this.status = "completed";
+    this.completedAt = now;
+  }
+
+  return this.save();
+};
+
+/**
+ * Instance method to undo today's completion
+ * @returns {Promise<UserChallenge>} Updated document
+ */
+userChallengeSchema.methods.unmarkDayComplete = async function () {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const progressIndex = this.dailyProgress.findIndex((d) => {
+    const progressDate = new Date(d.date);
+    progressDate.setHours(0, 0, 0, 0);
+    return progressDate.getTime() === today.getTime();
+  });
+
+  if (progressIndex === -1) {
+    throw new Error("No progress for today");
+  }
+
+  const progress = this.dailyProgress[progressIndex];
+
+  if (!progress.allTasksCompleted) {
+    return this;
+  }
+
+  progress.tasks.forEach((t) => {
+    t.completed = false;
+    t.completedAt = null;
+  });
+
+  progress.allTasksCompleted = false;
+  progress.completedAt = null;
+  this.daysCompleted = Math.max(0, this.daysCompleted - 1);
+  this.lastActivityAt = new Date();
+
+  if (this.status === "completed") {
+    this.status = "active";
+    this.completedAt = null;
+  }
 
   return this.save();
 };

@@ -67,6 +67,13 @@ const challengeSchema = new mongoose.Schema(
       maxlength: [2000, "Description cannot exceed 2000 characters"],
     },
 
+    leaderName: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Leader name cannot exceed 100 characters"],
+      default: "Motivata",
+    },
+
     /**
      * Challenge category
      */
@@ -122,12 +129,7 @@ const challengeSchema = new mongoose.Schema(
      */
     tasks: {
       type: [taskSchema],
-      validate: {
-        validator: function (v) {
-          return v && v.length > 0;
-        },
-        message: "Challenge must have at least one task",
-      },
+      default: [],
     },
 
     /**
