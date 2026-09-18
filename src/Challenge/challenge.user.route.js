@@ -14,6 +14,7 @@ import {
   nudgeConnections,
   markTaskComplete,
   unmarkTask,
+  skipTask,
   markDayComplete,
   unmarkDayComplete,
   abandonChallenge,
@@ -159,6 +160,8 @@ router.post("/:challengeId/tasks/:taskId/complete", validateParams(challengeSche
  * @access  User (authenticated)
  */
 router.post("/:challengeId/tasks/:taskId/uncomplete", validateParams(challengeSchemas.taskParams), unmarkTask);
+
+router.post("/:challengeId/tasks/:taskId/skip", validateParams(challengeSchemas.taskParams), skipTask);
 
 /**
  * @route   POST /api/app/challenges/:challengeId/abandon

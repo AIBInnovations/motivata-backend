@@ -620,7 +620,7 @@ export const getMyChallenges = async (req, res) => {
     const challenges = await UserChallenge.find(query)
       .populate({
         path: "challengeId",
-        select: "title description leaderName category subCategory difficulty tasks imageUrl icon durationDays createdBy",
+        select: "title description leaderName category subCategory difficulty tasks imageUrl icon durationDays allowedDurations createdBy",
         populate: { path: "createdBy", select: "name" },
       })
       .sort({ lastActivityAt: -1 });
@@ -945,6 +945,50 @@ export const unmarkTask = async (req, res) => {
     }
 
     return responseUtil.internalError(res, "Failed to unmark task", error.message);
+  }
+};
+
+export const skipTask = async (req, res) => {
+  try {
+    const { challengeId, taskId } = req.params;
+    const userId = req.user.id;
+
+    const userChallenge = await UserChallenge.findOne({ userId, challengeId });
+
+    if (!userChallenge) {
+      return responseUtil.notFound(res, "You are not participating in this challenge");
+    }
+
+    if (userChallenge.status !== "active") {
+      return responseUtil.badRequest(res, "This challenge is no longer active");
+    }
+
+    if (userChallenge.endsAt && new Date() > userChallenge.endsAt) {
+      userChallenge.status = "expired";
+      await userChallenge.save();
+      return responseUtil.badRequest(res, "This challenge has expired");
+    }
+
+    await userChallenge.markTaskSkipped(taskId);
+
+    const todayProgress = await userChallenge.getTodayProgress();
+
+    return responseUtil.success(res, "Task skipped for today", {
+      todayProgress,
+      daysCompleted: userChallenge.daysCompleted,
+    });
+  } catch (error) {
+    console.error("Skip task error:", error);
+
+    if (error.message === "Task not found" || error.message === "Challenge not found") {
+      return responseUtil.badRequest(res, error.message);
+    }
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to skip task", error.message);
   }
 };
 

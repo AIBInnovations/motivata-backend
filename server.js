@@ -46,26 +46,30 @@ const startServer = async () => {
 
     await connectDB();
 
-    // Seed feature access data on startup (non-blocking)
-    seedFeatureAccess().catch((err) => {
-      console.error("> Feature access seed failed:", err.message);
-    });
+    if (process.env.RUN_BACKGROUND_JOBS === "false") {
+      console.log("> Background jobs disabled (RUN_BACKGROUND_JOBS=false): feature seed, cash audit, user cleanup, Calendly sync, challenge reminders");
+    } else {
+      // Seed feature access data on startup (non-blocking)
+      seedFeatureAccess().catch((err) => {
+        console.error("> Feature access seed failed:", err.message);
+      });
 
-    // Run cash ticket audit on startup (non-blocking)
-    runCashTicketAudit().catch((err) => {
-      console.error("> Cash ticket audit failed:", err.message);
-    });
+      // Run cash ticket audit on startup (non-blocking)
+      runCashTicketAudit().catch((err) => {
+        console.error("> Cash ticket audit failed:", err.message);
+      });
 
-    // Cleanup soft-deleted users past 30-day grace period (non-blocking)
-    cleanupDeletedUsers().catch((err) => {
-      console.error("> Deleted users cleanup failed:", err.message);
-    });
+      // Cleanup soft-deleted users past 30-day grace period (non-blocking)
+      cleanupDeletedUsers().catch((err) => {
+        console.error("> Deleted users cleanup failed:", err.message);
+      });
 
-    // Start Calendly sync job — polls every 5 min to update scheduled bookings
-    startCalendlySyncJob();
+      // Start Calendly sync job — polls every 5 min to update scheduled bookings
+      startCalendlySyncJob();
 
-    // Start challenge reminder cron — 12:00 PM & 6:00 PM daily (server local time)
-    startChallengeReminderJobs();
+      // Start challenge reminder cron — 12:00 PM & 6:00 PM daily (server local time)
+      startChallengeReminderJobs();
+    }
 
     app.listen(PORT, () => {
       console.log(`> Server is running on port ${PORT}`);
