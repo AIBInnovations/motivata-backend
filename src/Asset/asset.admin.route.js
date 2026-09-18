@@ -34,12 +34,21 @@ const upload = multer({
       "video/ogg",
       "video/quicktime",
       "video/x-msvideo",
+      "audio/mpeg",
+      "audio/mp3",
+      "audio/mp4",
+      "audio/x-m4a",
+      "audio/aac",
+      "audio/wav",
+      "audio/x-wav",
+      "audio/ogg",
+      "audio/webm",
     ];
 
     if (allowedMimeTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type: ${file.mimetype}. Only images and videos are allowed.`), false);
+      cb(new Error(`Invalid file type: ${file.mimetype}. Only images, videos and audio are allowed.`), false);
     }
   },
 });

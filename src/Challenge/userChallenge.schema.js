@@ -4,6 +4,9 @@
  */
 
 import mongoose from "mongoose";
+import { dateKeyIST } from "../../utils/timezone.util.js";
+
+const istDayStart = (date = new Date()) => new Date(`${dateKeyIST(date)}T00:00:00.000Z`);
 
 /**
  * Daily task completion sub-schema
@@ -20,6 +23,10 @@ const dailyTaskProgressSchema = new mongoose.Schema(
     },
     completedAt: {
       type: Date,
+    },
+    status: {
+      type: String,
+      enum: ["done", "skipped"],
     },
   },
   { _id: false }
@@ -218,17 +225,14 @@ userChallengeSchema.statics.findByUserAndChallenge = function (userId, challenge
  * @returns {Promise<UserChallenge>} Updated document
  */
 userChallengeSchema.methods.markTaskComplete = async function (taskId) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = istDayStart();
 
-  const startDate = new Date(this.startedAt);
-  startDate.setHours(0, 0, 0, 0);
+  const startDate = istDayStart(this.startedAt);
   const dayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
 
   // Find or create today's progress
   let todayProgress = this.dailyProgress.find((d) => {
-    const progressDate = new Date(d.date);
-    progressDate.setHours(0, 0, 0, 0);
+    const progressDate = istDayStart(d.date);
     return progressDate.getTime() === today.getTime();
   });
 
@@ -252,8 +256,7 @@ userChallengeSchema.methods.markTaskComplete = async function (taskId) {
 
   // Find today's progress again (in case it was just added)
   const progressIndex = this.dailyProgress.findIndex((d) => {
-    const progressDate = new Date(d.date);
-    progressDate.setHours(0, 0, 0, 0);
+    const progressDate = istDayStart(d.date);
     return progressDate.getTime() === today.getTime();
   });
 
@@ -297,6 +300,7 @@ userChallengeSchema.methods.markTaskComplete = async function (taskId) {
 
   this.dailyProgress[progressIndex].tasks[taskIndex].completed = true;
   this.dailyProgress[progressIndex].tasks[taskIndex].completedAt = new Date();
+  this.dailyProgress[progressIndex].tasks[taskIndex].status = "done";
 
   // Check if all tasks are completed
   const allCompleted = this.dailyProgress[progressIndex].tasks.every((t) => t.completed);
@@ -331,12 +335,10 @@ userChallengeSchema.methods.markTaskComplete = async function (taskId) {
  * @returns {Promise<UserChallenge>} Updated document
  */
 userChallengeSchema.methods.unmarkTask = async function (taskId) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = istDayStart();
 
   const progressIndex = this.dailyProgress.findIndex((d) => {
-    const progressDate = new Date(d.date);
-    progressDate.setHours(0, 0, 0, 0);
+    const progressDate = istDayStart(d.date);
     return progressDate.getTime() === today.getTime();
   });
 
@@ -359,6 +361,50 @@ userChallengeSchema.methods.unmarkTask = async function (taskId) {
 
   this.dailyProgress[progressIndex].tasks[taskIndex].completed = false;
   this.dailyProgress[progressIndex].tasks[taskIndex].completedAt = null;
+  this.dailyProgress[progressIndex].tasks[taskIndex].status = undefined;
+  this.dailyProgress[progressIndex].allTasksCompleted = false;
+  this.dailyProgress[progressIndex].completedAt = null;
+
+  this.lastActivityAt = new Date();
+
+  return this.save();
+};
+
+userChallengeSchema.methods.markTaskSkipped = async function (taskId) {
+  const todayProgress = await this.getTodayProgress();
+  if (!todayProgress) {
+    throw new Error("Challenge not found");
+  }
+
+  const today = istDayStart();
+
+  const progressIndex = this.dailyProgress.findIndex((d) => {
+    const progressDate = istDayStart(d.date);
+    return progressDate.getTime() === today.getTime();
+  });
+
+  let taskIndex = this.dailyProgress[progressIndex].tasks.findIndex(
+    (t) => t.taskId.toString() === taskId.toString()
+  );
+
+  if (taskIndex === -1) {
+    const Challenge = mongoose.model("Challenge");
+    const challenge = await Challenge.findById(this.challengeId);
+    const challengeTask = challenge?.tasks.find((t) => t._id.toString() === taskId.toString());
+    if (!challengeTask) {
+      throw new Error("Task not found");
+    }
+    this.dailyProgress[progressIndex].tasks.push({ taskId: challengeTask._id, completed: false });
+    taskIndex = this.dailyProgress[progressIndex].tasks.length - 1;
+  }
+
+  if (this.dailyProgress[progressIndex].allTasksCompleted) {
+    this.daysCompleted = Math.max(0, this.daysCompleted - 1);
+  }
+
+  this.dailyProgress[progressIndex].tasks[taskIndex].completed = false;
+  this.dailyProgress[progressIndex].tasks[taskIndex].completedAt = null;
+  this.dailyProgress[progressIndex].tasks[taskIndex].status = "skipped";
   this.dailyProgress[progressIndex].allTasksCompleted = false;
   this.dailyProgress[progressIndex].completedAt = null;
 
@@ -374,11 +420,9 @@ userChallengeSchema.methods.unmarkTask = async function (taskId) {
  * @returns {Promise<UserChallenge>} Updated document
  */
 userChallengeSchema.methods.markDayComplete = async function () {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = istDayStart();
 
-  const startDate = new Date(this.startedAt);
-  startDate.setHours(0, 0, 0, 0);
+  const startDate = istDayStart(this.startedAt);
   const dayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
 
   const Challenge = mongoose.model("Challenge");
@@ -386,8 +430,7 @@ userChallengeSchema.methods.markDayComplete = async function () {
   if (!challenge) throw new Error("Challenge not found");
 
   let progressIndex = this.dailyProgress.findIndex((d) => {
-    const progressDate = new Date(d.date);
-    progressDate.setHours(0, 0, 0, 0);
+    const progressDate = istDayStart(d.date);
     return progressDate.getTime() === today.getTime();
   });
 
@@ -435,12 +478,10 @@ userChallengeSchema.methods.markDayComplete = async function () {
  * @returns {Promise<UserChallenge>} Updated document
  */
 userChallengeSchema.methods.unmarkDayComplete = async function () {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = istDayStart();
 
   const progressIndex = this.dailyProgress.findIndex((d) => {
-    const progressDate = new Date(d.date);
-    progressDate.setHours(0, 0, 0, 0);
+    const progressDate = istDayStart(d.date);
     return progressDate.getTime() === today.getTime();
   });
 
@@ -476,13 +517,9 @@ userChallengeSchema.methods.unmarkDayComplete = async function () {
  * Update streak count
  */
 userChallengeSchema.methods.updateStreak = function () {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = istDayStart();
 
-  const lastStreak = this.lastStreakDate ? new Date(this.lastStreakDate) : null;
-  if (lastStreak) {
-    lastStreak.setHours(0, 0, 0, 0);
-  }
+  const lastStreak = this.lastStreakDate ? istDayStart(this.lastStreakDate) : null;
 
   if (!lastStreak) {
     this.currentStreak = 1;
@@ -511,19 +548,16 @@ userChallengeSchema.methods.updateStreak = function () {
  * @returns {Object|null} Today's progress or null
  */
 userChallengeSchema.methods.getTodayProgress = async function () {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = istDayStart();
 
   let todayProgress = this.dailyProgress.find((d) => {
-    const progressDate = new Date(d.date);
-    progressDate.setHours(0, 0, 0, 0);
+    const progressDate = istDayStart(d.date);
     return progressDate.getTime() === today.getTime();
   });
 
   // If no progress for today, initialize it
   if (!todayProgress) {
-    const startDate = new Date(this.startedAt);
-    startDate.setHours(0, 0, 0, 0);
+    const startDate = istDayStart(this.startedAt);
     const dayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
 
     const Challenge = mongoose.model("Challenge");

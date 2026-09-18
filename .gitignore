@@ -18,3 +18,4 @@ logs
 
 # DB data dumps — never commit (contains user data)
 scripts/backup/**/*.json
+.serena

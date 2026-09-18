@@ -9,6 +9,7 @@ import UserSOSProgress from "./schemas/userSOSProgress.schema.js";
 import SOSArticle from "./schemas/sosArticle.schema.js";
 import DailySOSQuestion from "./schemas/dailySosQuestion.schema.js";
 import DailySOSAnswer from "./schemas/dailySosAnswer.schema.js";
+import DailyReflection, { REFLECTION_QUESTIONS } from "./schemas/dailyReflection.schema.js";
 import { dateKeyIST } from "../../utils/timezone.util.js";
 import QoLFactor from "./schemas/qolFactor.schema.js";
 import QoLEntry from "./schemas/qolEntry.schema.js";
@@ -1882,6 +1883,60 @@ export const getDailyAnswerHistory = async (req, res) => {
   } catch (error) {
     console.error("Get daily SOS history error:", error);
     return responseUtil.internalError(res, "Failed to fetch history", error.message);
+  }
+};
+
+export const getTodayReflections = async (req, res) => {
+  try {
+    const today = dateKeyIST();
+    const answers = await DailyReflection.find({ userId: req.user.id, dateKey: today });
+
+    return responseUtil.success(res, "Reflections fetched successfully", {
+      dateKey: today,
+      questions: REFLECTION_QUESTIONS.map((q) => {
+        const saved = answers.find((a) => a.questionKey === q.key);
+        return {
+          key: q.key,
+          text: q.text,
+          answer: saved ? saved.answer : null,
+          answeredAt: saved ? saved.answeredAt : null,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error("Get today's reflections error:", error);
+    return responseUtil.internalError(res, "Failed to fetch reflections", error.message);
+  }
+};
+
+export const submitReflection = async (req, res) => {
+  try {
+    const today = dateKeyIST();
+    const { questionKey, answer } = req.body;
+
+    const saved = await DailyReflection.findOneAndUpdate(
+      { userId: req.user.id, dateKey: today, questionKey },
+      { $set: { answer, answeredAt: new Date() } },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+
+    return responseUtil.success(res, "Reflection saved successfully", {
+      reflection: {
+        _id: saved._id,
+        key: saved.questionKey,
+        dateKey: saved.dateKey,
+        answer: saved.answer,
+        answeredAt: saved.answeredAt,
+      },
+    });
+  } catch (error) {
+    console.error("Submit reflection error:", error);
+
+    if (error.code === 11000) {
+      return responseUtil.conflict(res, "Please try again");
+    }
+
+    return responseUtil.internalError(res, "Failed to save your reflection", error.message);
   }
 };
 

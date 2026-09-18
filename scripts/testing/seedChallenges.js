@@ -36,6 +36,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHEET_PATH = path.resolve(__dirname, "../../../client_docs/Motivata Challenges.xlsx");
 
 const APPLY = process.env.APPLY === "yes";
+const SKIP_GENERATED = process.env.SKIP_GENERATED === "yes";
 
 const CATEGORY_BY_HEADER = {
   "Personal Challenge": "personal",
@@ -268,7 +269,7 @@ const run = async () => {
   }
 
   const fromSheet = parseSheet();
-  const generated = buildGenerated();
+  const generated = SKIP_GENERATED ? [] : buildGenerated();
   const all = [...fromSheet, ...generated];
 
   const bad = all.filter((c) => !isSubCategoryOfCategory(c.category, c.subCategory));

@@ -23,6 +23,8 @@ import {
   getTodayDailyQuestion,
   submitDailyAnswer,
   getDailyAnswerHistory,
+  getTodayReflections,
+  submitReflection,
   getQoLFactors,
   submitQoLEntry,
   getLatestQoLEntry,
@@ -31,7 +33,7 @@ import {
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
 import { requireProgramAccess } from "../FeatureAccess/programAccess.middleware.js";
 import { validateParams, validateQuery, validateBody } from "../../middleware/validation.middleware.js";
-import { progressSchemas, dailySosSchemas, qolSchemas } from "./quiz.validation.js";
+import { progressSchemas, dailySosSchemas, qolSchemas, reflectionSchemas } from "./quiz.validation.js";
 
 /** @type {express.Router} */
 const router = express.Router();
@@ -254,6 +256,10 @@ router.post("/daily-question/answer", validateBody(dailySosSchemas.submitAnswer)
  * @access  User (authenticated)
  */
 router.get("/daily-question/history", validateQuery(dailySosSchemas.history), getDailyAnswerHistory);
+
+router.get("/reflections/today", getTodayReflections);
+
+router.post("/reflections", validateBody(reflectionSchemas.submit), submitReflection);
 
 /**
  * @route   GET /api/app/sos/quality-of-life/factors

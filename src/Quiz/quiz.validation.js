@@ -308,6 +308,15 @@ const dateKeyRule = Joi.string()
   .pattern(/^\d{4}-\d{2}-\d{2}$/)
   .messages({ "string.pattern.base": "Date must be in YYYY-MM-DD format" });
 
+export const reflectionSchemas = {
+  submit: Joi.object({
+    questionKey: Joi.string().valid("happy", "grateful").required(),
+    answer: Joi.string().trim().min(1).max(2000).required().messages({
+      "string.empty": "Answer is required",
+    }),
+  }),
+};
+
 export const dailySosSchemas = {
   create: Joi.object({
     dateKey: dateKeyRule.required(),
