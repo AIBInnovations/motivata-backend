@@ -3,6 +3,86 @@ import JobApplication from "../../schema/JobApplication.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import cloudinary from "../../config/cloudinary.config.js";
 import multer from "multer";
+import { notifyAllUsers, notifyUsers } from "../../services/userNotification.service.js";
+
+const announceOpportunity = (job) => {
+  if (!job.isActive) return;
+  notifyAllUsers({
+    excludeUserIds: job.postedByUser ? [job.postedByUser] : [],
+    category: "OPPORTUNITIES",
+    type: "NEW_OPPORTUNITY",
+    title: "New opportunity for Doers",
+    body: `${job.title} · ${job.company}`,
+    data: { screen: "Doers", jobId: String(job._id) },
+    imageUrl: job.jobImage || undefined,
+  }).catch((err) => console.error("[JOB ADMIN] Announce failed:", err.message));
+};
+
+export const approveJob = async (req, res) => {
+  try {
+    const job = await JobPost.findById(req.params.jobId);
+    if (!job) return responseUtil.notFound(res, "Job not found");
+    if (job.approvalStatus === "APPROVED") {
+      return responseUtil.badRequest(res, "This opportunity is already approved");
+    }
+
+    job.approvalStatus = "APPROVED";
+    job.rejectionReason = "";
+    job.reviewedBy = req.user.id;
+    job.reviewedAt = new Date();
+    job.isActive = true;
+    await job.save();
+
+    if (job.postedByUser) {
+      notifyUsers({
+        userIds: [job.postedByUser],
+        category: "OPPORTUNITIES",
+        type: "OPPORTUNITY_APPROVED",
+        title: "Your opportunity is live",
+        body: `"${job.title}" was approved and is now visible to everyone.`,
+        data: { screen: "Doers", jobId: String(job._id) },
+      });
+    }
+    announceOpportunity(job);
+
+    return responseUtil.success(res, "Opportunity approved", { job });
+  } catch (error) {
+    if (error.name === "CastError") return responseUtil.badRequest(res, "Invalid job ID");
+    return responseUtil.internalError(res, "Failed to approve opportunity", error.message);
+  }
+};
+
+export const rejectJob = async (req, res) => {
+  try {
+    const reason = String(req.body?.reason || "").trim();
+    if (!reason) return responseUtil.badRequest(res, "Please give a reason for rejecting");
+    if (reason.length > 500) return responseUtil.badRequest(res, "Reason cannot exceed 500 characters");
+
+    const job = await JobPost.findById(req.params.jobId);
+    if (!job) return responseUtil.notFound(res, "Job not found");
+    if (!job.postedByUser) return responseUtil.badRequest(res, "Only member-posted opportunities can be rejected");
+
+    job.approvalStatus = "REJECTED";
+    job.rejectionReason = reason;
+    job.reviewedBy = req.user.id;
+    job.reviewedAt = new Date();
+    await job.save();
+
+    notifyUsers({
+      userIds: [job.postedByUser],
+      category: "OPPORTUNITIES",
+      type: "OPPORTUNITY_REJECTED",
+      title: "Opportunity not approved",
+      body: `"${job.title}" was not approved: ${reason}`,
+      data: { screen: "Doers", jobId: String(job._id) },
+    });
+
+    return responseUtil.success(res, "Opportunity rejected", { job });
+  } catch (error) {
+    if (error.name === "CastError") return responseUtil.badRequest(res, "Invalid job ID");
+    return responseUtil.internalError(res, "Failed to reject opportunity", error.message);
+  }
+};
 
 const storage = multer.memoryStorage();
 export const upload = multer({
@@ -67,6 +147,7 @@ export const createJob = async (req, res) => {
     });
 
     await job.save();
+    announceOpportunity(job);
     return responseUtil.created(res, "Job post created successfully", { job });
   } catch (error) {
     console.error("[JOB ADMIN] Create error:", error);
@@ -122,19 +203,28 @@ export const getJob = async (req, res) => {
 // Get all job posts
 export const getJobs = async (req, res) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
+    const { page = 1, limit = 20, status, approval } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
     const query = {};
     if (status === "active") query.isActive = true;
     if (status === "inactive") query.isActive = false;
+    if (approval === "PENDING" || approval === "REJECTED") query.approvalStatus = approval;
+    if (approval === "APPROVED") query.approvalStatus = { $nin: ["PENDING", "REJECTED"] };
 
-    const [jobs, total] = await Promise.all([
-      JobPost.find(query).populate("createdBy", "name email").sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
-      JobPost.countDocuments(query),
+    const [jobs, total, pendingApprovalCount] = await Promise.all([
+      JobPost.find(query)
+        .populate("createdBy", "name email")
+        .populate("postedByUser", "name phone email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
+      JobPost.countDocuments({ ...query, isDeleted: false }),
+      JobPost.countDocuments({ approvalStatus: "PENDING", isDeleted: false }),
     ]);
 
     return responseUtil.success(res, "Jobs fetched", {
       jobs,
+      pendingApprovalCount,
       pagination: {
         currentPage: Number(page),
         totalPages: Math.ceil(total / Number(limit)),

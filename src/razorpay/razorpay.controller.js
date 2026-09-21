@@ -11,6 +11,7 @@ import EventEnrollment from "../../schema/EventEnrollment.schema.js";
 import UserMembership from "../../schema/UserMembership.schema.js";
 import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { tierMeetsAudience } from "../../middleware/membership.middleware.js";
 import { reserveSeats, releaseSeatReservation } from "../SeatArrangement/seatArrangement.controller.js";
 import SOSProgram from "../Quiz/schemas/sosProgram.schema.js";
 
@@ -244,12 +245,14 @@ export const createOrder = async (req, res) => {
     // === MEMBERS-ONLY EVENT GUARD ===
     // For members-only events, the buyer must have an active membership.
     // This is the secure backstop behind the app's "Become a member" prompt.
-    if (event.audience === "MEMBERS_ONLY") {
-      const buyerIsMember = await UserMembership.hasActiveMembership(metadata.buyer.phone);
-      if (!buyerIsMember) {
+    if (event.audience === "MEMBERS_ONLY" || event.audience === "DOERS_EXCLUSIVE") {
+      const buyerTier = await UserMembership.getAccessTier(metadata.buyer.phone);
+      if (!tierMeetsAudience(buyerTier, event.audience)) {
         return responseUtil.forbidden(
           res,
-          "This event is for members only. Please become a member to book."
+          event.audience === "DOERS_EXCLUSIVE"
+            ? "This event is for Doers and Members only. Become a Doer to book."
+            : "This event is for members only. Please become a member to book."
         );
       }
     }

@@ -14,6 +14,10 @@ import {
   getUserProfile,
   checkFollowStatus,
   updatePrivacySettings,
+  getConnectionRequests,
+  respondToConnectionRequest,
+  getMyGrowthScore,
+  openUserDeepLink,
 } from "./connect.controller.js";
 import {
   createPost,
@@ -339,6 +343,19 @@ router.patch(
   "/users/privacy",
   authenticate,
   updatePrivacySettings
+);
+
+router.get("/users/me/growth-score", authenticate, getMyGrowthScore);
+
+router.get("/users/:userId/open", openUserDeepLink);
+
+router.get("/requests", authenticate, getConnectionRequests);
+
+router.post(
+  "/requests/:userId/respond",
+  authenticate,
+  validateParams(connectSchemas.userId),
+  respondToConnectionRequest
 );
 
 /**

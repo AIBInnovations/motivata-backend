@@ -39,6 +39,8 @@ import adminJobRoutes from "../src/Job/job.admin.route.js";
 import adminRecommendationRoutes from "../src/Recommendation/recommendation.admin.route.js";
 import adminCollegeRoutes from "../src/Referral/college.admin.route.js";
 import referralCodeRoutes from "../src/Referral/referralCode.route.js";
+import adminCommunityRoutes from "../src/Community/community.admin.route.js";
+import adminOccupationRoutes from "../src/Occupation/occupation.admin.route.js";
 
 const router = express.Router();
 
@@ -172,6 +174,10 @@ router.use("/connect", adminConnectPostRoutes);
 
 // Job routes - /api/web/jobs
 router.use("/jobs", adminJobRoutes);
+
+router.use("/community", adminCommunityRoutes);
+
+router.use("/occupations", adminOccupationRoutes);
 
 // Service routes - /api/web/services, /api/web/service-orders, /api/web/service-requests, /api/web/user-subscriptions
 router.use("/", adminServiceRoutes);

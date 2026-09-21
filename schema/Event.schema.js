@@ -146,10 +146,20 @@ const eventSchema = new mongoose.Schema(
     audience: {
       type: String,
       enum: {
-        values: ["ALL", "MEMBERS_ONLY", "INVITE_ONLY"],
+        values: ["ALL", "DOERS_EXCLUSIVE", "MEMBERS_ONLY", "INVITE_ONLY"],
         message: "{VALUE} is not a valid audience",
       },
       default: "ALL",
+    },
+
+    reminderDayBeforeSentAt: {
+      type: Date,
+      default: null,
+    },
+
+    reminderSoonSentAt: {
+      type: Date,
+      default: null,
     },
 
     /**

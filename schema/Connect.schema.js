@@ -29,6 +29,17 @@ const connectSchema = new mongoose.Schema(
       required: true,
     },
 
+    status: {
+      type: String,
+      enum: ["PENDING", "ACCEPTED"],
+      default: "ACCEPTED",
+    },
+
+    respondedAt: {
+      type: Date,
+      default: null,
+    },
+
     /**
      * Soft delete flag - used when either user deletes their account
      */
@@ -75,6 +86,19 @@ connectSchema.pre(/^find/, function () {
     this.where({ isDeleted: false });
   }
 });
+
+function onlyAcceptedByDefault() {
+  if (this.getOptions().includePending) return;
+  if (!this.getQuery().hasOwnProperty("status")) {
+    this.where({ status: { $ne: "PENDING" } });
+  }
+}
+
+connectSchema.pre(/^find/, onlyAcceptedByDefault);
+connectSchema.pre("countDocuments", onlyAcceptedByDefault);
+connectSchema.pre("distinct", onlyAcceptedByDefault);
+
+connectSchema.index({ following: 1, status: 1, isDeleted: 1 });
 
 /**
  * Pre-save validation: prevent self-follow

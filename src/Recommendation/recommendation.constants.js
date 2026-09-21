@@ -7,7 +7,7 @@
 
 /**
  * Recommendation taxonomy: a Main category with its Sub Tags.
- * A recommendation is stored as [mainCategory, ...subTags] (1 main + up to 2 subs).
+ * A recommendation is stored as [mainCategory, subTag] (1 main + at most 1 sub).
  * Edit this list to change the available tags everywhere.
  */
 export const RECOMMENDATION_CATEGORIES = [
@@ -92,7 +92,36 @@ export const RECOMMENDATION_MAX_WORDS = 50;
 export const COMMENT_MAX_WORDS = 25;
 
 /** Maximum number of tags that can be attached to a recommendation. */
-export const RECOMMENDATION_MAX_TAGS = 3;
+export const RECOMMENDATION_MAX_TAGS = 2;
+
+export const MAX_PINNED_COMMENTS = 5;
+
+const SIMILARITY_STOP_WORDS = new Set([
+  "the", "and", "for", "you", "your", "this", "that", "with", "was", "are", "have", "has",
+  "its", "it's", "from", "must", "should", "watch", "read", "try", "best", "good", "great",
+  "very", "really", "one", "all", "our", "who", "what", "when", "will", "can", "just", "about",
+  "out", "but", "not", "they", "them", "their", "his", "her", "she", "him", "love", "loved",
+  "recommend", "recommended", "highly", "amazing", "awesome", "nice", "also", "into", "over",
+]);
+
+export const tokenizeForSimilarity = (text = "") =>
+  new Set(
+    String(text)
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, " ")
+      .replace(/[^a-z0-9ऀ-ॿ\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !SIMILARITY_STOP_WORDS.has(w))
+  );
+
+export const similarityScore = (a, b) => {
+  if (a.size === 0 || b.size === 0) return { shared: 0, score: 0 };
+  let shared = 0;
+  a.forEach((w) => {
+    if (b.has(w)) shared += 1;
+  });
+  return { shared, score: shared / Math.min(a.size, b.size) };
+};
 
 /**
  * Membership plan name(s) whose buyers count as "Doers" (allowed to bookmark).

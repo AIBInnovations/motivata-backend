@@ -54,6 +54,33 @@ const postSchema = new mongoose.Schema(
       default: "",
     },
 
+    subHeading: {
+      type: String,
+      trim: true,
+      maxlength: [200, "Sub-heading cannot exceed 200 characters"],
+      default: "",
+    },
+
+    category: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    videoUrl: {
+      type: String,
+      trim: true,
+      default: "",
+      match: [/^$|^https?:\/\/\S+$/i, "Please provide a valid video link"],
+    },
+
+    linkUrl: {
+      type: String,
+      trim: true,
+      default: "",
+      match: [/^$|^https?:\/\/\S+$/i, "Please provide a valid link"],
+    },
+
     /**
      * Post content/context (used for admin posts)
      */

@@ -7,7 +7,110 @@ import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
 import Post from "../../schema/Post.schema.js";
 import Like from "../../schema/Like.schema.js";
+import ClubMember from "../../schema/ClubMember.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { notifyUsers } from "../../services/userNotification.service.js";
+import { computeGrowthScore, getProfileSections } from "../../services/profileInsights.service.js";
+
+const PRIVACY_FIELDS = [
+  "showOccupation",
+  "showAge",
+  "showBio",
+  "showPosts",
+  "showChallenges",
+  "showOpportunities",
+  "showEvents",
+  "showClubs",
+  "showSosReports",
+  "showGrowthScore",
+];
+
+const PRIVACY_DEFAULT_OFF = new Set(["showSosReports"]);
+
+const privacyFlags = (privacy = {}) =>
+  Object.fromEntries(
+    PRIVACY_FIELDS.map((key) => [
+      key,
+      PRIVACY_DEFAULT_OFF.has(key) ? privacy?.[key] === true : privacy?.[key] !== false,
+    ])
+  );
+
+const findEdge = (follower, following) =>
+  Connect.findOne({ follower, following }).setOptions({ includePending: true });
+
+const adjustCounts = async (followerId, followingId, delta) => {
+  if (delta > 0) {
+    await Promise.all([
+      User.findByIdAndUpdate(followerId, { $inc: { followingCount: 1 } }),
+      User.findByIdAndUpdate(followingId, { $inc: { followerCount: 1 } }),
+    ]);
+    return;
+  }
+  await Promise.all([
+    User.findByIdAndUpdate(followerId, [
+      { $set: { followingCount: { $max: [0, { $subtract: ["$followingCount", 1] }] } } },
+    ]),
+    User.findByIdAndUpdate(followingId, [
+      { $set: { followerCount: { $max: [0, { $subtract: ["$followerCount", 1] }] } } },
+    ]),
+  ]);
+};
+
+const acceptEdge = async (edge) => {
+  if (edge.status !== "PENDING") return false;
+  edge.status = "ACCEPTED";
+  edge.respondedAt = new Date();
+  await edge.save();
+  await adjustCounts(edge.follower, edge.following, 1);
+  return true;
+};
+
+const ensureAcceptedEdge = async (followerId, followingId) => {
+  const existing = await findEdge(followerId, followingId);
+  if (existing) {
+    await acceptEdge(existing);
+    return;
+  }
+  try {
+    await Connect.create({ follower: followerId, following: followingId, status: "ACCEPTED", respondedAt: new Date() });
+    await adjustCounts(followerId, followingId, 1);
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+  }
+};
+
+export const getConnectionStatusMap = async (currentUserId, otherIds) => {
+  const map = new Map();
+  if (!currentUserId || otherIds.length === 0) return map;
+  const ids = otherIds.map(String);
+  const edges = await Connect.find({
+    $or: [
+      { follower: currentUserId, following: { $in: ids } },
+      { following: currentUserId, follower: { $in: ids } },
+    ],
+  })
+    .setOptions({ includePending: true })
+    .select("follower following status")
+    .lean();
+
+  ids.forEach((id) => map.set(id, "NONE"));
+  edges.forEach((edge) => {
+    const outgoing = String(edge.follower) === String(currentUserId);
+    const other = outgoing ? String(edge.following) : String(edge.follower);
+    const current = map.get(other);
+    if (edge.status !== "PENDING") {
+      map.set(other, "CONNECTED");
+    } else if (current !== "CONNECTED") {
+      map.set(other, outgoing ? "REQUESTED" : "INCOMING");
+    }
+  });
+  return map;
+};
+
+export const getConnectionStatus = async (currentUserId, otherId) => {
+  const map = await getConnectionStatusMap(currentUserId, [otherId]);
+  return map.get(String(otherId)) || "NONE";
+};
 
 /**
  * Follow a user
@@ -17,44 +120,60 @@ import responseUtil from "../../utils/response.util.js";
 export const followUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const followerId = req.user.id;
+    const requesterId = req.user.id;
 
-    // Prevent self-follow
-    if (userId === followerId) {
-      return responseUtil.badRequest(res, "Cannot follow yourself");
+    if (userId === requesterId) {
+      return responseUtil.badRequest(res, "Cannot connect with yourself");
     }
 
-    // Check if target user exists and is not deleted
-    const targetUser = await User.findById(userId);
+    const [targetUser, requester] = await Promise.all([
+      User.findById(userId).select("name"),
+      User.findById(requesterId).select("name"),
+    ]);
     if (!targetUser) {
       return responseUtil.notFound(res, "User not found");
     }
 
-    // Check if already following
-    const existingFollow = await Connect.findOne({
-      follower: followerId,
-      following: userId,
-    });
+    const [outgoing, incoming] = await Promise.all([findEdge(requesterId, userId), findEdge(userId, requesterId)]);
 
-    if (existingFollow) {
-      return responseUtil.conflict(res, "Already following this user");
+    if ((outgoing && outgoing.status !== "PENDING") || (incoming && incoming.status !== "PENDING")) {
+      return responseUtil.conflict(res, "You are already connected");
     }
 
-    // Create follow relationship
-    const connection = new Connect({
-      follower: followerId,
-      following: userId,
+    if (incoming && incoming.status === "PENDING") {
+      await acceptEdge(incoming);
+      await ensureAcceptedEdge(requesterId, userId);
+      notifyUsers({
+        userIds: [userId],
+        category: "CONNECTIONS",
+        type: "CONNECTION_ACCEPTED",
+        title: "New connection",
+        body: `${requester?.name || "Someone"} accepted your connection request.`,
+        data: { screen: "UserProfile", userId: String(requesterId) },
+      });
+      return responseUtil.success(res, "You are now connected", {
+        connectionStatus: "CONNECTED",
+        connection: { following: { id: targetUser._id, name: targetUser.name } },
+      });
+    }
+
+    if (outgoing && outgoing.status === "PENDING") {
+      return responseUtil.conflict(res, "Connection request already sent");
+    }
+
+    const connection = await Connect.create({ follower: requesterId, following: userId, status: "PENDING" });
+
+    notifyUsers({
+      userIds: [userId],
+      category: "CONNECTIONS",
+      type: "CONNECTION_REQUEST",
+      title: "New connection request",
+      body: `${requester?.name || "Someone"} wants to connect with you.`,
+      data: { screen: "ConnectionRequests", userId: String(requesterId) },
     });
 
-    await connection.save();
-
-    // Update denormalized counts
-    await Promise.all([
-      User.findByIdAndUpdate(followerId, { $inc: { followingCount: 1 } }),
-      User.findByIdAndUpdate(userId, { $inc: { followerCount: 1 } }),
-    ]);
-
-    return responseUtil.created(res, "User followed successfully", {
+    return responseUtil.created(res, "Connection request sent", {
+      connectionStatus: "REQUESTED",
       connection: {
         id: connection._id,
         following: {
@@ -67,10 +186,10 @@ export const followUser = async (req, res) => {
     console.error("[CONNECT] Follow user error:", error);
 
     if (error.code === 11000) {
-      return responseUtil.conflict(res, "Already following this user");
+      return responseUtil.conflict(res, "Connection request already sent");
     }
 
-    return responseUtil.internalError(res, "Failed to follow user", error.message);
+    return responseUtil.internalError(res, "Failed to send connection request", error.message);
   }
 };
 
@@ -82,37 +201,126 @@ export const followUser = async (req, res) => {
 export const unfollowUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const followerId = req.user.id;
+    const currentUserId = req.user.id;
 
-    // Prevent self-unfollow
-    if (userId === followerId) {
+    if (userId === currentUserId) {
       return responseUtil.badRequest(res, "Cannot unfollow yourself");
     }
 
-    // Find and delete the follow relationship
-    const connection = await Connect.findOneAndDelete({
-      follower: followerId,
-      following: userId,
-    });
+    const edges = await Connect.find({
+      $or: [
+        { follower: currentUserId, following: userId },
+        { follower: userId, following: currentUserId },
+      ],
+    }).setOptions({ includePending: true });
 
-    if (!connection) {
-      return responseUtil.notFound(res, "You are not following this user");
+    const removable = edges.filter(
+      (edge) => edge.status !== "PENDING" || String(edge.follower) === String(currentUserId)
+    );
+
+    if (removable.length === 0) {
+      return responseUtil.notFound(res, "You are not connected with this user");
     }
 
-    // Update denormalized counts (ensure they don't go below 0 using aggregation pipeline)
-    await Promise.all([
-      User.findByIdAndUpdate(followerId, [
-        { $set: { followingCount: { $max: [0, { $subtract: ["$followingCount", 1] }] } } }
-      ]),
-      User.findByIdAndUpdate(userId, [
-        { $set: { followerCount: { $max: [0, { $subtract: ["$followerCount", 1] }] } } }
-      ]),
-    ]);
+    for (const edge of removable) {
+      await Connect.deleteOne({ _id: edge._id });
+      if (edge.status !== "PENDING") {
+        await adjustCounts(edge.follower, edge.following, -1);
+      }
+    }
 
-    return responseUtil.success(res, "User unfollowed successfully");
+    const onlyCancelledRequest = removable.every((edge) => edge.status === "PENDING");
+    return responseUtil.success(res, onlyCancelledRequest ? "Connection request cancelled" : "Connection removed", {
+      connectionStatus: "NONE",
+    });
   } catch (error) {
     console.error("[CONNECT] Unfollow user error:", error);
-    return responseUtil.internalError(res, "Failed to unfollow user", error.message);
+    return responseUtil.internalError(res, "Failed to remove connection", error.message);
+  }
+};
+
+export const getConnectionRequests = async (req, res) => {
+  try {
+    const currentUserId = req.user.id;
+    const direction = req.query.direction === "outgoing" ? "outgoing" : "incoming";
+    const query =
+      direction === "incoming"
+        ? { following: currentUserId, status: "PENDING" }
+        : { follower: currentUserId, status: "PENDING" };
+
+    const requests = await Connect.find(query)
+      .populate({
+        path: direction === "incoming" ? "follower" : "following",
+        select: "name occupation occupationCategory city bio isDeleted",
+      })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    const users = requests
+      .map((r) => ({ request: r, user: direction === "incoming" ? r.follower : r.following }))
+      .filter(({ user }) => user && !user.isDeleted)
+      .map(({ request, user }) => ({
+        requestId: request._id,
+        user: {
+          id: user._id,
+          name: user.name,
+          occupation: user.occupation || null,
+          occupationCategory: user.occupationCategory || null,
+          city: user.city || null,
+          bio: user.bio || null,
+        },
+        requestedAt: request.createdAt,
+      }));
+
+    return responseUtil.success(res, "Connection requests fetched", {
+      direction,
+      requests: users,
+      count: users.length,
+    });
+  } catch (error) {
+    console.error("[CONNECT] Get requests error:", error);
+    return responseUtil.internalError(res, "Failed to fetch connection requests", error.message);
+  }
+};
+
+export const respondToConnectionRequest = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const currentUserId = req.user.id;
+    const action = req.body?.action;
+
+    if (action !== "accept" && action !== "decline") {
+      return responseUtil.badRequest(res, "Action must be accept or decline");
+    }
+
+    const edge = await Connect.findOne({ follower: userId, following: currentUserId, status: "PENDING" });
+    if (!edge) {
+      return responseUtil.notFound(res, "No pending request from this user");
+    }
+
+    if (action === "decline") {
+      await Connect.deleteOne({ _id: edge._id });
+      return responseUtil.success(res, "Request declined", { connectionStatus: "NONE" });
+    }
+
+    await acceptEdge(edge);
+    await ensureAcceptedEdge(currentUserId, userId);
+
+    const me = await User.findById(currentUserId).select("name").lean();
+    notifyUsers({
+      userIds: [userId],
+      category: "CONNECTIONS",
+      type: "CONNECTION_ACCEPTED",
+      title: "New connection",
+      body: `${me?.name || "Someone"} accepted your connection request.`,
+      data: { screen: "UserProfile", userId: String(currentUserId) },
+    });
+
+    return responseUtil.success(res, "You are now connected", { connectionStatus: "CONNECTED" });
+  } catch (error) {
+    console.error("[CONNECT] Respond to request error:", error);
+    return responseUtil.internalError(res, "Failed to respond to request", error.message);
   }
 };
 
@@ -277,10 +485,12 @@ export const getFollowing = async (req, res) => {
  */
 export const searchUsers = async (req, res) => {
   try {
-    const { search, page = 1, limit = 20 } = req.query;
+    const { search = "", city, occupation, occupationCategory, clubId, page = 1, limit = 20 } = req.query;
     const currentUserId = req.user?.id;
+    const trimmed = String(search || "").trim();
+    const hasFilter = !!(city || occupation || occupationCategory || clubId);
 
-    if (!search || search.trim().length < 2) {
+    if (!hasFilter && trimmed.length < 2) {
       return responseUtil.badRequest(
         res,
         "Search query must be at least 2 characters"
@@ -288,66 +498,70 @@ export const searchUsers = async (req, res) => {
     }
 
     const skip = (page - 1) * limit;
+    const escape = (value) => String(value).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // Build search query
-    const searchRegex = new RegExp(search.trim(), "i");
-    const trimmed = search.trim();
-    const numericValue = Number(trimmed);
-    const orConditions = [
-      { name: searchRegex },
-      { email: searchRegex },
-      { phone: searchRegex },
-      { occupation: searchRegex },
-      { bio: searchRegex },
-    ];
-    if (!isNaN(numericValue) && trimmed !== "") {
-      orConditions.push({ age: numericValue });
+    const query = { isDeleted: false };
+
+    if (trimmed) {
+      const searchRegex = new RegExp(escape(trimmed), "i");
+      const numericValue = Number(trimmed);
+      const orConditions = [
+        { name: searchRegex },
+        { occupation: searchRegex },
+        { occupationCategory: searchRegex },
+        { city: searchRegex },
+        { bio: searchRegex },
+      ];
+      if (!isNaN(numericValue) && trimmed !== "") {
+        orConditions.push({ age: numericValue });
+      }
+      query.$or = orConditions;
     }
-    const query = {
-      $or: orConditions,
-      isDeleted: false,
-    };
 
-    // Exclude current user from search results
+    if (city) query.city = new RegExp(`^${escape(city)}$`, "i");
+    if (occupationCategory) query.occupationCategory = new RegExp(`^${escape(occupationCategory)}$`, "i");
+    if (occupation) query.occupation = new RegExp(escape(occupation), "i");
+
+    if (clubId) {
+      const memberIds = await ClubMember.find({ club: clubId, status: "APPROVED", isDeleted: false }).distinct("user");
+      query._id = { $in: memberIds };
+    }
+
     if (currentUserId) {
-      query._id = { $ne: currentUserId };
+      query._id = query._id ? { ...query._id, $ne: currentUserId } : { $ne: currentUserId };
     }
 
     const [users, totalCount] = await Promise.all([
       User.find(query)
-        .select("name email phone occupation age bio followerCount followingCount postCount createdAt")
+        .select("name occupation occupationCategory city age bio followerCount followingCount postCount privacySettings createdAt")
         .sort({ followerCount: -1, name: 1 })
         .skip(skip)
         .limit(Number(limit)),
       User.countDocuments(query),
     ]);
 
-    // Add isFollowing status
-    let followingSet = new Set();
-    if (currentUserId) {
-      const currentUserFollowing = await Connect.find({
-        follower: currentUserId,
-      }).select("following");
-      followingSet = new Set(
-        currentUserFollowing.map((c) => c.following.toString())
-      );
-    }
+    const statusMap = await getConnectionStatusMap(currentUserId, users.map((u) => u._id));
 
-    const usersWithStatus = users.map((user) => ({
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      occupation: user.occupation || null,
-      age: user.age || null,
-      bio: user.bio || null,
-      followerCount: user.followerCount || 0,
-      followingCount: user.followingCount || 0,
-      postCount: user.postCount || 0,
-      isFollowing: currentUserId ? followingSet.has(user._id.toString()) : false,
-      isOwnProfile: false,
-      joinedAt: user.createdAt,
-    }));
+    const usersWithStatus = users.map((user) => {
+      const privacy = privacyFlags(user.privacySettings);
+      const connectionStatus = statusMap.get(String(user._id)) || "NONE";
+      return {
+        id: user._id,
+        name: user.name,
+        occupation: privacy.showOccupation ? user.occupation || null : null,
+        occupationCategory: privacy.showOccupation ? user.occupationCategory || null : null,
+        city: user.city || null,
+        age: privacy.showAge ? user.age || null : null,
+        bio: privacy.showBio ? user.bio || null : null,
+        followerCount: user.followerCount || 0,
+        followingCount: user.followingCount || 0,
+        postCount: user.postCount || 0,
+        connectionStatus,
+        isFollowing: connectionStatus === "CONNECTED",
+        isOwnProfile: false,
+        joinedAt: user.createdAt,
+      };
+    });
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -381,7 +595,7 @@ export const getUserProfile = async (req, res) => {
     const currentUserId = req.user?.id;
 
     const user = await User.findById(userId).select(
-      "name email phone occupation age bio followerCount followingCount postCount privacySettings createdAt"
+      "name occupation occupationCategory city age bio achievement lifeExperiences followerCount followingCount postCount privacySettings createdAt"
     );
 
     if (!user) {
@@ -389,28 +603,21 @@ export const getUserProfile = async (req, res) => {
     }
 
     const isOwnProfile = currentUserId === userId;
-    const privacy = user.privacySettings || {};
+    const privacy = privacyFlags(user.privacySettings);
+    const connectionStatus = isOwnProfile ? "SELF" : await getConnectionStatus(currentUserId, userId);
+    const isConnected = connectionStatus === "CONNECTED";
+    const canSee = (flag) => isOwnProfile || (isConnected && privacy[flag]);
 
-    // Get user's recent posts — skip if viewer can't see posts
     let formattedPosts = [];
-    if (isOwnProfile || privacy.showPosts !== false) {
+    if (isOwnProfile || privacy.showPosts) {
       const posts = await Post.find({ author: userId })
         .populate("author", "name email")
         .sort({ createdAt: -1 })
         .limit(Number(postsLimit));
 
-      // Get like status and following status if user is logged in
-      let isFollowing = false;
       let likedPostIds = new Set();
-
       if (currentUserId) {
-        const postIds = posts.map((p) => p._id);
-        const [followingStatus, likedPosts] = await Promise.all([
-          !isOwnProfile ? Connect.isFollowing(currentUserId, userId) : Promise.resolve(false),
-          Like.hasLikedPosts(currentUserId, postIds),
-        ]);
-        isFollowing = followingStatus;
-        likedPostIds = likedPosts;
+        likedPostIds = await Like.hasLikedPosts(currentUserId, posts.map((p) => p._id));
       }
 
       formattedPosts = posts.map((post) => ({
@@ -424,7 +631,7 @@ export const getUserProfile = async (req, res) => {
         author: {
           id: post.author._id,
           name: post.author.name,
-          isFollowing: currentUserId && !isOwnProfile ? isFollowing : false,
+          isFollowing: currentUserId && !isOwnProfile ? isConnected : false,
         },
         isLiked: currentUserId ? likedPostIds.has(post._id.toString()) : false,
         isOwnPost: isOwnProfile,
@@ -432,38 +639,50 @@ export const getUserProfile = async (req, res) => {
       }));
     }
 
-    // Determine follow status (needed for user object too)
-    let isFollowing = false;
-    if (currentUserId && !isOwnProfile) {
-      isFollowing = await Connect.isFollowing(currentUserId, userId);
-    }
+    const needsSections =
+      isOwnProfile ||
+      (isConnected &&
+        (privacy.showChallenges || privacy.showOpportunities || privacy.showEvents || privacy.showClubs || privacy.showSosReports));
+    const [sections, growthScore] = await Promise.all([
+      needsSections ? getProfileSections(userId) : Promise.resolve(null),
+      canSee("showGrowthScore") ? computeGrowthScore(userId) : Promise.resolve(null),
+    ]);
 
-    // Build user object — respect privacy settings for non-owners
     const userObj = {
       id: user._id,
       name: user.name,
+      city: user.city || null,
       followerCount: user.followerCount || 0,
       followingCount: user.followingCount || 0,
       postCount: user.postCount || 0,
       joinedAt: user.createdAt,
-      isFollowing,
+      connectionStatus,
+      isFollowing: isConnected,
       isOwnProfile,
-      // Fields visible to owner always; others see only if privacy allows
-      ...(isOwnProfile || privacy.showOccupation !== false ? { occupation: user.occupation || null } : {}),
-      ...(isOwnProfile || privacy.showAge !== false       ? { age: user.age || null }               : {}),
-      ...(isOwnProfile || privacy.showBio !== false       ? { bio: user.bio || null }               : {}),
-      // Owner always gets their own privacy settings so they can manage toggles
-      ...(isOwnProfile ? { privacySettings: {
-        showOccupation: privacy.showOccupation !== false,
-        showAge:        privacy.showAge !== false,
-        showBio:        privacy.showBio !== false,
-        showPosts:      privacy.showPosts !== false,
-      }} : {}),
+      ...(isOwnProfile || privacy.showOccupation
+        ? { occupation: user.occupation || null, occupationCategory: user.occupationCategory || null }
+        : {}),
+      ...(isOwnProfile || privacy.showAge ? { age: user.age || null } : {}),
+      ...(isOwnProfile || privacy.showBio
+        ? { bio: user.bio || null, achievement: user.achievement || null, lifeExperiences: user.lifeExperiences || [] }
+        : {}),
+      ...(isOwnProfile ? { privacySettings: privacy } : {}),
     };
 
     return responseUtil.success(res, "User profile fetched successfully", {
       user: userObj,
       posts: formattedPosts,
+      sections: sections
+        ? {
+            challenges: canSee("showChallenges") ? sections.challenges : null,
+            opportunities: canSee("showOpportunities") ? sections.opportunities : null,
+            events: canSee("showEvents") ? sections.events : null,
+            clubs: canSee("showClubs") ? sections.clubs : null,
+            sosReports: canSee("showSosReports") ? sections.sosReports : null,
+          }
+        : null,
+      growthScore,
+      sectionsLockedReason: !isOwnProfile && !isConnected ? "CONNECT_TO_SEE" : null,
     });
   } catch (error) {
     console.error("[CONNECT] Get user profile error:", error);
@@ -476,6 +695,24 @@ export const getUserProfile = async (req, res) => {
   }
 };
 
+export const getMyGrowthScore = async (req, res) => {
+  try {
+    const growthScore = await computeGrowthScore(req.user.id);
+    return responseUtil.success(res, "Growth score fetched", { growthScore });
+  } catch (error) {
+    console.error("[CONNECT] Growth score error:", error);
+    return responseUtil.internalError(res, "Failed to calculate growth score", error.message);
+  }
+};
+
+export const openUserDeepLink = async (req, res) => {
+  const { userId } = req.params;
+  if (!/^[0-9a-fA-F]{24}$/.test(userId)) {
+    return res.redirect("motivata://");
+  }
+  return res.redirect(`motivata://user/${userId}`);
+};
+
 /**
  * Update current user's privacy settings
  * @param {Object} req - Express request object
@@ -484,13 +721,11 @@ export const getUserProfile = async (req, res) => {
 export const updatePrivacySettings = async (req, res) => {
   try {
     const currentUserId = req.user.id;
-    const { showOccupation, showAge, showBio, showPosts } = req.body;
 
     const update = {};
-    if (showOccupation !== undefined) update["privacySettings.showOccupation"] = Boolean(showOccupation);
-    if (showAge !== undefined)        update["privacySettings.showAge"]        = Boolean(showAge);
-    if (showBio !== undefined)        update["privacySettings.showBio"]        = Boolean(showBio);
-    if (showPosts !== undefined)      update["privacySettings.showPosts"]      = Boolean(showPosts);
+    PRIVACY_FIELDS.forEach((key) => {
+      if (req.body?.[key] !== undefined) update[`privacySettings.${key}`] = Boolean(req.body[key]);
+    });
 
     if (Object.keys(update).length === 0) {
       return responseUtil.badRequest(res, "No privacy settings provided");
@@ -507,12 +742,7 @@ export const updatePrivacySettings = async (req, res) => {
     }
 
     return responseUtil.success(res, "Privacy settings updated", {
-      privacySettings: {
-        showOccupation: user.privacySettings.showOccupation !== false,
-        showAge:        user.privacySettings.showAge !== false,
-        showBio:        user.privacySettings.showBio !== false,
-        showPosts:      user.privacySettings.showPosts !== false,
-      },
+      privacySettings: privacyFlags(user.privacySettings),
     });
   } catch (error) {
     console.error("[CONNECT] Update privacy settings error:", error);
@@ -534,14 +764,16 @@ export const checkFollowStatus = async (req, res) => {
       return responseUtil.success(res, "Follow status", {
         isFollowing: false,
         isOwnProfile: true,
+        connectionStatus: "SELF",
       });
     }
 
-    const isFollowing = await Connect.isFollowing(currentUserId, userId);
+    const connectionStatus = await getConnectionStatus(currentUserId, userId);
 
     return responseUtil.success(res, "Follow status", {
-      isFollowing,
+      isFollowing: connectionStatus === "CONNECTED",
       isOwnProfile: false,
+      connectionStatus,
     });
   } catch (error) {
     console.error("[CONNECT] Check follow status error:", error);
@@ -557,4 +789,8 @@ export default {
   searchUsers,
   getUserProfile,
   checkFollowStatus,
+  getConnectionRequests,
+  respondToConnectionRequest,
+  getMyGrowthScore,
+  openUserDeepLink,
 };

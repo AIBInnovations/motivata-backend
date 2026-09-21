@@ -78,6 +78,13 @@ const recommendationSchema = new mongoose.Schema(
       ],
     },
 
+    url: {
+      type: String,
+      trim: true,
+      default: null,
+      match: [/^https?:\/\/\S+$/i, "Please provide a valid link starting with http:// or https://"],
+    },
+
     /**
      * Like count (denormalized for performance).
      */

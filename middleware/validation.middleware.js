@@ -262,10 +262,12 @@ export const userSchemas = {
     email: schemas.email.optional(),
     phone: schemas.phone.optional(),
     occupation: Joi.string().trim().max(100).optional().allow(null, ''),
+    occupationCategory: Joi.string().trim().max(100).optional().allow(null, ''),
+    city: Joi.string().trim().max(100).optional().allow(null, ''),
     age: Joi.number().integer().min(1).max(150).optional().allow(null),
     achievement: Joi.string().trim().max(500).optional().allow(null, ''),
     bio: Joi.string().trim().max(500).optional().allow(null, ''),
-    lifeExperiences: Joi.array().items(Joi.string().trim().max(500)).optional().allow(null),
+    lifeExperiences: Joi.array().items(Joi.string().trim().max(500).allow('')).max(10).optional().allow(null),
   }),
 
   /**
@@ -320,7 +322,7 @@ export const eventSchemas = {
     joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional().default(false),
     isBanner: Joi.boolean().optional().default(false),
-    audience: Joi.string().valid("ALL", "MEMBERS_ONLY", "INVITE_ONLY").optional().default("ALL"),
+    audience: Joi.string().valid("ALL", "DOERS_EXCLUSIVE", "MEMBERS_ONLY", "INVITE_ONLY").optional().default("ALL"),
     category: Joi.string()
       .valid(
         "WEBINAR",
@@ -393,7 +395,7 @@ export const eventSchemas = {
     joinLink: Joi.string().uri().allow(null, '').optional(),
     featured: Joi.boolean().optional(),
     isBanner: Joi.boolean().optional(),
-    audience: Joi.string().valid("ALL", "MEMBERS_ONLY", "INVITE_ONLY").optional(),
+    audience: Joi.string().valid("ALL", "DOERS_EXCLUSIVE", "MEMBERS_ONLY", "INVITE_ONLY").optional(),
     category: Joi.string()
       .valid(
         "WEBINAR",
@@ -463,7 +465,7 @@ export const eventSchemas = {
     city: Joi.string().trim().optional(),
     isLive: Joi.boolean().optional(),
     featured: Joi.boolean().optional(),
-    audience: Joi.string().valid("ALL", "MEMBERS_ONLY", "INVITE_ONLY").optional(),
+    audience: Joi.string().valid("ALL", "DOERS_EXCLUSIVE", "MEMBERS_ONLY", "INVITE_ONLY").optional(),
     minPrice: Joi.number().min(0).optional(),
     maxPrice: Joi.number().min(0).optional(),
     startDateFrom: Joi.date().iso().optional(),
@@ -1418,11 +1420,14 @@ export const connectSchemas = {
    * Search query parameters
    */
   searchQuery: Joi.object({
-    search: Joi.string().trim().min(2).max(100).required().messages({
+    search: Joi.string().trim().min(2).max(100).allow("").optional().messages({
       "string.min": "Search query must be at least 2 characters",
       "string.max": "Search query cannot exceed 100 characters",
-      "any.required": "Search query is required",
     }),
+    city: Joi.string().trim().max(100).allow("").optional(),
+    occupation: Joi.string().trim().max(100).allow("").optional(),
+    occupationCategory: Joi.string().trim().max(100).allow("").optional(),
+    clubId: schemas.mongoId.allow("").optional(),
     page: Joi.number().integer().min(1).default(1),
     limit: Joi.number().integer().min(1).max(100).default(20),
   }),
@@ -1455,8 +1460,7 @@ export const clubSchemas = {
       "string.min": "Club name must be at least 2 characters",
       "string.max": "Club name cannot exceed 100 characters",
     }),
-    description: Joi.string().trim().max(1000).required().messages({
-      "string.empty": "Club description is required",
+    description: Joi.string().trim().max(1000).allow("").optional().messages({
       "string.max": "Club description cannot exceed 1000 characters",
     }),
     thumbnail: Joi.string().uri().optional().allow(null, "").messages({
@@ -1464,6 +1468,9 @@ export const clubSchemas = {
     }),
     requiresApproval: Joi.boolean().optional().messages({
       "boolean.base": "requiresApproval must be a boolean",
+    }),
+    accessLevel: Joi.string().valid("OPEN", "DOERS", "MEMBERS").optional().messages({
+      "any.only": "Access must be one of: OPEN, DOERS, MEMBERS",
     }),
     postPermissions: Joi.array()
       .items(Joi.string().valid('ANYONE', 'MEMBERS', 'ADMIN'))
@@ -1493,7 +1500,7 @@ export const clubSchemas = {
       "string.min": "Club name must be at least 2 characters",
       "string.max": "Club name cannot exceed 100 characters",
     }),
-    description: Joi.string().trim().max(1000).optional().messages({
+    description: Joi.string().trim().max(1000).allow("").optional().messages({
       "string.max": "Club description cannot exceed 1000 characters",
     }),
     thumbnail: Joi.string().uri().optional().allow(null, "").messages({
@@ -1501,6 +1508,9 @@ export const clubSchemas = {
     }),
     requiresApproval: Joi.boolean().optional().messages({
       "boolean.base": "requiresApproval must be a boolean",
+    }),
+    accessLevel: Joi.string().valid("OPEN", "DOERS", "MEMBERS").optional().messages({
+      "any.only": "Access must be one of: OPEN, DOERS, MEMBERS",
     }),
     postPermissions: Joi.array()
       .items(Joi.string().valid('ANYONE', 'MEMBERS', 'ADMIN'))
@@ -1526,6 +1536,17 @@ export const clubSchemas = {
    */
   clubId: Joi.object({
     clubId: schemas.mongoId.required(),
+  }),
+
+  clubMember: Joi.object({
+    clubId: schemas.mongoId.required(),
+    userId: schemas.mongoId.required(),
+  }),
+
+  memberRole: Joi.object({
+    role: Joi.string().valid("MEMBER", "ADMIN").required().messages({
+      "any.only": "Role must be MEMBER or ADMIN",
+    }),
   }),
 
   /**

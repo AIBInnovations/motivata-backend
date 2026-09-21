@@ -43,6 +43,12 @@ const clubMemberSchema = new mongoose.Schema(
       index: true,
     },
 
+    role: {
+      type: String,
+      enum: ['MEMBER', 'ADMIN'],
+      default: 'MEMBER',
+    },
+
     /**
      * Admin who reviewed the join request (for approval-required clubs)
      */
@@ -211,6 +217,17 @@ clubMemberSchema.statics.softDeleteByUser = async function (userId) {
       deletedAt: new Date(),
     }
   );
+};
+
+clubMemberSchema.statics.isClubAdmin = async function (userId, clubId) {
+  const membership = await this.findOne({
+    user: userId,
+    club: clubId,
+    role: 'ADMIN',
+    status: 'APPROVED',
+    isDeleted: false,
+  }).select('_id');
+  return !!membership;
 };
 
 const ClubMember = mongoose.model("ClubMember", clubMemberSchema);

@@ -41,6 +41,18 @@ const userSchema = new mongoose.Schema(
       maxlength: 100,
       default: null,
     },
+    occupationCategory: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: null,
+    },
+    city: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: null,
+    },
     age: {
       type: Number,
       min: 1,
@@ -128,6 +140,20 @@ const userSchema = new mongoose.Schema(
       showAge:        { type: Boolean, default: true },
       showBio:        { type: Boolean, default: true },
       showPosts:      { type: Boolean, default: true },
+      showChallenges: { type: Boolean, default: true },
+      showOpportunities: { type: Boolean, default: true },
+      showEvents: { type: Boolean, default: true },
+      showClubs: { type: Boolean, default: true },
+      showSosReports: { type: Boolean, default: false },
+      showGrowthScore: { type: Boolean, default: true },
+    },
+    notificationPrefs: {
+      connections: { type: Boolean, default: true },
+      sosReminders: { type: Boolean, default: true },
+      eventReminders: { type: Boolean, default: true },
+      opportunities: { type: Boolean, default: true },
+      challengeReminders: { type: Boolean, default: true },
+      community: { type: Boolean, default: true },
     },
     /**
      * FCM tokens for push notifications (supports multiple devices)

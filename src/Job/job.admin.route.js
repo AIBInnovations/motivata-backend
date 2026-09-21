@@ -1,5 +1,5 @@
 import express from "express";
-import { upload, uploadJobImage, uploadAndSetJobImage, createJob, getJob, getJobs, updateJob, deleteJob, getApplications, getAllApplications, updateApplicationStatus } from "./job.admin.controller.js";
+import { upload, uploadJobImage, uploadAndSetJobImage, createJob, getJob, getJobs, updateJob, deleteJob, getApplications, getAllApplications, updateApplicationStatus, approveJob, rejectJob } from "./job.admin.controller.js";
 import { listOpportunityFilters, createOpportunityFilter, deleteOpportunityFilter } from "./opportunityFilter.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 
@@ -17,6 +17,8 @@ router.get("/filters", listOpportunityFilters);
 router.post("/filters", createOpportunityFilter);
 router.delete("/filters/:id", deleteOpportunityFilter);
 router.get("/:jobId/applications", getApplications);
+router.post("/:jobId/approve", approveJob);
+router.post("/:jobId/reject", rejectJob);
 router.post("/:jobId/image", upload.single("file"), uploadAndSetJobImage);
 router.get("/:jobId", getJob);
 router.put("/:jobId", updateJob);

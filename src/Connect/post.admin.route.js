@@ -12,6 +12,7 @@ import {
   createAdminPost,
   getAdminPosts,
   deleteAdminPost,
+  getContentCategories,
 } from "./post.admin.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 
@@ -38,6 +39,7 @@ router.post("/media/upload", upload.single("file"), uploadAdminMedia);
  * @body {string} [caption] - Short caption
  * @body {string} [mediaThumbnail] - Thumbnail URL
  */
+router.get("/content-categories", getContentCategories);
 router.post("/posts", createAdminPost);
 
 /**

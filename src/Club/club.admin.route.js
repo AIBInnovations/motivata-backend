@@ -22,6 +22,7 @@ import {
   uploadClubMedia,
   uploadClubPostMedia,
   createClubPost,
+  setClubMemberRole,
 } from "./club.admin.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
 import {
@@ -159,6 +160,13 @@ router.post("/media/upload", uploadClubPostMedia.single("file"), uploadClubMedia
  * @body    {string} [caption] - Post caption
  */
 router.post("/:clubId/posts", validateParams(clubSchemas.clubId), createClubPost);
+
+router.put(
+  "/:clubId/members/:userId/role",
+  validateParams(clubSchemas.clubMember),
+  validateBody(clubSchemas.memberRole),
+  setClubMemberRole
+);
 
 /**
  * @route   GET /api/web/clubs/join-requests
