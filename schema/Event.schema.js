@@ -103,7 +103,7 @@ const eventSchema = new mongoose.Schema(
       type: String,
       trim: true,
       match: [
-        /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+/,
+        /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl|share\.google|g\.co\/kgs|g\.page)([\/?].*)?$/i,
         "Please provide a valid Google Maps link",
       ],
     },

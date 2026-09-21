@@ -10,6 +10,7 @@ import Payment from '../../schema/Payment.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { razorpayInstance } from '../../utils/razorpay.util.js';
 import { sendPaymentLinkNotifications } from '../../utils/notification.util.js';
+import { validateCouponForType } from '../Enrollment/coupon.controller.js';
 
 // Helper function to normalize phone number
 const normalizePhone = (phone) => {
@@ -67,7 +68,7 @@ export const getAllEventRequests = async (req, res) => {
         .skip(skip)
         .limit(parseInt(limit))
         .populate('reviewedBy', 'name email')
-        .populate('eventId', 'name startDate'),
+        .populate('eventId', EVENT_PRICING_FIELDS),
       EventRequest.countDocuments(query)
     ]);
 
@@ -112,7 +113,7 @@ export const getEventRequestById = async (req, res) => {
       isDeleted: false
     })
       .populate('reviewedBy', 'name email')
-      .populate('eventId', 'name startDate');
+      .populate('eventId', EVENT_PRICING_FIELDS);
 
     if (!request) {
       return responseUtil.notFound(res, 'Event invite request not found');
@@ -131,19 +132,197 @@ export const getEventRequestById = async (req, res) => {
   }
 };
 
+const EVENT_PRICING_FIELDS = 'name startDate price pricingTiers';
+
+const resolveRequestPricing = async ({ event, request, pricingTierId, couponCode, paymentAmount }) => {
+  const tiers = event.pricingTiers || [];
+  let tier = null;
+  let baseAmount;
+
+  if (tiers.length > 0) {
+    const selectedTierId = pricingTierId || request.pricingTierId;
+    tier = selectedTierId
+      ? tiers.find((candidate) => String(candidate._id) === String(selectedTierId)) || null
+      : null;
+    if (!tier && tiers.length === 1) {
+      tier = tiers[0];
+    }
+    if (!tier) {
+      return { error: 'This event has more than one price option. Please choose which price to charge.' };
+    }
+    baseAmount = tier.price;
+  } else if (event.price != null) {
+    baseAmount = event.price;
+  } else {
+    return { error: 'This event has no price set. Add a price or a pricing option to the event first.' };
+  }
+
+  const manualAmount = paymentAmount != null;
+  const codeToApply = manualAmount ? null : (couponCode === undefined ? request.couponCode : couponCode);
+
+  let appliedCouponCode = null;
+  let finalAmount = baseAmount;
+
+  if (codeToApply) {
+    const couponResult = await validateCouponForType(codeToApply, baseAmount, request.phone, 'EVENT');
+    if (!couponResult.isValid) {
+      return { error: `Coupon error: ${couponResult.error}` };
+    }
+    appliedCouponCode = couponResult.coupon.code;
+    finalAmount = couponResult.finalAmount;
+  }
+
+  if (manualAmount) {
+    finalAmount = paymentAmount;
+  }
+
+  finalAmount = Math.round(finalAmount * 100) / 100;
+
+  if (finalAmount < 1) {
+    return { error: 'The amount to charge must be at least ₹1 to create a payment link.' };
+  }
+
+  return {
+    tier,
+    baseAmount,
+    couponCode: appliedCouponCode,
+    discountAmount: Math.max(0, Math.round((baseAmount - finalAmount) * 100) / 100),
+    finalAmount
+  };
+};
+
+const issuePaymentLink = async ({ request, event, pricing, adminId, notes, sendWhatsApp }) => {
+  const amount = pricing.finalAmount;
+  const orderId = `ER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+
+  const description = pricing.tier
+    ? `Event: ${event.name} (${pricing.tier.name})`
+    : `Event: ${event.name}`;
+
+  const paymentLinkOptions = {
+    amount: Math.round(amount * 100),
+    currency: 'INR',
+    accept_partial: false,
+    description: description.slice(0, 2048),
+    customer: {
+      name: request.name,
+      contact: `91${request.phone}`
+    },
+    notify: { sms: false, email: false },
+    reminder_enable: false,
+    notes: {
+      orderId,
+      type: 'EVENT_REQUEST',
+      phone: request.phone,
+      requestId: request._id.toString(),
+      eventId: event._id.toString(),
+      eventName: event.name,
+      ...(pricing.tier && { tierName: pricing.tier.name }),
+      ...(pricing.couponCode && { couponCode: pricing.couponCode })
+    },
+    callback_url: `${process.env.BASE_URL || 'https://motivata.in'}/event-payment-success`,
+    callback_method: 'get',
+    expire_by: Math.floor(expiresAt.getTime() / 1000),
+    reference_id: orderId
+  };
+
+  console.log('[EVENT-REQUEST-ADMIN] Creating Razorpay payment link:', paymentLinkOptions);
+
+  const paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
+
+  console.log('[EVENT-REQUEST-ADMIN] Payment link created:', paymentLink.id, paymentLink.short_url);
+
+  const payment = new Payment({
+    type: 'EVENT',
+    orderId,
+    eventId: event._id,
+    phone: request.phone,
+    amount: pricing.baseAmount,
+    discountAmount: pricing.discountAmount,
+    finalAmount: amount,
+    couponCode: pricing.couponCode || null,
+    status: 'PENDING',
+    metadata: {
+      buyer: {
+        name: request.name,
+        email: request.email || undefined,
+        phone: request.phone
+      },
+      others: [],
+      totalTickets: 1,
+      perTicketPrice: amount,
+      ...(pricing.tier && {
+        priceTierId: pricing.tier._id.toString(),
+        tierName: pricing.tier.name
+      }),
+      eventRequestId: request._id.toString(),
+      paymentLinkId: paymentLink.id,
+      source: 'EVENT_REQUEST'
+    }
+  });
+
+  await payment.save();
+
+  request.status = 'PAYMENT_SENT';
+  request.reviewedBy = adminId;
+  request.reviewedAt = new Date();
+  request.paymentLinkId = paymentLink.id;
+  request.paymentUrl = paymentLink.short_url;
+  request.orderId = orderId;
+  request.paymentAmount = amount;
+  request.originalAmount = pricing.baseAmount;
+  request.discountAmount = pricing.discountAmount;
+  request.couponCode = pricing.couponCode;
+  request.pricingTierId = pricing.tier ? pricing.tier._id : null;
+  request.tierName = pricing.tier ? pricing.tier.name : null;
+  if (notes) {
+    request.notes = notes;
+  }
+
+  await request.save();
+
+  let notificationResults = null;
+  if (sendWhatsApp) {
+    try {
+      notificationResults = await sendPaymentLinkNotifications({
+        registeredPhone: request.phone,
+        registeredEmail: request.email || null,
+        contactPreference: ['REGISTERED'],
+        serviceName: event.name,
+        paymentLink: paymentLink.short_url,
+        amount,
+        customerName: request.name,
+        orderId: request._id.toString()
+      });
+      console.log('[EVENT-REQUEST-ADMIN] Payment link notifications sent:', notificationResults);
+    } catch (notificationError) {
+      console.error('[EVENT-REQUEST-ADMIN] Failed to send payment link notifications:', notificationError.message);
+      // Don't fail the approval — the payment link is still valid, admin can resend manually.
+    }
+  }
+
+  // Populate for response
+  await request.populate('reviewedBy', 'name email');
+  await request.populate('eventId', EVENT_PRICING_FIELDS);
+
+  return { paymentLink, notificationResults };
+};
+
 /**
  * Approve an Event invite request — creates a Razorpay payment link for the
- * event's price and sends it to the applicant via WhatsApp/email. The request
- * moves to PAYMENT_SENT; the webhook flips it to COMPLETED once paid (see
- * updateRelatedEntities in razorpay.webhook.js, which reuses the same ticket
- * creation + WhatsApp-ticket-send path as a normal in-app event booking).
+ * event's price (or the chosen pricing tier, less any coupon or admin-set
+ * amount) and sends it to the applicant via WhatsApp/email. The request
+ * moves to PAYMENT_SENT; the webhook flips it to COMPLETED once paid.
  * @route POST /api/web/event-requests/admin/requests/:id/approve
  * @access Admin only
  */
 export const approveEventRequest = async (req, res) => {
   try {
     const { id } = req.params;
-    const { notes, sendWhatsApp = true } = req.body;
+    const { notes, sendWhatsApp = true, pricingTierId, couponCode, paymentAmount } = req.body;
     const adminId = req.user?._id;
 
     console.log('[EVENT-REQUEST-ADMIN] Approving request:', id);
@@ -170,112 +349,19 @@ export const approveEventRequest = async (req, res) => {
       return responseUtil.notFound(res, 'Event not found');
     }
 
-    if (event.price == null) {
-      return responseUtil.badRequest(
-        res,
-        'This event uses pricing tiers instead of a flat price. Invite-request approval only supports flat-priced events right now.'
-      );
+    const pricing = await resolveRequestPricing({ event, request, pricingTierId, couponCode, paymentAmount });
+    if (pricing.error) {
+      return responseUtil.badRequest(res, pricing.error);
     }
 
-    const amount = event.price;
-    const orderId = `ER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    const paymentLinkOptions = {
-      amount: Math.round(amount * 100),
-      currency: 'INR',
-      accept_partial: false,
-      description: `Event: ${event.name}`,
-      customer: {
-        name: request.name,
-        contact: `91${request.phone}`
-      },
-      notify: { sms: false, email: false },
-      reminder_enable: false,
-      notes: {
-        orderId,
-        type: 'EVENT_REQUEST',
-        phone: request.phone,
-        requestId: request._id.toString(),
-        eventId: event._id.toString(),
-        eventName: event.name
-      },
-      callback_url: `${process.env.BASE_URL || 'https://motivata.in'}/event-payment-success`,
-      callback_method: 'get',
-      expire_by: Math.floor(expiresAt.getTime() / 1000),
-      reference_id: orderId
-    };
-
-    console.log('[EVENT-REQUEST-ADMIN] Creating Razorpay payment link:', paymentLinkOptions);
-
-    const paymentLink = await razorpayInstance.paymentLink.create(paymentLinkOptions);
-
-    console.log('[EVENT-REQUEST-ADMIN] Payment link created:', paymentLink.id, paymentLink.short_url);
-
-    const payment = new Payment({
-      type: 'EVENT',
-      orderId,
-      eventId: event._id,
-      phone: request.phone,
-      amount,
-      discountAmount: 0,
-      finalAmount: amount,
-      status: 'PENDING',
-      metadata: {
-        buyer: {
-          name: request.name,
-          email: request.email || undefined,
-          phone: request.phone
-        },
-        others: [],
-        totalTickets: 1,
-        perTicketPrice: amount,
-        eventRequestId: request._id.toString(),
-        paymentLinkId: paymentLink.id,
-        source: 'EVENT_REQUEST'
-      }
+    const { paymentLink, notificationResults } = await issuePaymentLink({
+      request,
+      event,
+      pricing,
+      adminId,
+      notes,
+      sendWhatsApp
     });
-
-    await payment.save();
-
-    request.status = 'PAYMENT_SENT';
-    request.reviewedBy = adminId;
-    request.reviewedAt = new Date();
-    request.paymentLinkId = paymentLink.id;
-    request.paymentUrl = paymentLink.short_url;
-    request.orderId = orderId;
-    request.paymentAmount = amount;
-    if (notes) {
-      request.notes = notes;
-    }
-
-    await request.save();
-
-    let notificationResults = null;
-    if (sendWhatsApp) {
-      try {
-        notificationResults = await sendPaymentLinkNotifications({
-          registeredPhone: request.phone,
-          registeredEmail: request.email || null,
-          contactPreference: ['REGISTERED'],
-          serviceName: event.name,
-          paymentLink: paymentLink.short_url,
-          amount,
-          customerName: request.name,
-          orderId: request._id.toString()
-        });
-        console.log('[EVENT-REQUEST-ADMIN] Payment link notifications sent:', notificationResults);
-      } catch (notificationError) {
-        console.error('[EVENT-REQUEST-ADMIN] Failed to send payment link notifications:', notificationError.message);
-        // Don't fail the approval — the payment link is still valid, admin can resend manually.
-      }
-    }
-
-    // Populate for response
-    await request.populate('reviewedBy', 'name email');
-    await request.populate('eventId', 'name startDate');
 
     console.log('[EVENT-REQUEST-ADMIN] Request approved, payment link sent successfully');
 
@@ -290,6 +376,95 @@ export const approveEventRequest = async (req, res) => {
     return responseUtil.internalError(
       res,
       'Failed to approve event invite request',
+      error.message
+    );
+  }
+};
+
+export const reissueEventRequestPaymentLink = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes, sendWhatsApp = true, pricingTierId, couponCode, paymentAmount } = req.body;
+    const adminId = req.user?._id;
+
+    const request = await EventRequest.findOne({
+      _id: id,
+      isDeleted: false
+    });
+
+    if (!request) {
+      return responseUtil.notFound(res, 'Event invite request not found');
+    }
+
+    if (request.status !== 'PAYMENT_SENT') {
+      return responseUtil.badRequest(
+        res,
+        `Cannot change the payment link of a request with status: ${request.status}. Only requests waiting for payment can be changed.`
+      );
+    }
+
+    const event = await Event.findOne({ _id: request.eventId, isDeleted: false });
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found');
+    }
+
+    const pricing = await resolveRequestPricing({ event, request, pricingTierId, couponCode, paymentAmount });
+    if (pricing.error) {
+      return responseUtil.badRequest(res, pricing.error);
+    }
+
+    if (request.paymentLinkId) {
+      let oldLink;
+      try {
+        oldLink = await razorpayInstance.paymentLink.fetch(request.paymentLinkId);
+      } catch (fetchError) {
+        console.error('[EVENT-REQUEST-ADMIN] Could not fetch old payment link:', fetchError?.error?.description || fetchError.message);
+        return responseUtil.internalError(res, 'Could not check the previous payment link. Please try again.');
+      }
+
+      if (oldLink.status === 'paid' || oldLink.status === 'partially_paid') {
+        return responseUtil.badRequest(res, 'The previous payment link has already been paid, so it cannot be replaced.');
+      }
+
+      if (oldLink.status === 'created') {
+        try {
+          await razorpayInstance.paymentLink.cancel(request.paymentLinkId);
+        } catch (cancelError) {
+          console.error('[EVENT-REQUEST-ADMIN] Could not cancel old payment link:', cancelError?.error?.description || cancelError.message);
+          return responseUtil.internalError(res, 'Could not cancel the previous payment link. Please try again.');
+        }
+      }
+    }
+
+    if (request.orderId) {
+      await Payment.updateOne(
+        { orderId: request.orderId, status: 'PENDING' },
+        { $set: { status: 'FAILED', failureReason: 'Replaced by a new payment link' } }
+      );
+    }
+
+    const { paymentLink, notificationResults } = await issuePaymentLink({
+      request,
+      event,
+      pricing,
+      adminId,
+      notes,
+      sendWhatsApp
+    });
+
+    console.log('[EVENT-REQUEST-ADMIN] Payment link replaced for request:', id);
+
+    return responseUtil.success(res, 'New payment link sent.', {
+      request,
+      paymentLink: paymentLink.short_url,
+      paymentLinkId: paymentLink.id,
+      notifications: notificationResults
+    });
+  } catch (error) {
+    console.error('[EVENT-REQUEST-ADMIN] Error replacing payment link:', error.message);
+    return responseUtil.internalError(
+      res,
+      'Failed to replace the payment link',
       error.message
     );
   }
@@ -340,7 +515,7 @@ export const rejectEventRequest = async (req, res) => {
 
     // Populate for response
     await request.populate('reviewedBy', 'name email');
-    await request.populate('eventId', 'name startDate');
+    await request.populate('eventId', EVENT_PRICING_FIELDS);
 
     console.log('[EVENT-REQUEST-ADMIN] Request rejected successfully');
 
@@ -509,6 +684,7 @@ export const getPendingCount = async (req, res) => {
 
 export default {
   getAllEventRequests,
+  reissueEventRequestPaymentLink,
   getEventRequestById,
   approveEventRequest,
   rejectEventRequest,

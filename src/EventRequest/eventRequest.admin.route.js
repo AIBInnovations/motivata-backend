@@ -14,6 +14,7 @@ import {
 } from '../../middleware/validation.middleware.js';
 import {
   getAllEventRequests,
+  reissueEventRequestPaymentLink,
   getEventRequestById,
   approveEventRequest,
   rejectEventRequest,
@@ -82,6 +83,13 @@ router.post(
  * @desc    Reject an event invite request
  * @access  Admin
  */
+router.post(
+  '/requests/:id/reissue-payment-link',
+  validateParams(eventRequestSchemas.requestId),
+  validateBody(eventRequestSchemas.approve),
+  reissueEventRequestPaymentLink
+);
+
 router.post(
   '/requests/:id/reject',
   validateParams(eventRequestSchemas.requestId),

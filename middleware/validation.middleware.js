@@ -312,7 +312,7 @@ export const eventSchemas = {
     }),
     gmapLink: Joi.string()
       .uri()
-      .pattern(/^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+/)
+      .pattern(/^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl|share\.google|g\.co\/kgs|g\.page)([\/?].*)?$/i)
       .optional()
       .messages({
         "string.pattern.base": "Please provide a valid Google Maps link",
@@ -373,18 +373,18 @@ export const eventSchemas = {
     }).optional(),
     mode: Joi.string().valid("ONLINE", "OFFLINE", "HYBRID").optional(),
     venueName: Joi.when("mode", {
-      is: Joi.string().valid("OFFLINE", "HYBRID"),
+      is: Joi.string().valid("OFFLINE", "HYBRID").required(),
       then: Joi.string().trim().max(300).required(),
       otherwise: Joi.string().trim().max(300).optional(),
     }),
     city: Joi.when("mode", {
-      is: Joi.string().valid("OFFLINE", "HYBRID"),
+      is: Joi.string().valid("OFFLINE", "HYBRID").required(),
       then: Joi.string().trim().required(),
       otherwise: Joi.string().trim().optional(),
     }),
     gmapLink: Joi.string()
       .uri()
-      .pattern(/^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+/)
+      .pattern(/^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl|share\.google|g\.co\/kgs|g\.page)([\/?].*)?$/i)
       .optional()
       .allow("", null)
       .messages({
@@ -2664,6 +2664,7 @@ export const eventRequestSchemas = {
       "string.email": "Invalid email format",
     }),
     eventId: schemas.mongoId.required(),
+    couponCode: Joi.string().trim().uppercase().max(50).allow('', null).optional(),
   }),
 
   /**
@@ -2674,7 +2675,7 @@ export const eventRequestSchemas = {
     limit: Joi.number().integer().min(1).max(100).default(20),
     sortBy: Joi.string().valid('submittedAt', 'status', 'name').default('submittedAt'),
     sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
-    status: Joi.string().valid('PENDING', 'APPROVED', 'REJECTED').optional(),
+    status: Joi.string().valid('PENDING', 'APPROVED', 'REJECTED', 'PAYMENT_SENT', 'COMPLETED').optional(),
     search: Joi.string().trim().optional(),
     eventId: schemas.mongoId.optional(),
   }),
@@ -2690,7 +2691,11 @@ export const eventRequestSchemas = {
    * Approve request
    */
   approve: Joi.object({
-    notes: Joi.string().trim().max(1000).optional(),
+    notes: Joi.string().trim().max(1000).allow('').optional(),
+    sendWhatsApp: Joi.boolean().optional(),
+    pricingTierId: schemas.mongoId.optional(),
+    couponCode: Joi.string().trim().uppercase().max(50).allow('').optional(),
+    paymentAmount: Joi.number().min(1).max(10000000).optional(),
   }),
 
   /**

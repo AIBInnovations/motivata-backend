@@ -7,6 +7,7 @@
 import EventRequest from '../../schema/EventRequest.schema.js';
 import Event from '../../schema/Event.schema.js';
 import responseUtil from '../../utils/response.util.js';
+import { validateCouponForType } from '../Enrollment/coupon.controller.js';
 
 // Helper function to normalize phone number
 const normalizePhone = (phone) => {
@@ -21,7 +22,7 @@ const normalizePhone = (phone) => {
  */
 export const submitEventRequest = async (req, res) => {
   try {
-    const { phone, name, email, eventId } = req.body;
+    const { phone, name, email, eventId, couponCode } = req.body;
 
     console.log('[EVENT-REQUEST] New request submission');
     console.log('[EVENT-REQUEST] Name:', name, 'Email:', email, 'EventId:', eventId);
@@ -90,12 +91,31 @@ export const submitEventRequest = async (req, res) => {
       });
     }
 
+    let validatedCouponCode = null;
+    if (couponCode) {
+      const tiers = event.pricingTiers || [];
+      const referenceAmount = tiers.length > 0
+        ? Math.max(...tiers.map((tier) => tier.price))
+        : event.price;
+
+      if (referenceAmount == null || referenceAmount <= 0) {
+        return responseUtil.badRequest(res, 'A coupon cannot be used for this event.');
+      }
+
+      const couponResult = await validateCouponForType(couponCode, referenceAmount, normalizedPhone, 'EVENT');
+      if (!couponResult.isValid) {
+        return responseUtil.badRequest(res, `Coupon error: ${couponResult.error}`);
+      }
+      validatedCouponCode = couponResult.coupon.code;
+    }
+
     // Create new request
     const request = new EventRequest({
       eventId,
       phone: normalizedPhone,
       name: name.trim(),
       email: normalizedEmail,
+      couponCode: validatedCouponCode,
       submittedAt: new Date()
     });
 
@@ -112,6 +132,7 @@ export const submitEventRequest = async (req, res) => {
         phone: request.phone,
         name: request.name,
         email: request.email,
+        couponCode: request.couponCode,
         status: request.status,
         submittedAt: request.submittedAt.toISOString()
       }
