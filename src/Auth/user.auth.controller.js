@@ -723,7 +723,7 @@ export const getProfile = async (req, res) => {
  */
 export const updateProfile = async (req, res) => {
   try {
-    const { name, email, phone, occupation, age, achievement, bio, lifeExperiences } = req.body;
+    const { name, email, phone, occupation, occupationCategory, city, age, achievement, bio, lifeExperiences } = req.body;
 
     // Check if email or phone already exists
     if (email || phone) {
@@ -744,9 +744,13 @@ export const updateProfile = async (req, res) => {
       }
     }
 
+    const cleanedExperiences = Array.isArray(lifeExperiences)
+      ? lifeExperiences.map((item) => (item || '').trim()).filter(Boolean)
+      : lifeExperiences;
+
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { name, email, phone, occupation, age, achievement, bio, lifeExperiences },
+      { name, email, phone, occupation, occupationCategory, city, age, achievement, bio, lifeExperiences: cleanedExperiences },
       { new: true, runValidators: true }
     ).select('-password -refreshToken -isDeleted -deletedAt');
 

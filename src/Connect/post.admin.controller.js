@@ -8,6 +8,9 @@ import Like from "../../schema/Like.schema.js";
 import cloudinary from "../../config/cloudinary.config.js";
 import responseUtil from "../../utils/response.util.js";
 import multer from "multer";
+import { CONTENT_CATEGORIES, CONTENT_MAX_WORDS, countContentWords } from "./content.constants.js";
+
+const LINK_PATTERN = /^https?:\/\/\S+$/i;
 
 // ============================================
 // MULTER CONFIGURATION
@@ -40,6 +43,10 @@ export const upload = multer({
 const formatAdminPost = (post) => ({
   id: post._id,
   title: post.title || "",
+  subHeading: post.subHeading || "",
+  category: post.category || "",
+  videoUrl: post.videoUrl || "",
+  linkUrl: post.linkUrl || "",
   content: post.content || "",
   caption: post.caption || "",
   mediaType: post.mediaType,
@@ -108,11 +115,27 @@ export const uploadAdminMedia = async (req, res) => {
  */
 export const createAdminPost = async (req, res) => {
   try {
-    const { title, content, caption, mediaUrls, mediaThumbnail } = req.body;
+    const { title, subHeading, category, videoUrl, linkUrl, content, caption, mediaUrls, mediaThumbnail } = req.body;
     const adminId = req.user.id;
 
     if (!title || !title.trim()) {
       return responseUtil.badRequest(res, "Title is required");
+    }
+
+    if (category && !CONTENT_CATEGORIES.includes(category)) {
+      return responseUtil.badRequest(res, "Choose a valid category");
+    }
+
+    if (content && countContentWords(content) > CONTENT_MAX_WORDS) {
+      return responseUtil.badRequest(res, `Text cannot exceed ${CONTENT_MAX_WORDS} words`);
+    }
+
+    if (videoUrl && !LINK_PATTERN.test(videoUrl.trim())) {
+      return responseUtil.badRequest(res, "Video link must start with http:// or https://");
+    }
+
+    if (linkUrl && !LINK_PATTERN.test(linkUrl.trim())) {
+      return responseUtil.badRequest(res, "Link must start with http:// or https://");
     }
 
     if (!mediaUrls || !Array.isArray(mediaUrls) || mediaUrls.length === 0) {
@@ -127,6 +150,10 @@ export const createAdminPost = async (req, res) => {
       authorType: "Admin",
       author: adminId,
       title: title.trim(),
+      subHeading: subHeading?.trim() || "",
+      category: category || "",
+      videoUrl: videoUrl?.trim() || "",
+      linkUrl: linkUrl?.trim() || "",
       content: content?.trim() || "",
       caption: caption?.trim() || "",
       mediaType: "IMAGE",
@@ -226,7 +253,14 @@ export const deleteAdminPost = async (req, res) => {
   }
 };
 
+export const getContentCategories = (_req, res) =>
+  responseUtil.success(res, "Content categories fetched", {
+    categories: CONTENT_CATEGORIES,
+    maxWords: CONTENT_MAX_WORDS,
+  });
+
 export default {
+  getContentCategories,
   uploadAdminMedia,
   createAdminPost,
   getAdminPosts,

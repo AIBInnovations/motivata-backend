@@ -13,6 +13,7 @@ import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import cloudinary from "../../config/cloudinary.config.js";
 import multer from "multer";
+import { notifyUsers } from "../../services/userNotification.service.js";
 
 // ============================================
 // MULTER CONFIGURATION FOR CLUB POST IMAGES
@@ -44,15 +45,56 @@ export const uploadClubPostMedia = multer({
  * @param {Object} res - Express response object
  * @returns {Object} Response with created club
  */
+export const setClubMemberRole = async (req, res) => {
+  try {
+    const { clubId, userId } = req.params;
+    const { role } = req.body;
+
+    const club = await Club.findById(clubId).select("name");
+    if (!club) {
+      return responseUtil.notFound(res, "Club not found");
+    }
+
+    const membership = await ClubMember.findOne({ club: clubId, user: userId, status: "APPROVED" });
+    if (!membership) {
+      return responseUtil.notFound(res, "This user is not a member of the club");
+    }
+
+    membership.role = role;
+    await membership.save();
+
+    if (role === "ADMIN") {
+      notifyUsers({
+        userIds: [userId],
+        category: "COMMUNITY",
+        type: "CLUB_ADMIN_GRANTED",
+        title: "You are now a club admin",
+        body: `You can now post updates in ${club.name}.`,
+        data: { screen: "Clubs", clubId: String(clubId) },
+      });
+    }
+
+    return responseUtil.success(res, role === "ADMIN" ? "Member is now a club admin" : "Club admin rights removed", {
+      userId,
+      clubId,
+      role: membership.role,
+    });
+  } catch (error) {
+    console.error("[CLUB-ADMIN] Set member role error:", error);
+    return responseUtil.internalError(res, "Failed to update member role", error.message);
+  }
+};
+
 export const createClub = async (req, res) => {
   try {
-    const { name, description, thumbnail, requiresApproval, postPermissions } = req.body;
+    const { name, description, thumbnail, requiresApproval, postPermissions, accessLevel } = req.body;
 
     const clubData = {
       name,
-      description,
+      description: description || "",
       thumbnail: thumbnail || null,
       postPermissions: postPermissions || ['MEMBERS'],
+      accessLevel: accessLevel || 'OPEN',
     };
 
     if (requiresApproval !== undefined) clubData.requiresApproval = requiresApproval;
@@ -169,7 +211,7 @@ export const getClubById = async (req, res) => {
 export const updateClub = async (req, res) => {
   try {
     const { clubId } = req.params;
-    const { name, description, thumbnail, requiresApproval, postPermissions } = req.body;
+    const { name, description, thumbnail, requiresApproval, postPermissions, accessLevel } = req.body;
 
     const club = await Club.findById(clubId);
 
@@ -183,6 +225,7 @@ export const updateClub = async (req, res) => {
     if (thumbnail !== undefined) club.thumbnail = thumbnail || null;
     if (requiresApproval !== undefined) club.requiresApproval = requiresApproval;
     if (postPermissions !== undefined) club.postPermissions = postPermissions;
+    if (accessLevel !== undefined) club.accessLevel = accessLevel;
 
     await club.save();
 

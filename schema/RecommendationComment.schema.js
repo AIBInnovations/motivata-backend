@@ -46,6 +46,14 @@ const recommendationCommentSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    isPinned: {
+      type: Boolean,
+      default: false,
+    },
+    pinnedAt: {
+      type: Date,
+      default: null,
+    },
     isDeleted: {
       type: Boolean,
       default: false,

@@ -103,7 +103,7 @@ const eventSchema = new mongoose.Schema(
       type: String,
       trim: true,
       match: [
-        /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl)\/.+/,
+        /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|goo\.gl\/maps|maps\.app\.goo\.gl|share\.google|g\.co\/kgs|g\.page)([\/?].*)?$/i,
         "Please provide a valid Google Maps link",
       ],
     },
@@ -146,10 +146,20 @@ const eventSchema = new mongoose.Schema(
     audience: {
       type: String,
       enum: {
-        values: ["ALL", "MEMBERS_ONLY", "INVITE_ONLY"],
+        values: ["ALL", "DOERS_EXCLUSIVE", "MEMBERS_ONLY", "INVITE_ONLY"],
         message: "{VALUE} is not a valid audience",
       },
       default: "ALL",
+    },
+
+    reminderDayBeforeSentAt: {
+      type: Date,
+      default: null,
+    },
+
+    reminderSoonSentAt: {
+      type: Date,
+      default: null,
     },
 
     /**

@@ -380,6 +380,31 @@ userMembershipSchema.statics.findActiveMembership = async function (phone) {
   return membership;
 };
 
+userMembershipSchema.statics.findAllActiveMemberships = function (phone) {
+  const now = new Date();
+  return this.find({
+    phone: phone.slice(-10),
+    isDeleted: false,
+    status: 'ACTIVE',
+    paymentStatus: 'SUCCESS',
+    startDate: { $lte: now },
+    $or: [
+      { isLifetime: true },
+      { endDate: null },
+      { endDate: { $lte: new Date(1000) } },
+      { endDate: { $gt: now } },
+    ],
+  }).populate('membershipPlanId', 'name planType');
+};
+
+userMembershipSchema.statics.getAccessTier = async function (phone) {
+  if (!phone) return 'NONE';
+  const memberships = await this.findAllActiveMemberships(phone);
+  if (memberships.length === 0) return 'NONE';
+  const hasFullMembership = memberships.some((m) => m.membershipPlanId?.planType !== 'DOER');
+  return hasFullMembership ? 'MEMBER' : 'DOER';
+};
+
 // Static method to check if phone has active membership
 userMembershipSchema.statics.hasActiveMembership = async function (phone) {
   const membership = await this.findActiveMembership(phone);

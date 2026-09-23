@@ -38,7 +38,21 @@ export const getIsMember = async (reqUser) => {
   if (reqUser.userType === "admin") return true;
   const phone = await resolvePhone(reqUser);
   if (!phone) return false;
-  return UserMembership.hasActiveMembership(phone);
+  return (await UserMembership.getAccessTier(phone)) === "MEMBER";
+};
+
+export const getAccessTier = async (reqUser) => {
+  if (!reqUser?.id) return "NONE";
+  if (reqUser.userType === "admin") return "ADMIN";
+  const phone = await resolvePhone(reqUser);
+  return UserMembership.getAccessTier(phone);
+};
+
+export const tierMeetsAudience = (tier, audience) => {
+  if (!audience || audience === "ALL") return true;
+  if (tier === "ADMIN") return true;
+  if (audience === "DOERS_EXCLUSIVE") return tier === "DOER" || tier === "MEMBER";
+  return tier === "MEMBER";
 };
 
 export const getIsDoer = async (reqUser) => {
@@ -82,7 +96,7 @@ export const requireMemberOrAdmin = async (req, res, next) => {
       phone = user?.phone;
     }
 
-    if (phone && (await UserMembership.hasActiveMembership(phone))) {
+    if (phone && (await UserMembership.getAccessTier(phone)) === "MEMBER") {
       return next();
     }
 
@@ -115,4 +129,4 @@ export const requireDoer = async (req, res, next) => {
   }
 };
 
-export default { requireMemberOrAdmin, requireDoer, getIsDoer, getIsMember };
+export default { requireMemberOrAdmin, requireDoer, getIsDoer, getIsMember, getAccessTier, tierMeetsAudience };

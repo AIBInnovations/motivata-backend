@@ -6,9 +6,9 @@
 import Event from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
-import UserMembership from '../../schema/UserMembership.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { sendNewEventNotification } from '../../utils/fcm.util.js';
+import { getAccessTier, tierMeetsAudience } from '../../middleware/membership.middleware.js';
 
 /**
  * Returns a Set of saved event ID strings for the given user.
@@ -21,41 +21,14 @@ const getSavedSet = async (userId) => {
   return new Set(user.savedEvents.map((id) => id.toString()));
 };
 
-/**
- * Determine whether the current viewer has an active membership.
- * Admins are always treated as members (full access). Anonymous viewers
- * and users without an active membership are treated as non-members.
- * @param {Object} reqUser - req.user (decoded token) or undefined
- * @returns {Promise<boolean>}
- */
-const getViewerIsMember = async (reqUser) => {
-  if (!reqUser?.id) return false;
-  if (reqUser.userType === 'admin') return true;
+const getViewerTier = (reqUser) => getAccessTier(reqUser);
 
-  // Phone may be on the token; otherwise look it up by user id.
-  let phone = reqUser.phone;
-  if (!phone) {
-    const u = await User.findById(reqUser.id).select('phone').lean();
-    phone = u?.phone;
-  }
-  if (!phone) return false;
-
-  return UserMembership.hasActiveMembership(phone);
-};
-
-/**
- * Attach audience/access flags to a plain event object so the client can
- * render the "Members Only" badge and the "Become a member" gate.
- * - requiresMembership: event is restricted to members
- * - locked: event is restricted AND the current viewer is not a member
- * @param {Object} eventObj - plain event object (already .toObject())
- * @param {boolean} viewerIsMember - whether the current viewer is a member
- * @returns {Object} the same object with requiresMembership/locked added
- */
-const withAccessFlags = (eventObj, viewerIsMember) => {
+const withAccessFlags = (eventObj, viewerTier) => {
   const requiresMembership = !!eventObj.audience && eventObj.audience !== 'ALL';
   eventObj.requiresMembership = requiresMembership;
-  eventObj.locked = requiresMembership && !viewerIsMember;
+  eventObj.requiredTier =
+    eventObj.audience === 'DOERS_EXCLUSIVE' ? 'DOER' : eventObj.audience === 'MEMBERS_ONLY' ? 'MEMBER' : null;
+  eventObj.locked = requiresMembership && !tierMeetsAudience(viewerTier, eventObj.audience);
   return eventObj;
 };
 
@@ -170,7 +143,7 @@ export const getAllEvents = async (req, res) => {
     const sortOptions = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
 
     // Execute query with pagination
-    const [events, totalCount, savedSet, viewerIsMember] = await Promise.all([
+    const [events, totalCount, savedSet, viewerTier] = await Promise.all([
       Event.find(query)
         .sort(sortOptions)
         .skip(skip)
@@ -178,13 +151,13 @@ export const getAllEvents = async (req, res) => {
         .populate('createdBy', 'name email'),
       Event.countDocuments(query),
       getSavedSet(req.user?.id),
-      getViewerIsMember(req.user)
+      getViewerTier(req.user)
     ]);
 
     const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerIsMember));
+    }, viewerTier));
 
     // Calculate pagination info
     const totalPages = Math.ceil(totalCount / limit);
@@ -229,9 +202,9 @@ export const getEventById = async (req, res) => {
     // Update event status if expired
     await event.updateEventStatus();
 
-    const [savedSet, viewerIsMember] = await Promise.all([
+    const [savedSet, viewerTier] = await Promise.all([
       getSavedSet(req.user?.id),
-      getViewerIsMember(req.user),
+      getViewerTier(req.user),
     ]);
 
     const [buyerEnrollments, totalBuyers] = await Promise.all([
@@ -257,7 +230,7 @@ export const getEventById = async (req, res) => {
       isSaved: savedSet.has(event._id.toString()),
       ticketBuyers,
       totalBuyers,
-    }, viewerIsMember);
+    }, viewerTier);
 
     if (!isAdminUser && !isCurrentlyLive) {
       delete eventObj.joinLink;
@@ -508,7 +481,7 @@ export const getUpcomingEvents = async (req, res) => {
 
     const { limit = 10 } = req.query;
 
-    const [events, savedSet, viewerIsMember] = await Promise.all([
+    const [events, savedSet, viewerTier] = await Promise.all([
       Event.find({
         startDate: { $gt: new Date() },
         isLive: true
@@ -517,13 +490,13 @@ export const getUpcomingEvents = async (req, res) => {
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
       getSavedSet(req.user?.id),
-      getViewerIsMember(req.user)
+      getViewerTier(req.user)
     ]);
 
     const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerIsMember));
+    }, viewerTier));
 
     return responseUtil.success(res, 'Upcoming events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -547,7 +520,7 @@ export const getEventsByCategory = async (req, res) => {
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
-    const [events, totalCount, savedSet, viewerIsMember] = await Promise.all([
+    const [events, totalCount, savedSet, viewerTier] = await Promise.all([
       Event.find({ category, isLive: true })
         .sort({ startDate: 1 })
         .skip(skip)
@@ -555,13 +528,13 @@ export const getEventsByCategory = async (req, res) => {
         .populate('createdBy', 'name email'),
       Event.countDocuments({ category, isLive: true }),
       getSavedSet(req.user?.id),
-      getViewerIsMember(req.user)
+      getViewerTier(req.user)
     ]);
 
     const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerIsMember));
+    }, viewerTier));
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -681,7 +654,7 @@ export const getFeaturedEvents = async (req, res) => {
 
     const { limit = 10 } = req.query;
 
-    const [events, savedSet, viewerIsMember] = await Promise.all([
+    const [events, savedSet, viewerTier] = await Promise.all([
       Event.find({
         featured: true,
         isLive: true
@@ -690,13 +663,13 @@ export const getFeaturedEvents = async (req, res) => {
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
       getSavedSet(req.user?.id),
-      getViewerIsMember(req.user)
+      getViewerTier(req.user)
     ]);
 
     const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerIsMember));
+    }, viewerTier));
 
     return responseUtil.success(res, 'Featured events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -722,8 +695,8 @@ export const getBannerEvent = async (req, res) => {
       return responseUtil.success(res, 'No banner event set', { event: null });
     }
 
-    const viewerIsMember = await getViewerIsMember(req.user);
-    const withFlags = withAccessFlags(event.toObject(), viewerIsMember);
+    const viewerTier = await getViewerTier(req.user);
+    const withFlags = withAccessFlags(event.toObject(), viewerTier);
 
     return responseUtil.success(res, 'Banner event fetched successfully', { event: withFlags });
   } catch (error) {
@@ -743,19 +716,19 @@ export const getWebsiteEvents = async (req, res) => {
 
     const { limit = 12 } = req.query;
 
-    const [events, savedSet, viewerIsMember] = await Promise.all([
+    const [events, savedSet, viewerTier] = await Promise.all([
       Event.find({ isLive: true })
         .sort({ startDate: 1 })
         .limit(Number(limit))
         .populate('createdBy', 'name email'),
       getSavedSet(req.user?.id),
-      getViewerIsMember(req.user)
+      getViewerTier(req.user)
     ]);
 
     const eventsWithSaved = events.map((e) => withAccessFlags({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerIsMember));
+    }, viewerTier));
 
     return responseUtil.success(res, 'Website events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -804,7 +777,7 @@ export const getWebEventById = async (req, res) => {
     // Public website has no logged-in user, so the viewer is treated as a non-member.
     const eventObj = withAccessFlags(
       { ...event.toObject(), ticketBuyers, totalBuyers },
-      false
+      'NONE'
     );
     if (!isCurrentlyLive || eventObj.locked) {
       delete eventObj.joinLink;

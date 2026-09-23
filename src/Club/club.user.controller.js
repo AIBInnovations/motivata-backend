@@ -15,6 +15,29 @@ import Like from "../../schema/Like.schema.js";
 import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { getAccessTier } from "../../middleware/membership.middleware.js";
+
+const ACCESS_TIER_RANK = { NONE: 0, DOER: 1, MEMBER: 2, ADMIN: 3 };
+const ACCESS_LEVEL_RANK = { OPEN: 0, DOERS: 1, MEMBERS: 2 };
+
+const canAccessClub = (tier, accessLevel = "OPEN") =>
+  (ACCESS_TIER_RANK[tier] ?? 0) >= (ACCESS_LEVEL_RANK[accessLevel] ?? 0);
+
+const accessDeniedMessage = (accessLevel) =>
+  accessLevel === "MEMBERS"
+    ? "This club is only for Motivata Members."
+    : "This club is only for Doers and Members. Become a Doer to join.";
+
+const clubAdminSet = async (userId, clubIds) => {
+  if (!userId || clubIds.length === 0) return new Set();
+  const rows = await ClubMember.find({
+    user: userId,
+    club: { $in: clubIds },
+    role: "ADMIN",
+    status: "APPROVED",
+  }).select("club");
+  return new Set(rows.map((r) => r.club.toString()));
+};
 
 /**
  * Get all clubs (public, with join status if authenticated)
@@ -97,9 +120,14 @@ export const getAllClubs = async (req, res) => {
 
     // If user is authenticated, get their club memberships
     let joinedClubIds = new Set();
+    let adminClubIds = new Set();
+    const viewerTier = await getAccessTier(req.user);
     if (currentUserId) {
       const clubIds = clubs.map((club) => club._id);
-      joinedClubIds = await ClubMember.getMembershipStatus(currentUserId, clubIds);
+      [joinedClubIds, adminClubIds] = await Promise.all([
+        ClubMember.getMembershipStatus(currentUserId, clubIds),
+        clubAdminSet(currentUserId, clubIds),
+      ]);
     }
 
     // Format clubs with isJoined flag
@@ -111,7 +139,10 @@ export const getAllClubs = async (req, res) => {
       memberCount: club.memberCount,
       postCount: club.postCount,
       isJoined: currentUserId ? joinedClubIds.has(club._id.toString()) : false,
+      isClubAdmin: adminClubIds.has(club._id.toString()),
       requiresApproval: club.requiresApproval,
+      accessLevel: club.accessLevel || "OPEN",
+      canJoin: canAccessClub(viewerTier, club.accessLevel),
       postPermissions: club.postPermissions || (club.postPermission ? [club.postPermission] : ['MEMBERS']),
       createdAt: club.createdAt,
       updatedAt: club.updatedAt,
@@ -155,8 +186,13 @@ export const getClubById = async (req, res) => {
 
     // Check if user is a member
     let isJoined = false;
+    let isClubAdmin = false;
+    const viewerTier = await getAccessTier(req.user);
     if (currentUserId) {
-      isJoined = await ClubMember.isMember(currentUserId, clubId);
+      [isJoined, isClubAdmin] = await Promise.all([
+        ClubMember.isMember(currentUserId, clubId),
+        ClubMember.isClubAdmin(currentUserId, clubId),
+      ]);
     }
 
     return responseUtil.success(res, "Club fetched successfully", {
@@ -168,7 +204,10 @@ export const getClubById = async (req, res) => {
         memberCount: club.memberCount,
         postCount: club.postCount,
         isJoined,
+        isClubAdmin,
         requiresApproval: club.requiresApproval,
+        accessLevel: club.accessLevel || "OPEN",
+        canJoin: canAccessClub(viewerTier, club.accessLevel),
         postPermissions: club.postPermissions || (club.postPermission ? [club.postPermission] : ['MEMBERS']),
         createdAt: club.createdAt,
         updatedAt: club.updatedAt,
@@ -196,6 +235,11 @@ export const joinClub = async (req, res) => {
     const club = await Club.findById(clubId);
     if (!club) {
       return responseUtil.notFound(res, "Club not found");
+    }
+
+    const tier = await getAccessTier(req.user);
+    if (!canAccessClub(tier, club.accessLevel)) {
+      return responseUtil.forbidden(res, accessDeniedMessage(club.accessLevel));
     }
 
     // Check if already a member
@@ -426,14 +470,24 @@ export const getClubFeed = async (req, res) => {
       followingSet = new Set(following.map((id) => id.toString()));
     }
 
-    const formattedPosts = validPosts.map((post) =>
-      formatPostResponse(post, { currentUserId, likedPostIds, followingSet })
+    const clubAdminIds = new Set(
+      (
+        await ClubMember.find({ club: clubId, role: "ADMIN", status: "APPROVED", isDeleted: false }).distinct("user")
+      ).map((id) => id.toString())
     );
+
+    const formattedPosts = validPosts.map((post) => ({
+      ...formatPostResponse(post, { currentUserId, likedPostIds, followingSet }),
+      authorIsClubAdmin: clubAdminIds.has(post.author._id.toString()),
+      commentCount: post.commentCount || 0,
+    }));
 
     const totalPages = Math.ceil(totalCount / limit);
 
     return responseUtil.success(res, "Club feed fetched successfully", {
       posts: formattedPosts,
+      viewerIsClubAdmin: clubAdminIds.has(String(currentUserId)),
+      commentMaxChars: 150,
       pagination: {
         currentPage: Number(page),
         totalPages,
@@ -516,6 +570,7 @@ export const getClubMembers = async (req, res) => {
       isFollowing: currentUserId && currentUserId !== membership.user._id.toString()
         ? followingSet.has(membership.user._id.toString())
         : false,
+      clubRole: membership.role || "MEMBER",
       joinedAt: membership.createdAt,
     }));
 
@@ -625,7 +680,7 @@ export const getMyClubs = async (req, res) => {
       ClubMember.find({ user: userId })
         .populate({
           path: "club",
-          select: "name description thumbnail memberCount postCount requiresApproval postPermission",
+          select: "name description thumbnail memberCount postCount requiresApproval postPermission postPermissions accessLevel",
           match: { isDeleted: false },
         })
         .sort({ createdAt: -1 })
@@ -645,6 +700,9 @@ export const getMyClubs = async (req, res) => {
       memberCount: membership.club.memberCount,
       postCount: membership.club.postCount,
       isJoined: true,
+      isClubAdmin: membership.role === "ADMIN",
+      accessLevel: membership.club.accessLevel || "OPEN",
+      canJoin: true,
       requiresApproval: membership.club.requiresApproval,
       postPermissions: membership.club.postPermissions || (membership.club.postPermission ? [membership.club.postPermission] : ['MEMBERS']),
       joinedAt: membership.createdAt,

@@ -27,8 +27,8 @@ const clubSchema = new mongoose.Schema(
      */
     description: {
       type: String,
-      required: [true, "Club description is required"],
       trim: true,
+      default: "",
       maxlength: [1000, "Club description cannot exceed 1000 characters"],
     },
 
@@ -69,6 +69,12 @@ const clubSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
       index: true,
+    },
+
+    accessLevel: {
+      type: String,
+      enum: ["OPEN", "DOERS", "MEMBERS"],
+      default: "OPEN",
     },
 
     /**

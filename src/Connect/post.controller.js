@@ -14,6 +14,8 @@ import PostComment from "../../schema/PostComment.schema.js";
 import PostCommentLike from "../../schema/PostCommentLike.schema.js";
 import responseUtil from "../../utils/response.util.js";
 
+export const CLUB_COMMENT_MAX_CHARS = 150;
+
 /**
  * Helper: Map post document to response format
  * @param {Object} post - Post document
@@ -30,6 +32,10 @@ const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set
   return {
     id: post._id,
     title: post.title || "",
+    subHeading: post.subHeading || "",
+    category: post.category || "",
+    videoUrl: post.videoUrl || "",
+    linkUrl: post.linkUrl || "",
     content: post.content || "",
     caption: post.caption,
     mediaType: post.mediaType,
@@ -96,8 +102,10 @@ export const createPost = async (req, res) => {
       let permissions = club.postPermissions || (club.postPermission ? [club.postPermission === 'ADMIN_ONLY' ? 'ADMIN' : club.postPermission] : ['MEMBERS']);
       const isAdmin = req.user.userType === 'admin';
 
+      const isClubAdmin = req.user.userType !== 'admin' && await ClubMember.isClubAdmin(authorId, clubId);
+
       // If ANYONE is in permissions, no checks needed
-      if (permissions.includes('ANYONE')) {
+      if (permissions.includes('ANYONE') || isClubAdmin) {
         // Anyone can post, no restrictions
       } else {
         // Check if user meets any of the permission requirements
@@ -128,6 +136,9 @@ export const createPost = async (req, res) => {
     }
 
     const isAdmin = req.user.userType === 'admin';
+    if (!clubId && !isAdmin) {
+      return responseUtil.forbidden(res, "Explore posts are published by the Motivata team. You can post inside your clubs.");
+    }
     const postData = {
       authorType: isAdmin ? 'Admin' : 'User',
       author: authorId,
@@ -884,6 +895,14 @@ export const createPostComment = async (req, res) => {
       return responseUtil.notFound(res, "Post not found");
     }
 
+    let commentText = text.trim();
+    if (post.club) {
+      commentText = commentText.replace(/\s*[\r\n]+\s*/g, " ");
+      if (commentText.length > CLUB_COMMENT_MAX_CHARS) {
+        return responseUtil.badRequest(res, `Club replies are one line — keep it under ${CLUB_COMMENT_MAX_CHARS} characters`);
+      }
+    }
+
     const authorType = req.user.userType === "admin" ? "Admin" : "User";
     const authorName = await resolveCommentAuthorName(req.user);
 
@@ -892,7 +911,7 @@ export const createPostComment = async (req, res) => {
       authorType,
       author: req.user.id,
       authorName,
-      text: text.trim(),
+      text: commentText,
     });
 
     await Post.findByIdAndUpdate(postId, { $inc: { commentCount: 1 } });

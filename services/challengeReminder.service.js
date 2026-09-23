@@ -62,10 +62,10 @@ const runReminderPass = async () => {
     const userIds = [...new Set(pending.map((uc) => uc.userId.toString()))];
     const users = await User.find(
       { _id: { $in: userIds } },
-      "fcmTokens"
+      "fcmTokens notificationPrefs"
     ).lean();
     const tokensByUser = new Map(
-      users.map((u) => [
+      users.filter((u) => u.notificationPrefs?.challengeReminders !== false).map((u) => [
         u._id.toString(),
         (u.fcmTokens || []).map((t) => t.token).filter(Boolean),
       ])

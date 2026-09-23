@@ -21,6 +21,9 @@ import {
   deleteComment,
   likeComment,
   unlikeComment,
+  findSimilarRecommendations,
+  pinComment,
+  unpinComment,
 } from "./recommendation.controller.js";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { requireMemberOrAdmin, requireDoer } from "../../middleware/membership.middleware.js";
@@ -34,6 +37,13 @@ const router = express.Router();
 router.get("/tags", authenticate, getRecommendationTags);
 router.get("/mine", authenticate, getMyRecommendations);
 router.get("/bookmarks", authenticate, getMyBookmarks);
+router.post(
+  "/similar",
+  authenticate,
+  requireMemberOrAdmin,
+  validateBody(recommendationSchemas.similar),
+  findSimilarRecommendations
+);
 
 // ─── Feed ─────────────────────────────────────────────────────────────────────
 
@@ -117,6 +127,19 @@ router.delete(
   authenticate,
   validateParams(commentSchemas.commentId),
   unlikeComment
+);
+
+router.post(
+  "/:id/comments/:cid/pin",
+  authenticate,
+  validateParams(commentSchemas.commentId),
+  pinComment
+);
+router.delete(
+  "/:id/comments/:cid/pin",
+  authenticate,
+  validateParams(commentSchemas.commentId),
+  unpinComment
 );
 
 // ─── Delete recommendation ────────────────────────────────────────────────────

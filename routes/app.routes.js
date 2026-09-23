@@ -31,6 +31,8 @@ import seatArrangementUserRoutes from "../src/SeatArrangement/seatArrangement.us
 import userServiceRoutes from "../src/Service/service.user.route.js";
 import userJobRoutes from "../src/Job/job.user.route.js";
 import userRecommendationRoutes from "../src/Recommendation/recommendation.user.route.js";
+import userCommunityRoutes from "../src/Community/community.user.route.js";
+import userOccupationRoutes from "../src/Occupation/occupation.user.route.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,6 +111,10 @@ router.use("/jobs", userJobRoutes);
 
 // Recommendation routes - /api/app/recommendations
 router.use("/recommendations", userRecommendationRoutes);
+
+router.use("/community", userCommunityRoutes);
+
+router.use("/occupations", userOccupationRoutes);
 
 // Add more user routes here as needed
 // Example:

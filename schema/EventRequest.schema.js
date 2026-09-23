@@ -119,6 +119,33 @@ const eventRequestSchema = new mongoose.Schema(
       default: null
     },
 
+    originalAmount: {
+      type: Number,
+      default: null
+    },
+
+    discountAmount: {
+      type: Number,
+      default: null
+    },
+
+    couponCode: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      default: null
+    },
+
+    pricingTierId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null
+    },
+
+    tierName: {
+      type: String,
+      default: null
+    },
+
     /**
      * EventEnrollment created once the payment link is paid
      */

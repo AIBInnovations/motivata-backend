@@ -10,6 +10,7 @@ import seedFeatureAccess from "./seeds/featureAccessSeed.js";
 import { cleanupDeletedUsers } from "./scripts/cleanupDeletedUsers.js";
 import { startCalendlySyncJob } from "./services/calendlySync.service.js";
 import { startChallengeReminderJobs } from "./services/challengeReminder.service.js";
+import { startEngagementReminderJobs } from "./services/engagementReminder.service.js";
 
 const PORT = process.env.PORT || 3000;
 
@@ -47,7 +48,7 @@ const startServer = async () => {
     await connectDB();
 
     if (process.env.RUN_BACKGROUND_JOBS === "false") {
-      console.log("> Background jobs disabled (RUN_BACKGROUND_JOBS=false): feature seed, cash audit, user cleanup, Calendly sync, challenge reminders");
+      console.log("> Background jobs disabled (RUN_BACKGROUND_JOBS=false): feature seed, cash audit, user cleanup, Calendly sync, challenge reminders, event and SOS reminders");
     } else {
       // Seed feature access data on startup (non-blocking)
       seedFeatureAccess().catch((err) => {
@@ -69,6 +70,8 @@ const startServer = async () => {
 
       // Start challenge reminder cron — 12:00 PM & 6:00 PM daily (server local time)
       startChallengeReminderJobs();
+
+      startEngagementReminderJobs();
     }
 
     app.listen(PORT, () => {

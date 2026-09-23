@@ -5,6 +5,7 @@
 
 import express from "express";
 import fcmController from "./fcm.controller.js";
+import notificationController from "./notification.controller.js";
 import { authenticate } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
@@ -38,5 +39,12 @@ router.delete("/fcm-token", fcmController.removeFcmToken);
  * Remove all FCM tokens (logout from all devices)
  */
 router.delete("/fcm-token/all", fcmController.removeAllFcmTokens);
+
+router.get("/", notificationController.getMyNotifications);
+router.get("/unread-count", notificationController.getUnreadCount);
+router.get("/preferences", notificationController.getNotificationPreferences);
+router.patch("/preferences", notificationController.updateNotificationPreferences);
+router.post("/read-all", notificationController.markAllNotificationsRead);
+router.patch("/:id/read", notificationController.markNotificationRead);
 
 export default router;

@@ -17,7 +17,12 @@ import {
   RECOMMENDATION_TAGS,
   RECOMMENDATION_CATEGORIES,
   RECOMMENDATION_MAIN_TAGS,
+  MAX_PINNED_COMMENTS,
+  tokenizeForSimilarity,
+  similarityScore,
 } from "./recommendation.constants.js";
+
+const SIMILAR_LOOKBACK_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** 7 days in milliseconds — feed window */
 const FEED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -85,7 +90,7 @@ export const getRecommendationTags = async (_req, res) => {
  */
 export const createRecommendation = async (req, res) => {
   try {
-    const { text, tags } = req.body;
+    const { text, tags, url } = req.body;
     const { authorType, authorId, authorName } = await resolveAuthor(req.user);
 
     const recommendation = await Recommendation.create({
@@ -94,6 +99,7 @@ export const createRecommendation = async (req, res) => {
       authorName,
       text,
       tags,
+      url: url ? url.trim() : null,
     });
 
     return responseUtil.created(res, "Recommendation posted successfully", {
@@ -111,6 +117,44 @@ export const createRecommendation = async (req, res) => {
     }
 
     return responseUtil.internalError(res, "Failed to post recommendation", error.message);
+  }
+};
+
+export const findSimilarRecommendations = async (req, res) => {
+  try {
+    const { text, tags = [], url } = req.body;
+    const mainTag = tags.find((t) => RECOMMENDATION_MAIN_TAGS.includes(t));
+    const words = tokenizeForSimilarity(text);
+    const normalizedUrl = url ? url.trim().toLowerCase().replace(/\/+$/, "") : null;
+
+    const query = { createdAt: { $gte: new Date(Date.now() - SIMILAR_LOOKBACK_MS) } };
+    if (mainTag) query.tags = mainTag;
+
+    const candidates = await Recommendation.find(query)
+      .sort({ createdAt: -1 })
+      .limit(300)
+      .select("text tags url authorName author likeCount commentCount createdAt")
+      .lean();
+
+    const matches = candidates
+      .map((rec) => {
+        const sameUrl =
+          normalizedUrl && rec.url && rec.url.trim().toLowerCase().replace(/\/+$/, "") === normalizedUrl;
+        const { shared, score } = similarityScore(words, tokenizeForSimilarity(rec.text));
+        return { rec, sameUrl, shared, score };
+      })
+      .filter(({ sameUrl, shared, score }) => sameUrl || (shared >= 2 && score >= 0.5))
+      .sort((a, b) => Number(b.sameUrl) - Number(a.sameUrl) || b.score - a.score)
+      .slice(0, 3)
+      .map(({ rec }) => rec);
+
+    return responseUtil.success(res, "Similar recommendations checked", {
+      similar: matches,
+      hasSimilar: matches.length > 0,
+    });
+  } catch (error) {
+    console.error("Find similar recommendations error:", error);
+    return responseUtil.internalError(res, "Failed to check similar recommendations", error.message);
   }
 };
 
@@ -410,7 +454,7 @@ export const getComments = async (req, res) => {
     }
 
     const comments = await RecommendationComment.find({ recommendation: id })
-      .sort({ likeCount: -1, createdAt: -1 })
+      .sort({ isPinned: -1, pinnedAt: 1, likeCount: -1, createdAt: -1 })
       .lean();
 
     // Attach isLiked per comment for the viewer.
@@ -587,8 +631,60 @@ export const unlikeComment = async (req, res) => {
   }
 };
 
+const setCommentPinned = async (req, res, pinned) => {
+  try {
+    const { id, cid } = req.params;
+    const recommendation = await Recommendation.findById(id).select("author").lean();
+    if (!recommendation) {
+      return responseUtil.notFound(res, "Recommendation not found");
+    }
+
+    const isAdmin = req.user.userType === "admin";
+    const isAuthor = recommendation.author.toString() === req.user.id;
+    if (!isAdmin && !isAuthor) {
+      return responseUtil.forbidden(res, "Only the person who posted this recommendation can pin comments");
+    }
+
+    const comment = await RecommendationComment.findById(cid);
+    if (!comment || comment.recommendation.toString() !== id) {
+      return responseUtil.notFound(res, "Comment not found");
+    }
+
+    if (pinned && !comment.isPinned) {
+      const pinnedCount = await RecommendationComment.countDocuments({
+        recommendation: id,
+        isPinned: true,
+        isDeleted: false,
+      });
+      if (pinnedCount >= MAX_PINNED_COMMENTS) {
+        return responseUtil.badRequest(res, `You can pin up to ${MAX_PINNED_COMMENTS} comments`);
+      }
+    }
+
+    comment.isPinned = pinned;
+    comment.pinnedAt = pinned ? new Date() : null;
+    await comment.save({ validateModifiedOnly: true });
+
+    return responseUtil.success(res, pinned ? "Comment pinned" : "Comment unpinned", {
+      commentId: comment._id,
+      isPinned: comment.isPinned,
+    });
+  } catch (error) {
+    console.error("Pin comment error:", error);
+    if (error.name === "CastError") return responseUtil.badRequest(res, "Invalid ID");
+    return responseUtil.internalError(res, "Failed to update pinned comment", error.message);
+  }
+};
+
+export const pinComment = (req, res) => setCommentPinned(req, res, true);
+
+export const unpinComment = (req, res) => setCommentPinned(req, res, false);
+
 export default {
   getRecommendationTags,
+  findSimilarRecommendations,
+  pinComment,
+  unpinComment,
   createRecommendation,
   getAllRecommendations,
   getMyRecommendations,
