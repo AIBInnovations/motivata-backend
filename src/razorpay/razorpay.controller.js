@@ -872,6 +872,10 @@ export const getPaymentStatus = async (req, res) => {
       type: payment.type,
       purchaseDateTime: payment.purchaseDateTime,
       failureReason: payment.failureReason,
+      features:
+        payment.type === "FEATURE_REQUEST" && Array.isArray(payment.metadata?.features)
+          ? payment.metadata.features
+          : undefined,
       event: payment.eventId,
       session: payment.sessionId,
       createdAt: payment.createdAt,

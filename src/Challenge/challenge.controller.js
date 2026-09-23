@@ -863,6 +863,55 @@ export const markDayComplete = async (req, res) => {
 };
 
 /**
+ * Mark today as NOT done ("No")
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const markDaySkipped = async (req, res) => {
+  try {
+    const { challengeId } = req.params;
+    const userId = req.user.id;
+
+    const userChallenge = await UserChallenge.findOne({ userId, challengeId });
+
+    if (!userChallenge) {
+      return responseUtil.notFound(res, "You are not participating in this challenge");
+    }
+
+    if (userChallenge.status !== "active") {
+      return responseUtil.badRequest(res, "This challenge is no longer active");
+    }
+
+    if (userChallenge.endsAt && new Date() > userChallenge.endsAt) {
+      userChallenge.status = "expired";
+      await userChallenge.save();
+      return responseUtil.badRequest(res, "This challenge has expired");
+    }
+
+    await userChallenge.markDaySkipped();
+
+    const todayProgress = await userChallenge.getTodayProgress();
+
+    return responseUtil.success(res, "Today marked as not done", {
+      todayProgress,
+      daysCompleted: userChallenge.daysCompleted,
+      currentStreak: userChallenge.currentStreak,
+      longestStreak: userChallenge.longestStreak,
+      allTasksCompletedToday: todayProgress.allTasksCompleted,
+      status: userChallenge.status,
+    });
+  } catch (error) {
+    console.error("Mark day skipped error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to mark today as not done", error.message);
+  }
+};
+
+/**
  * Undo today's completion
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
