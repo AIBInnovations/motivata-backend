@@ -11,6 +11,7 @@ import responseUtil from '../../utils/response.util.js';
 import { razorpayInstance } from '../../utils/razorpay.util.js';
 import { sendPaymentLinkNotifications } from '../../utils/notification.util.js';
 import { validateCouponForType } from '../Enrollment/coupon.controller.js';
+import { formatIST } from '../../utils/timezone.util.js';
 
 // Helper function to normalize phone number
 const normalizePhone = (phone) => {
@@ -191,6 +192,34 @@ const resolveRequestPricing = async ({ event, request, pricingTierId, couponCode
   };
 };
 
+const buildPaymentLinkDescription = (event, tier) => {
+  const when = event.startDate
+    ? formatIST(event.startDate, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      })
+    : '';
+  const where = event.mode === 'ONLINE'
+    ? 'Online'
+    : [event.venueName, event.city].filter(Boolean).join(', ');
+
+  const headline = [
+    tier ? `${event.name} (${tier.name})` : event.name,
+    when,
+    where
+  ].filter(Boolean).join(' · ');
+
+  const tierNote = tier?.shortDescription ? ` ${tier.shortDescription}.` : '';
+  const about = event.description ? ` ${event.description.trim()}` : '';
+
+  return `${headline}.${tierNote}${about}`.slice(0, 2048);
+};
+
 const issuePaymentLink = async ({ request, event, pricing, adminId, notes, sendWhatsApp }) => {
   const amount = pricing.finalAmount;
   const orderId = `ER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -198,15 +227,13 @@ const issuePaymentLink = async ({ request, event, pricing, adminId, notes, sendW
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  const description = pricing.tier
-    ? `Event: ${event.name} (${pricing.tier.name})`
-    : `Event: ${event.name}`;
+  const description = buildPaymentLinkDescription(event, pricing.tier);
 
   const paymentLinkOptions = {
     amount: Math.round(amount * 100),
     currency: 'INR',
     accept_partial: false,
-    description: description.slice(0, 2048),
+    description,
     customer: {
       name: request.name,
       contact: `91${request.phone}`

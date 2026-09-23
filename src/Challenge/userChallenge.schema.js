@@ -51,6 +51,11 @@ const dailyProgressSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Day-level answer. Task-less challenges have no tasks to carry it, so it lives here.
+    status: {
+      type: String,
+      enum: ["done", "skipped"],
+    },
     completedAt: {
       type: Date,
     },
@@ -451,14 +456,24 @@ userChallengeSchema.methods.markDayComplete = async function () {
   }
 
   const now = new Date();
+
+  // Today may have been answered "No" earlier; that zeroed the streak, so this starts a fresh one.
+  const wasSkippedToday =
+    progress.status === "skipped" || progress.tasks.some((t) => t.status === "skipped");
+  if (wasSkippedToday) {
+    this.lastStreakDate = null;
+  }
+
   progress.tasks.forEach((t) => {
     if (!t.completed) {
       t.completed = true;
       t.completedAt = now;
     }
+    t.status = "done";
   });
 
   progress.allTasksCompleted = true;
+  progress.status = "done";
   progress.completedAt = now;
   this.daysCompleted += 1;
   this.updateStreak();
@@ -509,6 +524,64 @@ userChallengeSchema.methods.unmarkDayComplete = async function () {
     this.status = "active";
     this.completedAt = null;
   }
+
+  return this.save();
+};
+
+/**
+ * Instance method to mark today as NOT done (the "No" answer).
+ * A missed day breaks the streak and is never counted in daysCompleted.
+ * @returns {Promise<UserChallenge>} Updated document
+ */
+userChallengeSchema.methods.markDaySkipped = async function () {
+  const today = istDayStart();
+
+  const startDate = istDayStart(this.startedAt);
+  const dayNumber = Math.floor((today - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+  const Challenge = mongoose.model("Challenge");
+  const challenge = await Challenge.findById(this.challengeId);
+  if (!challenge) throw new Error("Challenge not found");
+
+  let progressIndex = this.dailyProgress.findIndex((d) => {
+    const progressDate = istDayStart(d.date);
+    return progressDate.getTime() === today.getTime();
+  });
+
+  if (progressIndex === -1) {
+    this.dailyProgress.push({
+      date: today,
+      dayNumber,
+      tasks: (challenge.tasks || []).map((t) => ({ taskId: t._id, completed: false })),
+      allTasksCompleted: false,
+    });
+    progressIndex = this.dailyProgress.length - 1;
+  }
+
+  const progress = this.dailyProgress[progressIndex];
+  const now = new Date();
+
+  // Switching a day that was already counted as done back to missed must give the count back.
+  if (progress.allTasksCompleted) {
+    this.daysCompleted = Math.max(0, this.daysCompleted - 1);
+    progress.completedAt = null;
+    if (this.status === "completed") {
+      this.status = "active";
+      this.completedAt = null;
+    }
+  }
+
+  progress.tasks.forEach((t) => {
+    t.completed = false;
+    t.completedAt = null;
+    t.status = "skipped";
+  });
+  progress.allTasksCompleted = false;
+  progress.status = "skipped";
+
+  this.currentStreak = 0;
+  this.lastStreakDate = today;
+  this.lastActivityAt = now;
 
   return this.save();
 };

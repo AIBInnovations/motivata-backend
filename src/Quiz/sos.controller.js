@@ -904,6 +904,91 @@ export const getDayQuiz = async (req, res) => {
 };
 
 /**
+ * Replace the answers on a day that was already completed.
+ * Answers stay editable with no time limit; this never advances the programme.
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+export const updateDayQuizAnswers = async (req, res) => {
+  try {
+    const { programId, dayNumber } = req.params;
+    const { responses } = req.body;
+    const userId = req.user.id;
+
+    const progress = await UserSOSProgress.findByUserAndProgram(userId, programId);
+
+    if (!progress) {
+      return responseUtil.notFound(res, "You have not started this program");
+    }
+
+    const day = parseInt(dayNumber, 10);
+    const existingDayProgress = progress.dailyProgress.find((d) => d.dayNumber === day);
+
+    if (!existingDayProgress || existingDayProgress.status !== "completed") {
+      return responseUtil.badRequest(res, "You can only edit a day you have already completed");
+    }
+
+    const quiz = await SOSQuiz.findByDay(programId, day);
+    if (!quiz) {
+      return responseUtil.notFound(res, `No quiz found for day ${day}`);
+    }
+
+    const unansweredRequired = quiz.questions.filter((question) => {
+      if (question.isRequired === false) return false;
+      const userResponse = responses.find((r) => r.questionId === question._id.toString());
+      return isAnswerEmpty(userResponse?.answer);
+    });
+
+    if (unansweredRequired.length > 0) {
+      return responseUtil.badRequest(
+        res,
+        `Please answer all required questions before saving. ${unansweredRequired.length} of ${quiz.questions.length} still unanswered.`
+      );
+    }
+
+    let score = 0;
+    let maxScore = 0;
+    const gradedResponses = [];
+
+    for (const question of quiz.questions) {
+      maxScore += question.points || 0;
+      const userResponse = responses.find((r) => r.questionId === question._id.toString());
+
+      const gradedResponse = {
+        questionId: question._id,
+        answer: userResponse?.answer || null,
+        pointsEarned: 0,
+      };
+
+      if (userResponse && userResponse.answer !== null && userResponse.answer !== "") {
+        gradedResponse.pointsEarned = question.points || 0;
+        score += gradedResponse.pointsEarned;
+      }
+
+      gradedResponses.push(gradedResponse);
+    }
+
+    await progress.updateDayAnswers(day, gradedResponses, score, maxScore);
+
+    return responseUtil.success(res, "Answers updated successfully", {
+      dayNumber: day,
+      score,
+      maxScore,
+      totalScore: progress.totalScore,
+      daysCompleted: progress.daysCompleted,
+    });
+  } catch (error) {
+    console.error("Update day quiz answers error:", error);
+
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid ID format");
+    }
+
+    return responseUtil.internalError(res, "Failed to update your answers", error.message);
+  }
+};
+
+/**
  * Submit quiz responses for a day
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
@@ -1836,27 +1921,31 @@ export const submitDailyAnswer = async (req, res) => {
       return responseUtil.notFound(res, "No question is scheduled for today");
     }
 
+    // Answers stay editable for the whole day — re-submitting replaces the previous one.
     const existing = await DailySOSAnswer.findForUserOnDate(req.user.id, today);
-    if (existing) {
-      return responseUtil.conflict(res, "You have already answered today's question");
-    }
 
-    const answer = await DailySOSAnswer.create({
-      userId: req.user.id,
-      questionId: question._id,
-      dateKey: today,
-      answer: req.body.answer,
-    });
+    const answer = await DailySOSAnswer.findOneAndUpdate(
+      { userId: req.user.id, dateKey: today },
+      {
+        $set: {
+          questionId: question._id,
+          answer: req.body.answer,
+          answeredAt: new Date(),
+        },
+      },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    );
 
-    return responseUtil.created(res, "Answer saved successfully", {
+    const payload = {
       answer: { _id: answer._id, dateKey: answer.dateKey, answeredAt: answer.answeredAt },
-    });
+      updated: !!existing,
+    };
+
+    return existing
+      ? responseUtil.success(res, "Answer updated successfully", payload)
+      : responseUtil.created(res, "Answer saved successfully", payload);
   } catch (error) {
     console.error("Submit daily SOS answer error:", error);
-
-    if (error.code === 11000) {
-      return responseUtil.conflict(res, "You have already answered today's question");
-    }
 
     return responseUtil.internalError(res, "Failed to save your answer", error.message);
   }

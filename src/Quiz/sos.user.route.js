@@ -13,6 +13,7 @@ import {
   getTodayQuiz,
   getDayQuiz,
   submitDayQuiz,
+  updateDayQuizAnswers,
   getLeaderboard,
   downloadCertificate,
   resetProgram,
@@ -181,6 +182,22 @@ router.post(
   validateBody(progressSchemas.submitQuiz),
   requireProgramAccess,
   submitDayQuiz
+);
+
+/**
+ * @route   PATCH /api/app/sos/programs/:programId/days/:dayNumber/answers
+ * @desc    Edit the answers on a day already completed — does not advance the programme
+ * @access  User (authenticated)
+ * @param   {string} programId - Program ID
+ * @param   {number} dayNumber - Day number
+ * @body    {Array} responses - Array of question responses
+ */
+router.patch(
+  "/programs/:programId/days/:dayNumber/answers",
+  validateParams(daySubmitParamsSchema),
+  validateBody(progressSchemas.submitQuiz),
+  requireProgramAccess,
+  updateDayQuizAnswers
 );
 
 /**

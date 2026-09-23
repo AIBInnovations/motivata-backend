@@ -15,6 +15,7 @@ import {
   markTaskComplete,
   unmarkTask,
   skipTask,
+  markDaySkipped,
   markDayComplete,
   unmarkDayComplete,
   abandonChallenge,
@@ -146,6 +147,13 @@ router.post("/:challengeId/complete-day", validateParams(challengeSchemas.challe
  * @access  User (authenticated)
  */
 router.post("/:challengeId/uncomplete-day", validateParams(challengeSchemas.challengeId), unmarkDayComplete);
+
+/**
+ * @route   POST /api/app/challenges/:challengeId/skip-day
+ * @desc    Mark the whole of today as not done — the "No" answer
+ * @access  User (authenticated)
+ */
+router.post("/:challengeId/skip-day", validateParams(challengeSchemas.challengeId), markDaySkipped);
 
 /**
  * @route   POST /api/app/challenges/:challengeId/tasks/:taskId/complete

@@ -288,6 +288,33 @@ userSOSProgressSchema.methods.startProgram = function () {
  * @param {number} maxScore - Maximum possible score
  * @returns {Promise<UserSOSProgress>} Updated document
  */
+/**
+ * Replace the answers on a day that is already completed.
+ * Score totals follow the new answers; day count, streak and currentDay are left alone.
+ */
+userSOSProgressSchema.methods.updateDayAnswers = async function (
+  dayNumber,
+  responses,
+  score,
+  maxScore
+) {
+  const dayProgress = this.dailyProgress.find((d) => d.dayNumber === dayNumber);
+
+  if (!dayProgress || dayProgress.status !== "completed") {
+    throw new Error("This day has not been completed yet");
+  }
+
+  dayProgress.responses = responses;
+  dayProgress.score = score;
+  dayProgress.maxScore = maxScore;
+
+  this.totalScore = this.dailyProgress.reduce((sum, d) => sum + (d.score || 0), 0);
+  this.maxPossibleScore = this.dailyProgress.reduce((sum, d) => sum + (d.maxScore || 0), 0);
+  this.lastActivityAt = new Date();
+
+  return this.save();
+};
+
 userSOSProgressSchema.methods.recordDayCompletion = async function (
   dayNumber,
   quizId,
