@@ -496,6 +496,7 @@ const sendTicketEmails = async (enrollment, buyerUser, buyerDetails, otherUsers,
     const whatsappMessages = [];
     const eventName = event.name || 'Event';
     const eventDate = event.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
+      timeZone: 'Asia/Kolkata',
       year: 'numeric',
       month: 'long',
       day: 'numeric'
