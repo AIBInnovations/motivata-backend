@@ -395,6 +395,7 @@ export const sendNewEventNotification = async ({
     }
     if (startDate) {
       const dateStr = new Date(startDate).toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata",
         day: "numeric",
         month: "short",
         year: "numeric",

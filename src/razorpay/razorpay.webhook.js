@@ -1263,6 +1263,7 @@ const sendEnrollmentEmails = async (payment, enrollment, buyerUser, otherUsers, 
     const whatsappMessages = [];
     const eventName = event?.title || event?.name || 'Event';
     const eventDate = event?.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
+      timeZone: 'Asia/Kolkata',
       year: 'numeric',
       month: 'long',
       day: 'numeric'

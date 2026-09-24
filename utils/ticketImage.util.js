@@ -34,6 +34,20 @@ const getLogoDataUrl = () => {
   return cachedLogoDataUrl;
 };
 
+const istParts = (date) => Object.fromEntries(
+  new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+    .formatToParts(new Date(date))
+    .map((part) => [part.type, part.value])
+);
+
 /**
  * Format date for ticket display
  * @param {Date|string} date - Date to format
@@ -42,13 +56,7 @@ const getLogoDataUrl = () => {
 const formatTicketDate = (date) => {
   if (!date) return '';
 
-  const d = new Date(date);
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  const dayName = days[d.getDay()];
-  const day = d.getDate();
-  const month = months[d.getMonth()];
+  const { weekday, day, month } = istParts(date);
 
   // Add ordinal suffix
   const ordinal = (n) => {
@@ -57,7 +65,7 @@ const formatTicketDate = (date) => {
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   };
 
-  return `${dayName}, ${ordinal(day)} ${month}`;
+  return `${weekday}, ${ordinal(Number(day))} ${month}`;
 };
 
 /**
@@ -70,12 +78,8 @@ const formatTimeRange = (startDate, endDate) => {
   if (!startDate) return '';
 
   const formatTime = (date) => {
-    const d = new Date(date);
-    let hours = d.getHours();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
-    hours = hours % 12;
-    hours = hours ? hours : 12;
-    return `${hours} ${ampm}`;
+    const { hour, minute, dayPeriod } = istParts(date);
+    return minute === '00' ? `${hour} ${dayPeriod}` : `${hour}:${minute} ${dayPeriod}`;
   };
 
   const startTime = formatTime(startDate);

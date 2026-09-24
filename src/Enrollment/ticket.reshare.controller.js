@@ -428,6 +428,7 @@ export const reshareTicket = async (req, res) => {
         console.log(`[RESHARE] Sending email to ${userEmail}...`);
 
         const eventDate = event.startDate ? new Date(event.startDate).toLocaleDateString('en-US', {
+          timeZone: 'Asia/Kolkata',
           year: 'numeric',
           month: 'long',
           day: 'numeric'
