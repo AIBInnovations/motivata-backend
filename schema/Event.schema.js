@@ -17,6 +17,17 @@ const eventSchema = new mongoose.Schema(
       maxlength: [200, "Event name cannot exceed 200 characters"],
     },
 
+    slug: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      maxlength: [80, "Event link name cannot exceed 80 characters"],
+      match: [
+        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+        "Event link name can only use lowercase letters, numbers and single hyphens",
+      ],
+    },
+
     /**
      * Event description
      */
@@ -392,6 +403,48 @@ const eventSchema = new mongoose.Schema(
 // eventSchema.index({ mode: 1, city: 1 });
 eventSchema.index({ createdAt: -1 });
 eventSchema.index({ bookingStartDate: 1, endDate: 1 });
+eventSchema.index({ slug: 1 }, { unique: true, sparse: true });
+
+export const slugifyEventName = (name = "") =>
+  name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 70)
+    .replace(/-+$/g, "");
+
+export const isObjectIdLike = (value) => /^[0-9a-fA-F]{24}$/.test(value);
+
+eventSchema.statics.isSlugTaken = async function (slug, excludeId) {
+  const query = { slug, isDeleted: { $in: [true, false] } };
+  if (excludeId) {
+    query._id = { $ne: excludeId };
+  }
+  return Boolean(await this.exists(query));
+};
+
+eventSchema.statics.generateUniqueSlug = async function (name, excludeId) {
+  let base = slugifyEventName(name) || "event";
+  if (isObjectIdLike(base)) {
+    base = `${base}-event`;
+  }
+  let candidate = base;
+  let suffix = 2;
+  while (await this.isSlugTaken(candidate, excludeId)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+};
+
+eventSchema.pre("validate", async function () {
+  if (!this.slug && this.name) {
+    this.slug = await this.constructor.generateUniqueSlug(this.name, this._id);
+  }
+});
 
 /**
  * Pre-query middleware to exclude soft deleted documents

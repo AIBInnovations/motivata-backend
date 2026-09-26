@@ -295,6 +295,9 @@ export const eventSchemas = {
    */
   create: Joi.object({
     name: Joi.string().trim().max(200).required(),
+    slug: Joi.string().trim().lowercase().max(80).pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).allow('').optional().messages({
+      'string.pattern.base': 'Event link name can only use lowercase letters, numbers and single hyphens',
+    }),
     description: Joi.string().max(5000).required(),
     imageUrls: Joi.array().items(Joi.string().uri()).optional(),
     thumbnail: Joi.object({
@@ -367,6 +370,9 @@ export const eventSchemas = {
    */
   update: Joi.object({
     name: Joi.string().trim().max(200).optional(),
+    slug: Joi.string().trim().lowercase().max(80).pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).allow('').optional().messages({
+      'string.pattern.base': 'Event link name can only use lowercase letters, numbers and single hyphens',
+    }),
     description: Joi.string().max(5000).optional(),
     imageUrls: Joi.array().items(Joi.string().uri()).optional(),
     thumbnail: Joi.object({
@@ -478,6 +484,10 @@ export const eventSchemas = {
    */
   eventId: Joi.object({
     id: schemas.mongoId.required(),
+  }),
+
+  eventIdOrSlug: Joi.object({
+    id: Joi.alternatives().try(schemas.mongoId, Joi.string().trim().lowercase().max(80).pattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)).required(),
   }),
 };
 
@@ -2717,6 +2727,23 @@ export const eventRequestSchemas = {
     pricingTierId: schemas.mongoId.optional(),
     couponCode: Joi.string().trim().uppercase().max(50).allow('').optional(),
     paymentAmount: Joi.number().min(1).max(10000000).optional(),
+  }),
+
+  bulkPaymentLinks: Joi.object({
+    eventId: schemas.mongoId.required(),
+    recipients: Joi.array().items(Joi.object({
+      phone: Joi.string().trim().max(20).required(),
+      name: Joi.string().trim().max(100).allow('', null).optional(),
+      email: Joi.string().trim().email().allow('', null).optional(),
+    })).min(1).max(200).required().messages({
+      'array.min': 'Add at least one phone number',
+      'array.max': 'You can send at most 200 payment links at a time',
+    }),
+    pricingTierId: schemas.mongoId.optional(),
+    couponCode: Joi.string().trim().uppercase().max(50).allow('').optional(),
+    paymentAmount: Joi.number().min(1).max(10000000).optional(),
+    notes: Joi.string().trim().max(1000).allow('').optional(),
+    sendWhatsApp: Joi.boolean().optional(),
   }),
 
   /**
