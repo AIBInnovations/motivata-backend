@@ -16,9 +16,14 @@ const backfillEventSlugs = async () => {
       isDeleted: { $in: [true, false] },
       $or: [{ slug: { $exists: false } }, { slug: null }, { slug: '' }],
     })
-      .select('_id name isDeleted')
-      .sort({ createdAt: 1 })
+      .select('_id name isDeleted isLive startDate')
       .lean();
+
+    events.sort((a, b) =>
+      Number(Boolean(a.isDeleted)) - Number(Boolean(b.isDeleted))
+      || Number(Boolean(b.isLive)) - Number(Boolean(a.isLive))
+      || new Date(b.startDate || 0) - new Date(a.startDate || 0)
+    );
 
     console.log(`[MIGRATION] Events without a slug: ${events.length}`);
 
@@ -35,7 +40,7 @@ const backfillEventSlugs = async () => {
       }
       planned.add(slug);
 
-      console.log(`  ${event._id}  ${event.isDeleted ? '(deleted) ' : ''}"${event.name}" → ${slug}`);
+      console.log(`  ${event._id}  ${event.isDeleted ? '(deleted) ' : event.isLive ? '(live) ' : ''}"${event.name}" → ${slug}`);
 
       if (apply) {
         await Event.updateOne({ _id: event._id }, { $set: { slug } });
