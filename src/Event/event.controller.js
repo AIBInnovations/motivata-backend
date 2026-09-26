@@ -3,7 +3,7 @@
  * @module controllers/event
  */
 
-import Event from '../../schema/Event.schema.js';
+import Event, { isObjectIdLike } from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import responseUtil from '../../utils/response.util.js';
@@ -32,6 +32,11 @@ const withAccessFlags = (eventObj, viewerTier) => {
   return eventObj;
 };
 
+const SLUG_TAKEN_ERROR = {
+  field: 'slug',
+  message: 'This event link name is already used by another event. Choose a different one.',
+};
+
 /**
  * Create a new event
  * @param {Object} req - Express request object
@@ -44,6 +49,12 @@ export const createEvent = async (req, res) => {
       ...req.body,
       createdBy: req.user.id
     };
+
+    if (!eventData.slug) {
+      delete eventData.slug;
+    } else if (await Event.isSlugTaken(eventData.slug)) {
+      return responseUtil.validationError(res, 'Validation failed', [SLUG_TAKEN_ERROR]);
+    }
 
     const event = new Event(eventData);
     await event.save();
@@ -273,6 +284,12 @@ export const updateEvent = async (req, res) => {
       ...req.body,
       updatedBy: req.user.id
     };
+
+    if (!updates.slug) {
+      delete updates.slug;
+    } else if (await Event.isSlugTaken(updates.slug, id)) {
+      return responseUtil.validationError(res, 'Validation failed', [SLUG_TAKEN_ERROR]);
+    }
 
     // Remove fields that shouldn't be updated directly
     delete updates.createdBy;
@@ -748,10 +765,10 @@ export const getWebEventById = async (req, res) => {
     const { id } = req.params;
 
     const event = await Event.findOne({
-      _id: id,
+      ...(isObjectIdLike(id) ? { _id: id } : { slug: id.toLowerCase() }),
       isLive: true,
     }).select(
-      'name description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode venueName city category availableSeats ticketsSold featured audience joinLink'
+      'name slug description imageUrls thumbnail price compareAtPrice pricingTiers startDate endDate bookingStartDate bookingEndDate mode venueName city category availableSeats ticketsSold featured audience joinLink'
     );
 
     if (!event) {
@@ -759,13 +776,13 @@ export const getWebEventById = async (req, res) => {
     }
 
     const [buyerEnrollments, totalBuyers] = await Promise.all([
-      EventEnrollment.find({ eventId: id })
+      EventEnrollment.find({ eventId: event._id })
         .populate('userId', 'name')
         .select('userId')
         .sort({ createdAt: 1 })
         .limit(3)
         .lean(),
-      EventEnrollment.countDocuments({ eventId: id }),
+      EventEnrollment.countDocuments({ eventId: event._id }),
     ]);
 
     const ticketBuyers = buyerEnrollments

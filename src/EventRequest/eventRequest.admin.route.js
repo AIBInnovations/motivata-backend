@@ -14,6 +14,7 @@ import {
 } from '../../middleware/validation.middleware.js';
 import {
   getAllEventRequests,
+  bulkSendEventPaymentLinks,
   reissueEventRequestPaymentLink,
   getEventRequestById,
   approveEventRequest,
@@ -43,6 +44,12 @@ router.get('/stats', getEventRequestStats);
  * @access  Admin
  */
 router.get('/pending-count', getPendingCount);
+
+router.post(
+  '/bulk-payment-links',
+  validateBody(eventRequestSchemas.bulkPaymentLinks),
+  bulkSendEventPaymentLinks
+);
 
 /**
  * @route   GET /api/web/event-requests/admin/requests

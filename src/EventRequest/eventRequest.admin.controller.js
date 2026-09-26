@@ -497,6 +497,164 @@ export const reissueEventRequestPaymentLink = async (req, res) => {
   }
 };
 
+const BULK_CONCURRENCY = 4;
+
+const runWithConcurrency = async (items, limit, worker) => {
+  const results = new Array(items.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+};
+
+export const bulkSendEventPaymentLinks = async (req, res) => {
+  try {
+    const {
+      eventId,
+      recipients,
+      pricingTierId,
+      couponCode,
+      paymentAmount,
+      notes,
+      sendWhatsApp = true
+    } = req.body;
+    const adminId = req.user?._id;
+
+    const event = await Event.findOne({ _id: eventId, isDeleted: false });
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found');
+    }
+
+    const precheck = await resolveRequestPricing({
+      event,
+      request: { phone: null, pricingTierId: null, couponCode: null },
+      pricingTierId,
+      couponCode: null,
+      paymentAmount
+    });
+    if (precheck.error) {
+      return responseUtil.badRequest(res, precheck.error);
+    }
+
+    const seen = new Set();
+    const rows = recipients.map((recipient) => {
+      const phone = normalizePhone(String(recipient.phone || ''));
+      const name = (recipient.name || '').trim() || 'Guest';
+      const email = recipient.email ? String(recipient.email).trim().toLowerCase() : null;
+      if (!/^\d{10}$/.test(phone)) {
+        return { phone: recipient.phone, name, skip: 'Invalid phone number' };
+      }
+      if (seen.has(phone)) {
+        return { phone, name, skip: 'Duplicate number in this list' };
+      }
+      seen.add(phone);
+      return { phone, name, email };
+    });
+
+    console.log('[EVENT-REQUEST-ADMIN] Bulk payment links:', rows.length, 'rows for event', eventId);
+
+    const results = await runWithConcurrency(rows, BULK_CONCURRENCY, async (row) => {
+      if (row.skip) {
+        return { phone: row.phone, name: row.name, status: 'SKIPPED', reason: row.skip };
+      }
+
+      try {
+        const existing = await EventRequest.checkDuplicateRequest(row.phone, row.email, event._id);
+        if (existing && existing.status !== 'PENDING') {
+          return {
+            phone: row.phone,
+            name: row.name,
+            status: 'SKIPPED',
+            reason: `Already has a request for this event (${existing.status.replace('_', ' ').toLowerCase()})`,
+            requestId: existing._id,
+            paymentUrl: existing.paymentUrl || null
+          };
+        }
+
+        const pricing = await resolveRequestPricing({
+          event,
+          request: existing || { phone: row.phone, pricingTierId: null, couponCode: null },
+          pricingTierId,
+          couponCode,
+          paymentAmount
+        });
+        if (pricing.error) {
+          return { phone: row.phone, name: row.name, status: 'FAILED', reason: pricing.error };
+        }
+
+        const request = existing || await EventRequest.create({
+          eventId: event._id,
+          phone: row.phone,
+          name: row.name,
+          email: row.email
+        });
+
+        try {
+          const { paymentLink, notificationResults } = await issuePaymentLink({
+            request,
+            event,
+            pricing,
+            adminId,
+            notes: notes || 'Sent via bulk payment links',
+            sendWhatsApp
+          });
+          const whatsappSent = sendWhatsApp
+            ? (notificationResults?.whatsapp?.sent?.length || 0) > 0
+            : null;
+          return {
+            phone: row.phone,
+            name: request.name,
+            status: 'SENT',
+            requestId: request._id,
+            paymentUrl: paymentLink.short_url,
+            amount: pricing.finalAmount,
+            whatsappSent
+          };
+        } catch (linkError) {
+          console.error('[EVENT-REQUEST-ADMIN] Bulk link failed for', row.phone, linkError?.error?.description || linkError.message);
+          return {
+            phone: row.phone,
+            name: request.name,
+            status: 'FAILED',
+            reason: `Payment link could not be created: ${linkError?.error?.description || linkError.message}. The request is saved as pending.`,
+            requestId: request._id
+          };
+        }
+      } catch (rowError) {
+        console.error('[EVENT-REQUEST-ADMIN] Bulk row failed for', row.phone, rowError.message);
+        return { phone: row.phone, name: row.name, status: 'FAILED', reason: rowError.message };
+      }
+    });
+
+    const summary = {
+      total: results.length,
+      sent: results.filter((r) => r.status === 'SENT').length,
+      skipped: results.filter((r) => r.status === 'SKIPPED').length,
+      failed: results.filter((r) => r.status === 'FAILED').length
+    };
+
+    console.log('[EVENT-REQUEST-ADMIN] Bulk payment links done:', summary);
+
+    return responseUtil.success(res, `Payment links sent: ${summary.sent} of ${summary.total}`, {
+      summary,
+      results
+    });
+  } catch (error) {
+    console.error('[EVENT-REQUEST-ADMIN] Error sending bulk payment links:', error.message);
+    return responseUtil.internalError(
+      res,
+      'Failed to send bulk payment links',
+      error.message
+    );
+  }
+};
+
 /**
  * Reject an Event invite request
  * @route POST /api/web/event-requests/admin/requests/:id/reject
@@ -711,6 +869,7 @@ export const getPendingCount = async (req, res) => {
 
 export default {
   getAllEventRequests,
+  bulkSendEventPaymentLinks,
   reissueEventRequestPaymentLink,
   getEventRequestById,
   approveEventRequest,

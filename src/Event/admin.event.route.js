@@ -77,7 +77,7 @@ router.get(
  */
 router.get(
   '/website/:id',
-  validateParams(eventSchemas.eventId),
+  validateParams(eventSchemas.eventIdOrSlug),
   getWebEventById
 );
 
