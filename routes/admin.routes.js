@@ -41,6 +41,9 @@ import adminCollegeRoutes from "../src/Referral/college.admin.route.js";
 import referralCodeRoutes from "../src/Referral/referralCode.route.js";
 import adminCommunityRoutes from "../src/Community/community.admin.route.js";
 import adminOccupationRoutes from "../src/Occupation/occupation.admin.route.js";
+import adminBrandRoutes from "../src/Brand/brand.admin.route.js";
+import publicShareRoutes from "../src/Connect/share.public.route.js";
+import { guardAdminPage } from "../middleware/adminPage.middleware.js";
 
 const router = express.Router();
 
@@ -51,6 +54,45 @@ const router = express.Router();
 
 // Auth routes - /api/web/auth
 router.use("/auth", adminAuthRoutes);
+
+router.use("/share", publicShareRoutes);
+
+router.use("/analytics", guardAdminPage(["dashboard"]));
+router.use("/events", guardAdminPage(["events"], { readsOpen: true }));
+router.use("/coupons", guardAdminPage(["coupons"]));
+router.use("/vouchers", guardAdminPage(["vouchers"]));
+router.use("/payments", guardAdminPage(["enrollments", "dashboard"]));
+router.use("/enrollments", guardAdminPage(["enrollments"]));
+router.use("/tickets", guardAdminPage(["scan-qr", "ticket-reshare", "enrollments"]));
+router.use("/sessions", guardAdminPage(["sessions"]));
+router.use("/calendly", guardAdminPage(["sessions"]));
+router.use("/sos", guardAdminPage(["quizes", "sos-articles", "daily-sos", "qol-factors"]));
+router.use("/challenges", guardAdminPage(["challenges", "daily-challenges", "challenge-rewards"], { readsOpen: true }));
+router.use("/polls", guardAdminPage(["polls"]));
+router.use("/cash", guardAdminPage(["cashtickets"]));
+router.use("/offline-cash", guardAdminPage(["cashtickets"]));
+router.use("/settings", guardAdminPage(["settings"]));
+router.use("/stories", guardAdminPage(["stories"]));
+router.use("/membership-requests", guardAdminPage(["membership-requests"]));
+router.use("/doer-requests", guardAdminPage(["doer-requests"]));
+router.use("/colleges", guardAdminPage(["colleges", "leaders", "referral-codes"], { readsOpen: true }));
+router.use("/referral-codes", guardAdminPage(["referral-codes", "colleges", "leaders"]));
+router.use("/feature-access", guardAdminPage(["feature-access"]));
+router.use("/feature-requests", guardAdminPage(["feature-access"]));
+router.use("/feature-pricing", guardAdminPage(["feature-access"]));
+router.use("/motivata-blend/admin", guardAdminPage(["motivata-blend-requests", "motivata-blend-banner"]));
+router.use("/round-table/admin", guardAdminPage(["round-table-requests"]));
+router.use("/event-requests/admin", guardAdminPage(["event-requests"]));
+router.use("/membership-plans", guardAdminPage(["memberships", "membership-requests", "doer-requests"], { readsOpen: true }));
+router.use("/user-memberships", guardAdminPage(["memberships"]));
+router.use("/clubs", guardAdminPage(["clubs-manage", "club-join-requests", "admin-club-posts"], { readsOpen: true }));
+router.use("/jobs", guardAdminPage(["job-posts", "job-applications", "opportunity-filters"]));
+router.use("/community", guardAdminPage(["community"]));
+router.use("/occupations", guardAdminPage(["occupations"], { readsOpen: true }));
+router.use("/services", guardAdminPage(["services-manage", "service-orders", "service-requests", "user-subscriptions"], { readsOpen: true }));
+router.use("/service-orders", guardAdminPage(["service-orders"]));
+router.use("/service-requests", guardAdminPage(["service-requests"]));
+router.use("/user-subscriptions", guardAdminPage(["user-subscriptions"]));
 
 // Event routes - /api/web/events
 router.use("/events", adminEventRoutes);
@@ -178,6 +220,8 @@ router.use("/jobs", adminJobRoutes);
 router.use("/community", adminCommunityRoutes);
 
 router.use("/occupations", adminOccupationRoutes);
+
+router.use("/brands", adminBrandRoutes);
 
 // Service routes - /api/web/services, /api/web/service-orders, /api/web/service-requests, /api/web/user-subscriptions
 router.use("/", adminServiceRoutes);

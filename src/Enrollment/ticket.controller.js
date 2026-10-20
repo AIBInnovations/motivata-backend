@@ -10,6 +10,7 @@ import Event from "../../schema/Event.schema.js";
 import User from "../../schema/User.schema.js";
 import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { claimTicketScan } from "./ticketScan.util.js";
 import fs from "fs";
 import path from "path";
 
@@ -285,12 +286,11 @@ export const verifyTicket = async (req, res) => {
       );
     }
 
-    // Check if ticket was already scanned
-    if (ticket.isTicketScanned) {
-      return responseUtil.success(res, "Ticket is valid but already scanned", {
+    const alreadyScannedResponse = (scannedAt) =>
+      responseUtil.success(res, "Ticket is valid but already scanned", {
         isValid: true,
         isAlreadyScanned: true,
-        scannedAt: ticket.ticketScannedAt,
+        scannedAt,
         ticket: {
           phone: matchedPhone,
           status: ticket.status,
@@ -311,14 +311,31 @@ export const verifyTicket = async (req, res) => {
           },
         },
       });
+
+    // Check if ticket was already scanned
+    if (ticket.isTicketScanned) {
+      return alreadyScannedResponse(ticket.ticketScannedAt);
     }
 
     // Mark this specific ticket as scanned
+    const scannedAt = new Date();
+    const claimed = await claimTicketScan(
+      EventEnrollment,
+      enrollment._id,
+      matchedPhone,
+      scannedAt,
+      req.user?.id || null
+    );
+
+    if (!claimed) {
+      const latest = await EventEnrollment.findById(enrollment._id).select("tickets");
+      const latestTicket = latest ? latest.tickets.get(matchedPhone) : null;
+      return alreadyScannedResponse(latestTicket?.ticketScannedAt || ticket.ticketScannedAt);
+    }
+
     ticket.isTicketScanned = true;
-    ticket.ticketScannedAt = new Date();
+    ticket.ticketScannedAt = scannedAt;
     ticket.ticketScannedBy = req.user?.id || null; // If admin middleware adds admin/user info
-    enrollment.tickets.set(matchedPhone, ticket);
-    await enrollment.save();
 
     return responseUtil.success(
       res,
@@ -494,10 +511,20 @@ export const scanQRCode = async (req, res) => {
     }
 
     // Update ticket scan status for this specific phone
+    const scannedAt = new Date();
+    const claimed = await claimTicketScan(EventEnrollment, enrollment._id, matchedPhone, scannedAt);
+
+    if (!claimed) {
+      const latest = await EventEnrollment.findById(enrollment._id).select("tickets");
+      const latestTicket = latest ? latest.tickets.get(matchedPhone) : null;
+      return responseUtil.badRequest(
+        res,
+        `Ticket for phone ${matchedPhone} has already been scanned at ${latestTicket?.ticketScannedAt || scannedAt}`
+      );
+    }
+
     ticket.isTicketScanned = true;
-    ticket.ticketScannedAt = new Date();
-    enrollment.tickets.set(matchedPhone, ticket);
-    await enrollment.save();
+    ticket.ticketScannedAt = scannedAt;
 
     // Fetch voucher claimed by this phone for this event
     const claimedVoucher = await Voucher.findOne({

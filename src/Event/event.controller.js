@@ -8,7 +8,8 @@ import User from '../../schema/User.schema.js';
 import EventEnrollment from '../../schema/EventEnrollment.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { sendNewEventNotification } from '../../utils/fcm.util.js';
-import { getAccessTier, tierMeetsAudience } from '../../middleware/membership.middleware.js';
+import { getAccessTier } from '../../middleware/membership.middleware.js';
+import { computeEventAccess, getInviteAccessSet, applyViewerPrivacy } from './eventAccess.util.js';
 
 /**
  * Returns a Set of saved event ID strings for the given user.
@@ -23,13 +24,24 @@ const getSavedSet = async (userId) => {
 
 const getViewerTier = (reqUser) => getAccessTier(reqUser);
 
-const withAccessFlags = (eventObj, viewerTier) => {
-  const requiresMembership = !!eventObj.audience && eventObj.audience !== 'ALL';
-  eventObj.requiresMembership = requiresMembership;
-  eventObj.requiredTier =
-    eventObj.audience === 'DOERS_EXCLUSIVE' ? 'DOER' : eventObj.audience === 'MEMBERS_ONLY' ? 'MEMBER' : null;
-  eventObj.locked = requiresMembership && !tierMeetsAudience(viewerTier, eventObj.audience);
+const withAccessFlags = (eventObj, viewerTier, hasInviteAccess = false) => {
+  const access = computeEventAccess(eventObj.audience, viewerTier, hasInviteAccess);
+  eventObj.requiresMembership = access.requiresMembership;
+  eventObj.requiredTier = access.requiredTier;
+  eventObj.locked = access.locked;
+  eventObj.isInviteOnly = access.isInviteOnly;
   return eventObj;
+};
+
+const withAccessFlagsMany = async (eventObjs, reqUser, viewerTier) => {
+  const inviteOnlyIds = eventObjs
+    .filter((e) => e.audience === 'INVITE_ONLY')
+    .map((e) => String(e._id));
+  const inviteSet = await getInviteAccessSet(inviteOnlyIds, reqUser, viewerTier);
+  return eventObjs.map((e) => {
+    const flagged = withAccessFlags(e, viewerTier, inviteSet.has(String(e._id)));
+    return applyViewerPrivacy(flagged, reqUser);
+  });
 };
 
 const SLUG_TAKEN_ERROR = {
@@ -165,10 +177,10 @@ export const getAllEvents = async (req, res) => {
       getViewerTier(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => withAccessFlags({
+    const eventsWithSaved = await withAccessFlagsMany(events.map((e) => ({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerTier));
+    })), req.user, viewerTier);
 
     // Calculate pagination info
     const totalPages = Math.ceil(totalCount / limit);
@@ -236,12 +248,12 @@ export const getEventById = async (req, res) => {
     const isCurrentlyLive = event.startDate <= now && event.endDate >= now;
     const isAdminUser = req.user?.userType === 'admin';
 
-    const eventObj = withAccessFlags({
+    const [eventObj] = await withAccessFlagsMany([{
       ...event.toObject(),
       isSaved: savedSet.has(event._id.toString()),
       ticketBuyers,
       totalBuyers,
-    }, viewerTier);
+    }], req.user, viewerTier);
 
     if (!isAdminUser && !isCurrentlyLive) {
       delete eventObj.joinLink;
@@ -510,10 +522,10 @@ export const getUpcomingEvents = async (req, res) => {
       getViewerTier(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => withAccessFlags({
+    const eventsWithSaved = await withAccessFlagsMany(events.map((e) => ({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerTier));
+    })), req.user, viewerTier);
 
     return responseUtil.success(res, 'Upcoming events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -548,10 +560,10 @@ export const getEventsByCategory = async (req, res) => {
       getViewerTier(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => withAccessFlags({
+    const eventsWithSaved = await withAccessFlagsMany(events.map((e) => ({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerTier));
+    })), req.user, viewerTier);
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -683,10 +695,10 @@ export const getFeaturedEvents = async (req, res) => {
       getViewerTier(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => withAccessFlags({
+    const eventsWithSaved = await withAccessFlagsMany(events.map((e) => ({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerTier));
+    })), req.user, viewerTier);
 
     return responseUtil.success(res, 'Featured events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -713,7 +725,7 @@ export const getBannerEvent = async (req, res) => {
     }
 
     const viewerTier = await getViewerTier(req.user);
-    const withFlags = withAccessFlags(event.toObject(), viewerTier);
+    const [withFlags] = await withAccessFlagsMany([event.toObject()], req.user, viewerTier);
 
     return responseUtil.success(res, 'Banner event fetched successfully', { event: withFlags });
   } catch (error) {
@@ -742,10 +754,10 @@ export const getWebsiteEvents = async (req, res) => {
       getViewerTier(req.user)
     ]);
 
-    const eventsWithSaved = events.map((e) => withAccessFlags({
+    const eventsWithSaved = await withAccessFlagsMany(events.map((e) => ({
       ...e.toObject(),
       isSaved: savedSet.has(e._id.toString())
-    }, viewerTier));
+    })), req.user, viewerTier);
 
     return responseUtil.success(res, 'Website events fetched successfully', { events: eventsWithSaved });
   } catch (error) {
@@ -908,8 +920,15 @@ export const getSavedEvents = async (req, res) => {
       return responseUtil.notFound(res, 'User not found');
     }
 
+    const viewerTier = await getViewerTier(req.user);
+    const savedEvents = await withAccessFlagsMany(
+      user.savedEvents.filter(Boolean).map((e) => e.toJSON()),
+      req.user,
+      viewerTier
+    );
+
     return responseUtil.success(res, 'Saved events fetched successfully', {
-      events: user.savedEvents
+      events: savedEvents
     });
   } catch (error) {
     console.error('Get saved events error:', error);

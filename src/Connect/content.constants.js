@@ -10,6 +10,8 @@ export const CONTENT_CATEGORIES = [
   "Others",
 ];
 
+export const BRAND_AUTHOR_NAME = "Motivata";
+
 export const CONTENT_MAX_WORDS = 100;
 
 export const countContentWords = (text = "") =>

@@ -7,12 +7,13 @@ import Post from "../../schema/Post.schema.js";
 import Like from "../../schema/Like.schema.js";
 import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
-import Admin from "../../schema/Admin.schema.js";
 import Club from "../../schema/Club.schema.js";
 import ClubMember from "../../schema/ClubMember.schema.js";
 import PostComment from "../../schema/PostComment.schema.js";
 import PostCommentLike from "../../schema/PostCommentLike.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { BRAND_AUTHOR_NAME } from "./content.constants.js";
+import { resolveExploreCategory } from "../shared/exploreCategory.util.js";
 
 export const CLUB_COMMENT_MAX_CHARS = 150;
 
@@ -46,7 +47,7 @@ const formatPostResponse = (post, { currentUserId = null, likedPostIds = new Set
     commentCount: post.commentCount || 0,
     author: {
       id: post.author._id,
-      name: post.author.name,
+      name: post.authorType === "Admin" ? BRAND_AUTHOR_NAME : post.author.name,
       isFollowing: currentUserId && !isOwnPost ? followingSet.has(authorId) : false,
     },
     club: post.club ? {
@@ -273,12 +274,17 @@ export const getFeed = async (req, res) => {
  */
 export const getExploreFeed = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, category } = req.query;
     const currentUserId = req.user?.id;
     const skip = (page - 1) * limit;
 
     // Build query: only admin-published explore posts
     const query = { isExplorePost: true };
+
+    if (category) {
+      const resolved = resolveExploreCategory(category);
+      query.category = resolved?.postCategory ? resolved.postCategory : { $in: [] };
+    }
 
     const [posts, totalCount] = await Promise.all([
       Post.find(query)
@@ -809,8 +815,7 @@ export const openPostDeepLink = async (req, res) => {
  */
 const resolveCommentAuthorName = async (reqUser) => {
   if (reqUser.userType === "admin") {
-    const admin = await Admin.findById(reqUser.id).select("name").lean();
-    return admin?.name || "Admin";
+    return BRAND_AUTHOR_NAME;
   }
   const user = await User.findById(reqUser.id).select("name").lean();
   return user?.name || "User";
@@ -853,7 +858,7 @@ export const getPostComments = async (req, res) => {
       post: c.post,
       authorType: c.authorType,
       author: c.author?._id || c.author,
-      authorName: c.author?.name || c.authorName || "User",
+      authorName: c.authorType === "Admin" ? BRAND_AUTHOR_NAME : c.author?.name || c.authorName || "User",
       text: c.text,
       likeCount: c.likeCount || 0,
       isLiked: likedSet.has(c._id.toString()),

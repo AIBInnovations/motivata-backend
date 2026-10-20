@@ -46,6 +46,8 @@ export const createMembershipPlan = async (req, res) => {
       isActive,
       requiresReferral,
       maxPurchases,
+      badgeLabel,
+      mode,
     } = req.body;
 
     const userId = req.user?._id;
@@ -64,6 +66,8 @@ export const createMembershipPlan = async (req, res) => {
       isActive,
       requiresReferral,
       maxPurchases,
+      badgeLabel,
+      mode,
       createdBy: userId,
     });
 
@@ -109,6 +113,7 @@ export const getAllMembershipPlans = async (req, res) => {
       isActive,
       isFeatured,
       search,
+      mode,
     } = req.query;
 
     const isAdmin =
@@ -140,6 +145,16 @@ export const getAllMembershipPlans = async (req, res) => {
         { name: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },
       ];
+    }
+
+    if (mode) {
+      if (mode === "virtual") {
+        query.mode = { $in: ["virtual", "both", null] };
+      } else if (mode === "offline") {
+        query.mode = { $in: ["offline", "both"] };
+      } else {
+        query.mode = "both";
+      }
     }
 
     const skip = (page - 1) * limit;
@@ -264,6 +279,8 @@ export const updateMembershipPlan = async (req, res) => {
       "isActive",
       "requiresReferral",
       "maxPurchases",
+      "badgeLabel",
+      "mode",
     ];
 
     allowedFields.forEach((field) => {

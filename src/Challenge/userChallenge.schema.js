@@ -201,8 +201,22 @@ userChallengeSchema.index({ lastActivityAt: -1 });
  * @param {ObjectId} userId - User ID
  * @returns {Promise<number>} Count of active challenges
  */
-userChallengeSchema.statics.countActiveByUser = function (userId) {
-  return this.countDocuments({ userId, status: "active" });
+userChallengeSchema.statics.countActiveByUser = async function (userId) {
+  const activeChallengeIds = await this.find({ userId, status: "active" }).distinct("challengeId");
+  if (activeChallengeIds.length === 0) return 0;
+
+  const Challenge = mongoose.model("Challenge");
+  const liveChallenges = await Challenge.find({ _id: { $in: activeChallengeIds } })
+    .select("_id")
+    .lean();
+  return liveChallenges.length;
+};
+
+userChallengeSchema.statics.reconcileStaleByUser = async function (userId) {
+  await this.updateMany(
+    { userId, status: "active", endsAt: { $lt: new Date() } },
+    { $set: { status: "expired" } }
+  );
 };
 
 /**

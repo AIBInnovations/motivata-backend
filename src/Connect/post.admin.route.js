@@ -10,16 +10,20 @@ import {
   upload,
   uploadAdminMedia,
   createAdminPost,
+  updateAdminPost,
   getAdminPosts,
   deleteAdminPost,
   getContentCategories,
 } from "./post.admin.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
+import { requirePage } from "../../middleware/adminPage.middleware.js";
+import { validateBody, validateParams, validateQuery } from "../../middleware/validation.middleware.js";
+import { adminPostSchemas } from "./post.admin.validation.js";
 
 const router = express.Router();
 
 // All routes require admin authentication
-router.use(authenticate, isAdmin);
+router.use(authenticate, isAdmin, requirePage("explore-posts"));
 
 /**
  * @route POST /api/web/connect/media/upload
@@ -49,7 +53,14 @@ router.post("/posts", createAdminPost);
  * @query {number} [page=1] - Page number
  * @query {number} [limit=10] - Items per page
  */
-router.get("/posts", getAdminPosts);
+router.get("/posts", validateQuery(adminPostSchemas.list), getAdminPosts);
+
+router.put(
+  "/posts/:postId",
+  validateParams(adminPostSchemas.postId),
+  validateBody(adminPostSchemas.update),
+  updateAdminPost
+);
 
 /**
  * @route DELETE /api/web/connect/posts/:postId

@@ -18,6 +18,7 @@ import {
   respondToConnectionRequest,
   getMyGrowthScore,
   openUserDeepLink,
+  getCities,
 } from "./connect.controller.js";
 import {
   createPost,
@@ -40,6 +41,7 @@ import {
 } from "./post.controller.js";
 import { uploadConnectMedia } from "./media.controller.js";
 import { authenticate, optionalAuth } from "../../middleware/auth.middleware.js";
+import { requirePageForAdminToken } from "../../middleware/adminPage.middleware.js";
 import {
   validateBody,
   validateParams,
@@ -47,6 +49,7 @@ import {
   connectSchemas,
 } from "../../middleware/validation.middleware.js";
 import clubUserRoutes from "../Club/club.user.route.js";
+import { exploreCategoryQuery } from "../shared/exploreCategory.util.js";
 
 const router = express.Router();
 
@@ -121,6 +124,7 @@ router.post(
   "/posts",
   authenticate,
   validateBody(connectSchemas.createPost),
+  requirePageForAdminToken((req) => (req.body.clubId ? ["admin-club-posts"] : ["explore-posts"])),
   createPost
 );
 
@@ -148,7 +152,7 @@ router.get(
 router.get(
   "/posts/explore",
   optionalAuth,
-  validateQuery(connectSchemas.feedQuery),
+  validateQuery(connectSchemas.feedQuery.keys({ category: exploreCategoryQuery })),
   getExploreFeed
 );
 
@@ -346,6 +350,8 @@ router.patch(
 );
 
 router.get("/users/me/growth-score", authenticate, getMyGrowthScore);
+
+router.get("/cities", authenticate, getCities);
 
 router.get("/users/:userId/open", openUserDeepLink);
 

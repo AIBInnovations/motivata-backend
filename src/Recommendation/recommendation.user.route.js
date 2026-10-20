@@ -27,6 +27,7 @@ import {
 } from "./recommendation.controller.js";
 import { authenticate } from "../../middleware/auth.middleware.js";
 import { requireMemberOrAdmin, requireDoer } from "../../middleware/membership.middleware.js";
+import { requirePageForAdminToken } from "../../middleware/adminPage.middleware.js";
 import { validateBody, validateQuery, validateParams } from "../../middleware/validation.middleware.js";
 import { recommendationSchemas, commentSchemas } from "./recommendation.validation.js";
 
@@ -52,6 +53,7 @@ router.post(
   "/",
   authenticate,
   requireMemberOrAdmin,
+  requirePageForAdminToken(["recommendations"]),
   validateBody(recommendationSchemas.create),
   createRecommendation
 );

@@ -25,7 +25,7 @@ import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
  */
 export const register = async (req, res) => {
   try {
-    const { name, username, email, phone, password, role, access, allowedEvents } = req.body;
+    const { name, username, email, phone, password, role, access, allowedEvents, allowedPages } = req.body;
 
     // Check if username already exists
     const existingByUsername = await Admin.findOne({ username });
@@ -65,6 +65,7 @@ export const register = async (req, res) => {
       password: hashedPassword,
       role: role || 'MANAGEMENT_STAFF',
       access: access || [],
+      allowedPages: allowedPages || [],
       allowedEvents: allowedEvents || []
     });
 
@@ -444,7 +445,7 @@ export const getAdminById = async (req, res) => {
  */
 export const updateAdminById = async (req, res) => {
   try {
-    const { name, username, email, phone, role, access, allowedEvents, status } = req.body;
+    const { name, username, email, phone, role, access, allowedEvents, allowedPages, status } = req.body;
 
     // Check if username already exists
     if (username) {
@@ -479,7 +480,7 @@ export const updateAdminById = async (req, res) => {
 
     const admin = await Admin.findByIdAndUpdate(
       req.params.id,
-      { name, username, email, phone, role, access, allowedEvents, status },
+      { name, username, email, phone, role, access, allowedEvents, allowedPages, status },
       { new: true, runValidators: true }
     ).select('-password -refreshToken');
 

@@ -9,6 +9,7 @@ import Session from "../../schema/Session.schema.js";
 import SessionBooking from "../../schema/SessionBooking.schema.js";
 import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
+import { resolveBookingExtras } from "./session.controller.js";
 
 /**
  * Create a payment order for session booking
@@ -23,8 +24,13 @@ export const createSessionOrder = async (req, res) => {
     console.log("[SESSION-PAYMENT] User:", req.user?.id);
     console.log("[SESSION-PAYMENT] Body:", JSON.stringify(req.body, null, 2));
 
-    const { sessionId, currency = "INR", callbackUrl, userNotes } = req.body;
+    const { sessionId, currency = "INR", callbackUrl, userNotes, focusArea, sosReportId } = req.body;
     const userId = req.user.id;
+
+    const { extras, error: extrasError } = await resolveBookingExtras(userId, { focusArea, sosReportId });
+    if (extrasError) {
+      return responseUtil.badRequest(res, extrasError);
+    }
 
     // Validate sessionId is provided
     if (!sessionId) {
@@ -79,6 +85,7 @@ export const createSessionOrder = async (req, res) => {
         paymentStatus: "free",
         amountPaid: 0,
         userNotes,
+        ...extras,
         status: "confirmed",
       });
 
@@ -104,6 +111,7 @@ export const createSessionOrder = async (req, res) => {
       paymentStatus: "pending",
       amountPaid: amount,
       userNotes,
+      ...extras,
       status: "pending",
     });
 

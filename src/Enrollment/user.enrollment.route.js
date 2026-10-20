@@ -10,7 +10,8 @@ import {
   getEnrollmentById,
   cancelEnrollment,
   checkEnrollmentStatus,
-  createMockEnrollment
+  createMockEnrollment,
+  guardUserMockEnrollment
 } from './eventEnrollment.controller.js';
 import { authenticate } from '../../middleware/auth.middleware.js';
 import { validateBody, validateParams, validateQuery, enrollmentSchemas } from '../../middleware/validation.middleware.js';
@@ -30,6 +31,7 @@ router.use(authenticate);
 router.post(
   '/mock-enrollment',
   validateBody(enrollmentSchemas.mockCreate),
+  guardUserMockEnrollment,
   createMockEnrollment
 );
 

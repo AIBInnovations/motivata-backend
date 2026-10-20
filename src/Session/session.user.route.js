@@ -220,6 +220,12 @@ router.post(
       currency: Joi.string().valid("INR").default("INR"),
       callbackUrl: Joi.string().uri().optional(),
       userNotes: Joi.string().max(1000).optional(),
+      focusArea: Joi.string().trim().max(100).optional().allow("", null),
+      sosReportId: Joi.string()
+        .pattern(/^[0-9a-fA-F]{24}$/)
+        .optional()
+        .allow("", null)
+        .messages({ "string.pattern.base": "Invalid SOS report ID format" }),
     })
   ),
   createSessionOrder

@@ -216,6 +216,14 @@ const sessionSchema = new mongoose.Schema(
       match: [/^https?:\/\/.+/, "Please provide a valid Calendly URL"],
     },
 
+    meetingLink: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      match: [/^https:\/\/\S+$/i, "Please provide a valid https meeting link"],
+      select: false,
+    },
+
     /**
      * Specific date for the session (optional - for scheduled sessions)
      */

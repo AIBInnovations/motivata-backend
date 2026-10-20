@@ -355,6 +355,8 @@ export const getPlansForRequestForm = async (req, res) => {
       planType: typeOf(plan.planType),
       perks: plan.perks,
       isFeatured: plan.isFeatured,
+      badgeLabel: plan.badgeLabel || "",
+      mode: plan.mode || "virtual",
       isAvailable: plan.isAvailable,
       // Drives the compulsory referral field on the form. Student plans only.
       requiresReferral: !!plan.requiresReferral,

@@ -8,11 +8,12 @@ import Recommendation from "../../schema/Recommendation.schema.js";
 import RecommendationComment from "../../schema/RecommendationComment.schema.js";
 import RecommendationCommentLike from "../../schema/RecommendationCommentLike.schema.js";
 import User from "../../schema/User.schema.js";
-import Admin from "../../schema/Admin.schema.js";
 import RecommendationLike from "../../schema/RecommendationLike.schema.js";
 import RecommendationBookmark from "../../schema/RecommendationBookmark.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { getIsDoer, getIsMember } from "../../middleware/membership.middleware.js";
+import { BRAND_AUTHOR_NAME } from "../Connect/content.constants.js";
+import { resolveExploreCategory } from "../shared/exploreCategory.util.js";
 import {
   RECOMMENDATION_TAGS,
   RECOMMENDATION_CATEGORIES,
@@ -62,14 +63,25 @@ const resolveAuthor = async (reqUser) => {
 
   let authorName = "";
   if (isAdmin) {
-    const admin = await Admin.findById(reqUser.id).select("name").lean();
-    authorName = admin?.name || "Admin";
+    authorName = BRAND_AUTHOR_NAME;
   } else {
     const user = await User.findById(reqUser.id).select("name").lean();
     authorName = user?.name || "Member";
   }
 
   return { authorType, authorId: reqUser.id, authorName };
+};
+
+const isAdminPanelRequest = (req) =>
+  req.user?.userType === "admin" && String(req.originalUrl || "").startsWith("/api/web/");
+
+const presentAuthor = (item, req) => {
+  if (!item || item.authorType !== "Admin" || isAdminPanelRequest(req)) return item;
+  const masked = { ...item, authorName: BRAND_AUTHOR_NAME };
+  if (masked.author && masked.author.name !== undefined) {
+    masked.author = { ...masked.author, name: BRAND_AUTHOR_NAME };
+  }
+  return masked;
 };
 
 /**
@@ -133,7 +145,7 @@ export const findSimilarRecommendations = async (req, res) => {
     const candidates = await Recommendation.find(query)
       .sort({ createdAt: -1 })
       .limit(300)
-      .select("text tags url authorName author likeCount commentCount createdAt")
+      .select("text tags url authorName authorType author likeCount commentCount createdAt")
       .lean();
 
     const matches = candidates
@@ -146,7 +158,7 @@ export const findSimilarRecommendations = async (req, res) => {
       .filter(({ sameUrl, shared, score }) => sameUrl || (shared >= 2 && score >= 0.5))
       .sort((a, b) => Number(b.sameUrl) - Number(a.sameUrl) || b.score - a.score)
       .slice(0, 3)
-      .map(({ rec }) => rec);
+      .map(({ rec }) => presentAuthor(rec, req));
 
     return responseUtil.success(res, "Similar recommendations checked", {
       similar: matches,
@@ -165,7 +177,7 @@ export const findSimilarRecommendations = async (req, res) => {
  */
 export const getAllRecommendations = async (req, res) => {
   try {
-    const { page = 1, limit = 10, sortOrder = "desc", tag, author } = req.query;
+    const { page = 1, limit = 10, sortOrder = "desc", tag, author, category } = req.query;
 
     // The global feed only shows the last 7 days. When viewing a specific
     // member's recommendations, show all of theirs (no date window).
@@ -175,7 +187,12 @@ export const getAllRecommendations = async (req, res) => {
     } else {
       query.createdAt = { $gte: new Date(Date.now() - FEED_WINDOW_MS) };
     }
-    if (tag) query.tags = tag;
+    if (tag) {
+      query.tags = tag;
+    } else if (category) {
+      const resolved = resolveExploreCategory(category);
+      query.tags = resolved?.recommendationTag ? resolved.recommendationTag : { $in: [] };
+    }
 
     const skip = (page - 1) * limit;
     const sort = { createdAt: sortOrder === "asc" ? 1 : -1 };
@@ -192,7 +209,7 @@ export const getAllRecommendations = async (req, res) => {
       getIsMember(req.user),
     ]);
 
-    const recommendations = await enrichForViewer(rawRecs, req.user?.id);
+    const recommendations = (await enrichForViewer(rawRecs, req.user?.id)).map((r) => presentAuthor(r, req));
     const totalPages = Math.ceil(totalCount / limit);
 
     return responseUtil.success(res, "Recommendations fetched successfully", {
@@ -230,7 +247,7 @@ export const getMyRecommendations = async (req, res) => {
       Recommendation.countDocuments(query),
     ]);
 
-    const recommendations = await enrichForViewer(rawRecs, req.user.id);
+    const recommendations = (await enrichForViewer(rawRecs, req.user.id)).map((r) => presentAuthor(r, req));
     const totalPages = Math.ceil(totalCount / limit);
 
     return responseUtil.success(res, "Your recommendations fetched successfully", {
@@ -417,7 +434,7 @@ export const getMyBookmarks = async (req, res) => {
     const recommendations = bookmarks
       .map((b) => b.recommendation)
       .filter(Boolean)
-      .map((r) => ({ ...r, isBookmarked: true }));
+      .map((r) => presentAuthor({ ...r, isBookmarked: true }, req));
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -459,7 +476,7 @@ export const getComments = async (req, res) => {
 
     // Attach isLiked per comment for the viewer.
     const userId = req.user?.id;
-    let enriched = comments.map((c) => ({ ...c, isLiked: false }));
+    let enriched = comments.map((c) => presentAuthor({ ...c, isLiked: false }, req));
 
     if (userId && comments.length > 0) {
       const commentIds = comments.map((c) => c._id);
@@ -470,10 +487,9 @@ export const getComments = async (req, res) => {
         .select("comment")
         .lean();
       const likedSet = new Set(likes.map((l) => l.comment.toString()));
-      enriched = comments.map((c) => ({
-        ...c,
-        isLiked: likedSet.has(c._id.toString()),
-      }));
+      enriched = comments.map((c) =>
+        presentAuthor({ ...c, isLiked: likedSet.has(c._id.toString()) }, req)
+      );
     }
 
     return responseUtil.success(res, "Comments fetched successfully", {

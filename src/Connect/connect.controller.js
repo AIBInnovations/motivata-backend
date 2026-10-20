@@ -11,6 +11,9 @@ import ClubMember from "../../schema/ClubMember.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { notifyUsers } from "../../services/userNotification.service.js";
 import { computeGrowthScore, getProfileSections } from "../../services/profileInsights.service.js";
+import { deriveAchievements } from "../../utils/achievements.util.js";
+import { mergeCities } from "../../utils/cities.util.js";
+import Brand from "../../schema/Brand.schema.js";
 
 const PRIVACY_FIELDS = [
   "showOccupation",
@@ -251,7 +254,7 @@ export const getConnectionRequests = async (req, res) => {
     const requests = await Connect.find(query)
       .populate({
         path: direction === "incoming" ? "follower" : "following",
-        select: "name occupation occupationCategory city bio isDeleted",
+        select: "name photoUrl occupation occupationCategory city bio isDeleted",
       })
       .sort({ createdAt: -1 })
       .limit(100)
@@ -265,6 +268,7 @@ export const getConnectionRequests = async (req, res) => {
         user: {
           id: user._id,
           name: user.name,
+          photoUrl: user.photoUrl || null,
           occupation: user.occupation || null,
           occupationCategory: user.occupationCategory || null,
           city: user.city || null,
@@ -347,7 +351,7 @@ export const getFollowers = async (req, res) => {
       Connect.find({ following: userId })
         .populate({
           path: "follower",
-          select: "name email followerCount followingCount postCount",
+          select: "name photoUrl email followerCount followingCount postCount",
           match: { isDeleted: false },
         })
         .sort({ createdAt: -1 })
@@ -372,6 +376,7 @@ export const getFollowers = async (req, res) => {
       .map((c) => ({
         id: c.follower._id,
         name: c.follower.name,
+        photoUrl: c.follower.photoUrl || null,
         email: c.follower.email,
         followerCount: c.follower.followerCount || 0,
         followingCount: c.follower.followingCount || 0,
@@ -424,7 +429,7 @@ export const getFollowing = async (req, res) => {
       Connect.find({ follower: userId })
         .populate({
           path: "following",
-          select: "name email followerCount followingCount postCount",
+          select: "name photoUrl email followerCount followingCount postCount",
           match: { isDeleted: false },
         })
         .sort({ createdAt: -1 })
@@ -449,6 +454,7 @@ export const getFollowing = async (req, res) => {
       .map((c) => ({
         id: c.following._id,
         name: c.following.name,
+        photoUrl: c.following.photoUrl || null,
         email: c.following.email,
         followerCount: c.following.followerCount || 0,
         followingCount: c.following.followingCount || 0,
@@ -533,7 +539,7 @@ export const searchUsers = async (req, res) => {
 
     const [users, totalCount] = await Promise.all([
       User.find(query)
-        .select("name occupation occupationCategory city age bio followerCount followingCount postCount privacySettings createdAt")
+        .select("name photoUrl occupation occupationCategory city age bio followerCount followingCount postCount privacySettings createdAt")
         .sort({ followerCount: -1, name: 1 })
         .skip(skip)
         .limit(Number(limit)),
@@ -548,6 +554,7 @@ export const searchUsers = async (req, res) => {
       return {
         id: user._id,
         name: user.name,
+        photoUrl: user.photoUrl || null,
         occupation: privacy.showOccupation ? user.occupation || null : null,
         occupationCategory: privacy.showOccupation ? user.occupationCategory || null : null,
         city: user.city || null,
@@ -595,7 +602,7 @@ export const getUserProfile = async (req, res) => {
     const currentUserId = req.user?.id;
 
     const user = await User.findById(userId).select(
-      "name occupation occupationCategory city age bio achievement lifeExperiences followerCount followingCount postCount privacySettings createdAt"
+      "name photoUrl occupation occupationCategory city age bio achievement achievements lifeExperiences followerCount followingCount postCount privacySettings createdAt"
     );
 
     if (!user) {
@@ -651,6 +658,7 @@ export const getUserProfile = async (req, res) => {
     const userObj = {
       id: user._id,
       name: user.name,
+      photoUrl: user.photoUrl || null,
       city: user.city || null,
       followerCount: user.followerCount || 0,
       followingCount: user.followingCount || 0,
@@ -664,7 +672,12 @@ export const getUserProfile = async (req, res) => {
         : {}),
       ...(isOwnProfile || privacy.showAge ? { age: user.age || null } : {}),
       ...(isOwnProfile || privacy.showBio
-        ? { bio: user.bio || null, achievement: user.achievement || null, lifeExperiences: user.lifeExperiences || [] }
+        ? {
+            bio: user.bio || null,
+            achievement: user.achievement || null,
+            achievements: deriveAchievements(user),
+            lifeExperiences: user.lifeExperiences || [],
+          }
         : {}),
       ...(isOwnProfile ? { privacySettings: privacy } : {}),
     };
@@ -692,6 +705,25 @@ export const getUserProfile = async (req, res) => {
     }
 
     return responseUtil.internalError(res, "Failed to fetch user profile", error.message);
+  }
+};
+
+const CITIES_CACHE_TTL_MS = 10 * 60 * 1000;
+let citiesCache = { at: 0, cities: [] };
+
+export const getCities = async (req, res) => {
+  try {
+    if (Date.now() - citiesCache.at > CITIES_CACHE_TTL_MS) {
+      const [userCities, brandCities] = await Promise.all([
+        User.distinct("city", { isDeleted: false, city: { $nin: [null, ""] } }),
+        Brand.distinct("city", { isDeleted: false, isActive: true, city: { $nin: [null, ""] } }),
+      ]);
+      citiesCache = { at: Date.now(), cities: mergeCities(userCities, brandCities) };
+    }
+    return responseUtil.success(res, "Cities fetched", { cities: citiesCache.cities });
+  } catch (error) {
+    console.error("[CONNECT] Get cities error:", error);
+    return responseUtil.internalError(res, "Failed to fetch cities", error.message);
   }
 };
 
