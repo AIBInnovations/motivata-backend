@@ -12,6 +12,11 @@ import UserMembership from "../../schema/UserMembership.schema.js";
 import Voucher from "../../schema/Voucher.Schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { tierMeetsAudience } from "../../middleware/membership.middleware.js";
+import {
+  hasApprovedInviteForPhone,
+  INVITE_ONLY_ERROR_CODE,
+  INVITE_ONLY_MESSAGE,
+} from "../Event/eventAccess.util.js";
 import { reserveSeats, releaseSeatReservation } from "../SeatArrangement/seatArrangement.controller.js";
 import SOSProgram from "../Quiz/schemas/sosProgram.schema.js";
 
@@ -240,6 +245,19 @@ export const createOrder = async (req, res) => {
     // Validate buyer phone format
     if (!isValidPhone(metadata.buyer.phone)) {
       return responseUtil.badRequest(res, "Invalid buyer phone number format. Must be 10 digits.");
+    }
+
+    if (event.audience === "INVITE_ONLY") {
+      const hasInvite = await hasApprovedInviteForPhone(event._id, metadata.buyer.phone);
+      if (!hasInvite) {
+        return responseUtil.custom(
+          res,
+          403,
+          INVITE_ONLY_MESSAGE,
+          { code: INVITE_ONLY_ERROR_CODE },
+          INVITE_ONLY_MESSAGE
+        );
+      }
     }
 
     // === MEMBERS-ONLY EVENT GUARD ===

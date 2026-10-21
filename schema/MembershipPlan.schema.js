@@ -98,6 +98,22 @@ const membershipPlanSchema = new mongoose.Schema(
       default: false
     },
 
+    badgeLabel: {
+      type: String,
+      trim: true,
+      maxlength: [30, 'Badge label cannot exceed 30 characters'],
+      default: ''
+    },
+
+    mode: {
+      type: String,
+      enum: {
+        values: ['virtual', 'offline', 'both'],
+        message: '{VALUE} is not a valid plan mode'
+      },
+      default: 'virtual'
+    },
+
     isActive: {
       type: Boolean,
       default: true

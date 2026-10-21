@@ -16,6 +16,7 @@ import Connect from "../../schema/Connect.schema.js";
 import User from "../../schema/User.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { getAccessTier } from "../../middleware/membership.middleware.js";
+import { BRAND_AUTHOR_NAME } from "../Connect/content.constants.js";
 
 const ACCESS_TIER_RANK = { NONE: 0, DOER: 1, MEMBER: 2, ADMIN: 3 };
 const ACCESS_LEVEL_RANK = { OPEN: 0, DOERS: 1, MEMBERS: 2 };
@@ -384,7 +385,7 @@ const formatPostResponse = (
     shareCount: post.shareCount,
     author: {
       id: post.author._id,
-      name: post.author.name,
+      name: post.authorType === "Admin" ? BRAND_AUTHOR_NAME : post.author.name,
       isFollowing: currentUserId && !isOwnPost ? followingSet.has(authorId) : false,
     },
     club: post.club ? {
@@ -527,7 +528,7 @@ export const getClubMembers = async (req, res) => {
       ClubMember.find({ club: clubId, status: 'APPROVED' })
         .populate({
           path: "user",
-          select: "name email phone followerCount followingCount postCount",
+          select: "name photoUrl email phone followerCount followingCount postCount",
           match: { isDeleted: false },
         })
         .sort({ createdAt: -1 })
@@ -562,6 +563,7 @@ export const getClubMembers = async (req, res) => {
     const formattedMembers = validMemberships.map((membership) => ({
       id: membership.user._id,
       name: membership.user.name,
+      photoUrl: membership.user.photoUrl || null,
       email: membership.user.email,
       phone: membership.user.phone,
       followerCount: membership.user.followerCount,

@@ -65,6 +65,17 @@ const userSchema = new mongoose.Schema(
       maxlength: 500,
       default: null,
     },
+    achievements: {
+      type: [String],
+      default: undefined,
+    },
+    photoUrl: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      match: [/^https:\/\/\S+$/i, "Please provide a valid https photo URL"],
+      default: null,
+    },
     bio: {
       type: String,
       trim: true,

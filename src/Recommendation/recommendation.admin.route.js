@@ -12,6 +12,7 @@ import {
   deleteRecommendation,
 } from "./recommendation.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
+import { requirePage } from "../../middleware/adminPage.middleware.js";
 import { validateBody, validateQuery, validateParams } from "../../middleware/validation.middleware.js";
 import { recommendationSchemas } from "./recommendation.validation.js";
 
@@ -20,6 +21,7 @@ const router = express.Router();
 // All admin recommendation routes require an authenticated admin.
 router.use(authenticate);
 router.use(isAdmin);
+router.use(requirePage("recommendations"));
 
 /**
  * @route   GET /api/web/recommendations/tags

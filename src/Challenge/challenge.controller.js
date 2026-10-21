@@ -9,11 +9,26 @@ import Connect from "../../schema/Connect.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
 import { notifyPeersOnTaskComplete, notifyConnectionsToUpdate, notifyReferrerOnJoin } from "../../services/peerNotification.service.js";
+import { notifyUsers } from "../../services/userNotification.service.js";
 import { getIconCatalog } from "./challenge.icons.js";
 import { getCategoryCatalog, isSubCategoryOfCategory } from "./challenge.categories.js";
+import { maskCreators } from "../shared/creatorMask.util.js";
 
 const MAX_ACTIVE_CHALLENGES = 5;
 const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const CHALLENGE_SLOTS_FULL_MESSAGE = `You can only have ${MAX_ACTIVE_CHALLENGES} active challenges at a time. Please complete or abandon one first.`;
+
+const notifyChallengeEnrolled = (userId, challenge) => {
+  notifyUsers({
+    userIds: [userId],
+    category: "CHALLENGES",
+    type: "CHALLENGE_ENROLLED",
+    title: "You're in!",
+    body: `You joined "${challenge.title}". Complete today's task to start your streak.`,
+    data: { screen: "ChallengeProgress", challengeId: String(challenge._id) },
+    store: false,
+  }).catch((err) => console.error("Challenge enrolled push failed:", err.message));
+};
 
 // ============================================
 // ADMIN CONTROLLERS
@@ -90,7 +105,8 @@ export const getAllChallenges = async (req, res) => {
     }
 
     if (search) {
-      const searchRegex = new RegExp(search, "i");
+      const safeSearch = String(search).trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const searchRegex = new RegExp(safeSearch, "i");
       query.$or = [{ title: searchRegex }, { description: searchRegex }];
     }
 
@@ -388,7 +404,8 @@ export const getAvailableChallenges = async (req, res) => {
     }
 
     if (search) {
-      const searchRegex = new RegExp(search, "i");
+      const safeSearch = String(search).trim().slice(0, 100).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const searchRegex = new RegExp(safeSearch, "i");
       query.$or = [{ title: searchRegex }, { description: searchRegex }];
     }
 
@@ -408,7 +425,7 @@ export const getAvailableChallenges = async (req, res) => {
 
     const challengesWithStatus = challenges.map((challenge) => {
       const userChallenge = userChallenges.find((uc) => uc.challengeId.toString() === challenge._id.toString());
-      return {
+      return maskCreators({
         ...challenge.toObject(),
         userStatus: userChallenge
           ? {
@@ -417,7 +434,7 @@ export const getAvailableChallenges = async (req, res) => {
               currentStreak: userChallenge.currentStreak,
             }
           : null,
-      };
+      }, req.user);
     });
 
     const pagination = buildPaginationMeta(totalCount, pageNum, limitNum);
@@ -521,11 +538,22 @@ export const joinChallenge = async (req, res) => {
     // challenge's default durationDays when the user doesn't pick one.
     const resolvedDuration = durationDays || challenge.durationDays || null;
 
+    await UserChallenge.reconcileStaleByUser(userId);
+
     // Check if user already has this challenge
     const existing = await UserChallenge.findByUserAndChallenge(userId, challengeId);
     if (existing) {
       if (existing.status === "active") {
         return responseUtil.conflict(res, "You are already participating in this challenge");
+      }
+
+      const rejoinActiveCount = await UserChallenge.countActiveByUser(userId);
+      if (rejoinActiveCount >= MAX_ACTIVE_CHALLENGES) {
+        return responseUtil.custom(res, 400, CHALLENGE_SLOTS_FULL_MESSAGE, {
+          code: "CHALLENGE_SLOTS_FULL",
+          activeCount: rejoinActiveCount,
+          maxAllowed: MAX_ACTIVE_CHALLENGES,
+        }, CHALLENGE_SLOTS_FULL_MESSAGE);
       }
       // Allow rejoining if abandoned/expired/completed
       existing.status = "active";
@@ -553,6 +581,8 @@ export const joinChallenge = async (req, res) => {
         notifyReferrerOnJoin({ challengeId, joinerId: userId, referrerId });
       }
 
+      notifyChallengeEnrolled(userId, challenge);
+
       return responseUtil.success(res, "Challenge rejoined successfully", {
         userChallenge: existing,
       });
@@ -561,10 +591,11 @@ export const joinChallenge = async (req, res) => {
     // Check if user has reached max active challenges
     const activeCount = await UserChallenge.countActiveByUser(userId);
     if (activeCount >= MAX_ACTIVE_CHALLENGES) {
-      return responseUtil.badRequest(
-        res,
-        `You can only have ${MAX_ACTIVE_CHALLENGES} active challenges at a time. Please complete or abandon one first.`
-      );
+      return responseUtil.custom(res, 400, CHALLENGE_SLOTS_FULL_MESSAGE, {
+        code: "CHALLENGE_SLOTS_FULL",
+        activeCount,
+        maxAllowed: MAX_ACTIVE_CHALLENGES,
+      }, CHALLENGE_SLOTS_FULL_MESSAGE);
     }
 
     // Create user challenge
@@ -580,6 +611,8 @@ export const joinChallenge = async (req, res) => {
     if (referrerId) {
       notifyReferrerOnJoin({ challengeId, joinerId: userId, referrerId });
     }
+
+    notifyChallengeEnrolled(userId, challenge);
 
     return responseUtil.created(res, "Challenge joined successfully", {
       userChallenge,
@@ -612,12 +645,14 @@ export const getMyChallenges = async (req, res) => {
     const userId = req.user.id;
     const { status } = req.query;
 
+    await UserChallenge.reconcileStaleByUser(userId);
+
     const query = { userId };
     if (status) {
       query.status = status;
     }
 
-    const challenges = await UserChallenge.find(query)
+    const fetchedChallenges = await UserChallenge.find(query)
       .populate({
         path: "challengeId",
         select: "title description leaderName category subCategory difficulty tasks imageUrl icon durationDays allowedDurations createdBy",
@@ -625,10 +660,13 @@ export const getMyChallenges = async (req, res) => {
       })
       .sort({ lastActivityAt: -1 });
 
+    const challenges = fetchedChallenges.filter((uc) => uc.challengeId);
+
     // Get today's progress for each active challenge
     const challengesWithProgress = await Promise.all(
       challenges.map(async (uc) => {
         const ucObj = uc.toObject();
+        maskCreators(ucObj.challengeId, req.user);
         if (uc.status === "active") {
           return { ...ucObj, todayProgress: await uc.getTodayProgress() };
         }
@@ -638,7 +676,7 @@ export const getMyChallenges = async (req, res) => {
 
     return responseUtil.success(res, "Your challenges fetched successfully", {
       challenges: challengesWithProgress,
-      activeCount: challenges.filter((c) => c.status === "active").length,
+      activeCount: challenges.filter((c) => c.status === "active" && c.challengeId.title !== "Daily Challenge").length,
       maxAllowed: MAX_ACTIVE_CHALLENGES,
     });
   } catch (error) {

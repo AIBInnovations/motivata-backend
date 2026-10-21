@@ -13,6 +13,7 @@ import {
   COMMENT_MAX_WORDS,
   countWords,
 } from "./recommendation.constants.js";
+import { exploreCategoryQuery } from "../shared/exploreCategory.util.js";
 
 const mongoId = Joi.string()
   .regex(/^[0-9a-fA-F]{24}$/)
@@ -97,6 +98,7 @@ export const recommendationSchemas = {
     limit: Joi.number().integer().min(1).max(100).default(10),
     sortOrder: Joi.string().valid("asc", "desc").default("desc"),
     tag: Joi.string().valid(...RECOMMENDATION_TAGS).optional(),
+    category: exploreCategoryQuery.optional(),
     author: mongoId.optional(),
   }),
 

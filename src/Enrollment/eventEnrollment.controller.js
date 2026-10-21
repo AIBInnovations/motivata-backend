@@ -10,6 +10,7 @@ import Event from '../../schema/Event.schema.js';
 import User from '../../schema/User.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { cancelSeatBooking } from '../SeatArrangement/seatArrangement.controller.js';
+import { evaluateBookingAudience, resolveMockEnrollmentTier } from '../Event/eventAccess.util.js';
 
 /**
  * Create enrollment after successful payment
@@ -788,6 +789,65 @@ export const checkEnrollmentStatus = async (req, res) => {
   } catch (error) {
     console.error('Check enrollment status error:', error);
     return responseUtil.internalError(res, 'Failed to check enrollment status', error.message);
+  }
+};
+
+export const guardUserMockEnrollment = async (req, res, next) => {
+  try {
+    const event = await Event.findById(req.body.eventId);
+    if (!event) {
+      return responseUtil.notFound(res, 'Event not found');
+    }
+
+    if (!event.isLive) {
+      return responseUtil.badRequest(res, 'Event is not currently available for booking');
+    }
+
+    if (event.endDate <= new Date()) {
+      return responseUtil.badRequest(res, 'Event booking period has ended');
+    }
+
+    const audience = await evaluateBookingAudience(event, req.user);
+    if (!audience.allowed) {
+      if (audience.code) {
+        return responseUtil.custom(
+          res,
+          403,
+          audience.message,
+          { code: audience.code },
+          audience.message
+        );
+      }
+      return responseUtil.forbidden(res, audience.message);
+    }
+
+    if (event.hasSeatArrangement) {
+      return responseUtil.badRequest(res, 'Seat selection is required for this event. Please book through the payment flow.');
+    }
+
+    const resolved = resolveMockEnrollmentTier(event, req.body);
+    if (resolved.error) {
+      return responseUtil.badRequest(res, resolved.error);
+    }
+
+    if (resolved.ticketPrice == null || resolved.ticketPrice > 0) {
+      return responseUtil.badRequest(res, 'This event requires payment. Please complete the payment to book.');
+    }
+
+    if (resolved.tierName) {
+      req.body.tierName = resolved.tierName;
+    }
+    delete req.body.tierId;
+
+    return next();
+  } catch (error) {
+    console.error('Guard user mock enrollment error:', error);
+
+    if (error.name === 'CastError') {
+      return responseUtil.badRequest(res, 'Invalid event ID');
+    }
+
+    return responseUtil.internalError(res, 'Failed to verify event for enrollment', error.message);
   }
 };
 

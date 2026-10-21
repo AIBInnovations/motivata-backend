@@ -5,6 +5,7 @@
 
 import Joi from "joi";
 import responseUtil from "../utils/response.util.js";
+import { ADMIN_PAGE_KEYS } from "../src/Auth/adminPages.constants.js";
 
 /**
  * Validates request body against a Joi schema
@@ -168,6 +169,7 @@ export const adminSchemas = {
     access: Joi.array().items(Joi.string()).optional(),
     allowedEvents: Joi.array().items(schemas.mongoId).optional(),
     maxCashTicketsAllowed: Joi.number().integer().min(0).optional(),
+    allowedPages: Joi.array().items(Joi.string().valid(...ADMIN_PAGE_KEYS)).unique().optional(),
   }),
 
   /**
@@ -190,6 +192,7 @@ export const adminSchemas = {
     access: Joi.array().items(Joi.string()).optional(),
     allowedEvents: Joi.array().items(schemas.mongoId).optional(),
     maxCashTicketsAllowed: Joi.number().integer().min(0).optional(),
+    allowedPages: Joi.array().items(Joi.string().valid(...ADMIN_PAGE_KEYS)).unique().optional(),
     status: Joi.string().valid("ACTIVATED", "DEACTIVATED").optional(),
   }),
 
@@ -266,6 +269,11 @@ export const userSchemas = {
     city: Joi.string().trim().max(100).optional().allow(null, ''),
     age: Joi.number().integer().min(1).max(150).optional().allow(null),
     achievement: Joi.string().trim().max(500).optional().allow(null, ''),
+    achievements: Joi.array().items(Joi.string().trim().allow(null, '')).max(30).optional().allow(null),
+    photoUrl: Joi.string().trim().uri({ scheme: ['https'] }).max(500).optional().allow(null, '').messages({
+      'string.uri': 'Photo URL must be a valid https link',
+      'string.uriCustomScheme': 'Photo URL must be a valid https link',
+    }),
     bio: Joi.string().trim().max(500).optional().allow(null, ''),
     lifeExperiences: Joi.array().items(Joi.string().trim().max(500).allow('')).max(10).optional().allow(null),
   }),
@@ -685,6 +693,7 @@ export const enrollmentSchemas = {
         "array.min": "At least one phone number is required",
       }),
     tierName: Joi.string().trim().optional(),
+    tierId: schemas.mongoId.optional(),
   }),
 
   /**
@@ -947,6 +956,10 @@ export const sessionSchemas = {
     calendlyLink: Joi.string().uri().optional().allow("", null).messages({
       "string.uri": "Please provide a valid Calendly URL",
     }),
+    meetingLink: Joi.string().trim().uri({ scheme: ["https"] }).max(500).optional().allow("", null).messages({
+      "string.uri": "Meeting link must be a valid https link",
+      "string.uriCustomScheme": "Meeting link must be a valid https link",
+    }),
     sessionDate: Joi.date().iso().optional().allow(null).messages({
       "date.base": "Please provide a valid session date",
     }),
@@ -1023,6 +1036,10 @@ export const sessionSchemas = {
     calendlyLink: Joi.string().uri().optional().allow("", null).messages({
       "string.uri": "Please provide a valid Calendly URL",
     }),
+    meetingLink: Joi.string().trim().uri({ scheme: ["https"] }).max(500).optional().allow("", null).messages({
+      "string.uri": "Meeting link must be a valid https link",
+      "string.uriCustomScheme": "Meeting link must be a valid https link",
+    }),
     sessionDate: Joi.date().iso().optional().allow(null).messages({
       "date.base": "Please provide a valid session date",
     }),
@@ -1079,6 +1096,8 @@ export const sessionSchemas = {
   book: Joi.object({
     contactMethod: Joi.string().valid("email", "whatsapp", "both").default("both"),
     userNotes: Joi.string().max(1000).optional(),
+    focusArea: Joi.string().trim().max(100).optional().allow("", null),
+    sosReportId: schemas.mongoId.optional().allow("", null),
   }),
 
   /**
@@ -1789,6 +1808,10 @@ export const membershipPlanSchemas = {
     isActive: Joi.boolean().optional().default(true),
     requiresReferral: Joi.boolean().optional().default(false),
     maxPurchases: Joi.number().integer().min(0).optional().allow(null),
+    badgeLabel: Joi.string().trim().max(30).optional().allow("", null).messages({
+      "string.max": "Badge label cannot exceed 30 characters",
+    }),
+    mode: Joi.string().valid("virtual", "offline", "both").optional(),
   }),
 
   /**
@@ -1827,6 +1850,10 @@ export const membershipPlanSchemas = {
     isActive: Joi.boolean().optional(),
     requiresReferral: Joi.boolean().optional(),
     maxPurchases: Joi.number().integer().min(0).optional().allow(null),
+    badgeLabel: Joi.string().trim().max(30).optional().allow("", null).messages({
+      "string.max": "Badge label cannot exceed 30 characters",
+    }),
+    mode: Joi.string().valid("virtual", "offline", "both").optional(),
   }),
 
   /**
@@ -1842,6 +1869,7 @@ export const membershipPlanSchemas = {
     isActive: Joi.boolean().optional(),
     isFeatured: Joi.boolean().optional(),
     search: Joi.string().trim().optional(),
+    mode: Joi.string().valid("virtual", "offline", "both").optional(),
   }),
 
   /**
@@ -2866,6 +2894,83 @@ export const referralCodeSchemas = {
       "any.required": "Referral code is required",
     }),
     planId: schemas.mongoId.optional(),
+  }),
+};
+
+const brandUrl = Joi.string().trim().uri({ scheme: ["http", "https"] }).max(500).allow("", null).messages({
+  "string.uri": "Please provide a valid http(s) link",
+  "string.uriCustomScheme": "Please provide a valid http(s) link",
+});
+
+const brandFields = {
+  logoUrl: Joi.string().trim().uri({ scheme: ["http", "https"] }).max(500).allow("", null).messages({
+    "string.uri": "Please provide a valid logo URL",
+    "string.uriCustomScheme": "Please provide a valid logo URL",
+  }),
+  description: Joi.string().trim().max(1000).allow("", null),
+  category: Joi.string().trim().max(100).allow("", null),
+  city: Joi.string().trim().max(100).allow("", null),
+  website: brandUrl,
+  instagram: Joi.string()
+    .trim()
+    .max(500)
+    .pattern(/^(https?:\/\/\S+|@?[A-Za-z0-9._]{1,30})$/i)
+    .allow("", null)
+    .messages({ "string.pattern.base": "Instagram must be a profile link or a handle" }),
+  otherLinks: Joi.array()
+    .items(
+      Joi.object({
+        label: Joi.string().trim().min(1).max(60).required(),
+        url: Joi.string().trim().uri({ scheme: ["http", "https"] }).max(500).required().messages({
+          "string.uri": "Please provide a valid http(s) link",
+          "string.uriCustomScheme": "Please provide a valid http(s) link",
+        }),
+      })
+    )
+    .max(10)
+    .allow(null),
+  contactEmail: Joi.string().trim().email().max(200).allow("", null),
+  contactPhone: Joi.string().trim().max(30).allow("", null),
+  isActive: Joi.boolean(),
+};
+
+export const brandSchemas = {
+  create: Joi.object({
+    name: Joi.string().trim().min(2).max(100).required().messages({
+      "string.empty": "Brand name is required",
+      "string.min": "Brand name must be at least 2 characters",
+      "string.max": "Brand name cannot exceed 100 characters",
+    }),
+    ...brandFields,
+  }),
+
+  update: Joi.object({
+    name: Joi.string().trim().min(2).max(100).messages({
+      "string.min": "Brand name must be at least 2 characters",
+      "string.max": "Brand name cannot exceed 100 characters",
+    }),
+    ...brandFields,
+  }),
+
+  brandId: Joi.object({
+    brandId: schemas.mongoId.required(),
+  }),
+
+  listAdmin: Joi.object({
+    q: Joi.string().trim().max(100).allow("").optional(),
+    category: Joi.string().trim().max(100).allow("").optional(),
+    city: Joi.string().trim().max(100).allow("").optional(),
+    isActive: Joi.boolean().optional(),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+  }),
+
+  listUser: Joi.object({
+    q: Joi.string().trim().max(100).allow("").optional(),
+    category: Joi.string().trim().max(100).allow("").optional(),
+    city: Joi.string().trim().max(100).allow("").optional(),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(50).default(20),
   }),
 };
 

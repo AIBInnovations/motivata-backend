@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { ADMIN_PAGE_KEYS } from "../src/Auth/adminPages.constants.js";
 
 const adminSchema = new mongoose.Schema(
   {
@@ -64,6 +65,10 @@ const adminSchema = new mongoose.Schema(
     ],
     access: {
       type: [String],
+      default: [],
+    },
+    allowedPages: {
+      type: [{ type: String, enum: ADMIN_PAGE_KEYS }],
       default: [],
     },
     maxCashTicketsAllowed: {

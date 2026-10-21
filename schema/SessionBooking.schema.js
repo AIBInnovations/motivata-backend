@@ -143,6 +143,17 @@ const sessionBookingSchema = new mongoose.Schema(
     /**
      * Admin notes
      */
+    focusArea: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Focus area cannot exceed 100 characters"],
+    },
+
+    sosReportId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "UserSOSProgress",
+    },
+
     adminNotes: {
       type: String,
       maxlength: [1000, "Admin notes cannot exceed 1000 characters"],

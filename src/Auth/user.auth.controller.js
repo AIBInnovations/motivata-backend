@@ -15,6 +15,12 @@ import ClubMember from '../../schema/ClubMember.schema.js';
 import Club from '../../schema/Club.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import { generateTokens, refreshAccessToken } from '../../utils/jwt.util.js';
+import {
+  ACHIEVEMENT_MAX_ITEMS,
+  normalizeAchievements,
+  legacyAchievementFrom,
+  deriveAchievements,
+} from '../../utils/achievements.util.js';
 
 /**
  * Register a new user
@@ -119,6 +125,7 @@ export const register = async (req, res) => {
         delete userData.refreshToken;
         delete userData.isDeleted;
         delete userData.deletedAt;
+        userData.achievements = deriveAchievements(userData);
 
         return responseUtil.created(res, 'Account reactivated successfully', {
           user: userData,
@@ -179,6 +186,7 @@ export const register = async (req, res) => {
     delete userData.refreshToken;
     delete userData.isDeleted;
     delete userData.deletedAt;
+    userData.achievements = deriveAchievements(userData);
 
     return responseUtil.created(res, 'User registered successfully', {
       user: userData,
@@ -237,6 +245,7 @@ export const login = async (req, res) => {
     delete userData.refreshToken;
     delete userData.isDeleted;
     delete userData.deletedAt;
+    userData.achievements = deriveAchievements(userData);
 
     return responseUtil.success(res, 'Login successful', {
       user: userData,
@@ -412,6 +421,7 @@ export const loginWithPhone = async (req, res) => {
     delete userData.refreshToken;
     delete userData.isDeleted;
     delete userData.deletedAt;
+    userData.achievements = deriveAchievements(userData);
 
     const totalDuration = Date.now() - startTime;
     console.log('[LOGIN-PHONE] Login successful', {
@@ -700,8 +710,11 @@ export const getProfile = async (req, res) => {
       };
     });
 
+    const profileUser = user.toObject();
+    profileUser.achievements = deriveAchievements(profileUser);
+
     return responseUtil.success(res, 'Profile retrieved successfully', {
-      user,
+      user: profileUser,
       enrollments: enrichedEnrollments,
       memberships: enrichedMemberships,
       serviceSubscriptions: enrichedServiceSubscriptions
@@ -723,7 +736,7 @@ export const getProfile = async (req, res) => {
  */
 export const updateProfile = async (req, res) => {
   try {
-    const { name, email, phone, occupation, occupationCategory, city, age, achievement, bio, lifeExperiences } = req.body;
+    const { name, email, phone, occupation, occupationCategory, city, age, achievement, achievements, photoUrl, bio, lifeExperiences } = req.body;
 
     // Check if email or phone already exists
     if (email || phone) {
@@ -748,9 +761,29 @@ export const updateProfile = async (req, res) => {
       ? lifeExperiences.map((item) => (item || '').trim()).filter(Boolean)
       : lifeExperiences;
 
+    const updates = { name, email, phone, occupation, occupationCategory, city, age, achievement, bio, lifeExperiences: cleanedExperiences };
+
+    if (photoUrl !== undefined) {
+      updates.photoUrl = photoUrl || null;
+    }
+
+    if (Array.isArray(achievements)) {
+      const cleanedAchievements = normalizeAchievements(achievements);
+      if (cleanedAchievements.length > ACHIEVEMENT_MAX_ITEMS) {
+        return responseUtil.badRequest(res, `You can add at most ${ACHIEVEMENT_MAX_ITEMS} achievements`);
+      }
+      updates.achievements = cleanedAchievements;
+      updates.achievement = legacyAchievementFrom(cleanedAchievements);
+    } else if (achievements === null) {
+      updates.achievements = [];
+      updates.achievement = null;
+    } else if (achievement !== undefined) {
+      updates.achievements = [];
+    }
+
     const user = await User.findByIdAndUpdate(
       req.user.id,
-      { name, email, phone, occupation, occupationCategory, city, age, achievement, bio, lifeExperiences: cleanedExperiences },
+      updates,
       { new: true, runValidators: true }
     ).select('-password -refreshToken -isDeleted -deletedAt');
 
@@ -758,7 +791,10 @@ export const updateProfile = async (req, res) => {
       return responseUtil.notFound(res, 'User not found');
     }
 
-    return responseUtil.success(res, 'Profile updated successfully', { user });
+    const profileUser = user.toObject();
+    profileUser.achievements = deriveAchievements(profileUser);
+
+    return responseUtil.success(res, 'Profile updated successfully', { user: profileUser });
   } catch (error) {
     console.error('Update profile error:', error);
     return responseUtil.internalError(res, 'Failed to update profile', error.message);

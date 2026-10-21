@@ -9,6 +9,35 @@ import UserMembership from "../../schema/UserMembership.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { buildPaginationOptions, buildPaginationMeta } from "../shared/pagination.util.js";
 import { sendNewSessionNotification } from "../../utils/fcm.util.js";
+import UserSOSProgress from "../Quiz/schemas/userSOSProgress.schema.js";
+import {
+  bookingGrantsMeetingLink,
+  normalizeFocusArea,
+  stripMeetingLink,
+} from "../../utils/sessionAccess.util.js";
+import { maskCreators } from "../shared/creatorMask.util.js";
+
+const isAdminRequest = (req) => req.user?.userType === "admin";
+
+const maskSessionCreators = (sessionOrList, req) => {
+  if (isAdminRequest(req)) return sessionOrList;
+  const mask = (session) => (session ? maskCreators(session.toJSON(), req.user) : session);
+  return Array.isArray(sessionOrList) ? sessionOrList.map(mask) : mask(sessionOrList);
+};
+
+export const resolveBookingExtras = async (userId, { focusArea, sosReportId } = {}) => {
+  const extras = {};
+  const area = normalizeFocusArea(focusArea);
+  if (area) extras.focusArea = area;
+  if (sosReportId) {
+    const owned = await UserSOSProgress.exists({ _id: sosReportId, userId });
+    if (!owned) {
+      return { error: "The selected SOS report was not found on your account" };
+    }
+    extras.sosReportId = sosReportId;
+  }
+  return { extras };
+};
 
 /**
  * Create a new session
@@ -201,8 +230,11 @@ export const getAllSessions = async (req, res) => {
     const sortOptions = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
     // Execute query with pagination
+    const listQuery = Session.find(query);
+    if (isAdminRequest(req)) listQuery.select("+meetingLink");
+
     const [sessions, totalCount] = await Promise.all([
-      Session.find(query)
+      listQuery
         .sort(sortOptions)
         .skip(skip)
         .limit(limitNum)
@@ -216,7 +248,7 @@ export const getAllSessions = async (req, res) => {
     const hasPrevPage = pageNum > 1;
 
     return responseUtil.success(res, "Sessions fetched successfully", {
-      sessions,
+      sessions: maskSessionCreators(sessions, req),
       pagination: {
         currentPage: pageNum,
         totalPages,
@@ -252,7 +284,20 @@ export const getSessionById = async (req, res) => {
       return responseUtil.badRequest(res, "Session ID is required");
     }
 
-    const session = await Session.findById(id)
+    let canSeeMeetingLink = isAdminRequest(req);
+    if (!canSeeMeetingLink && req.user?.id) {
+      const booking = await SessionBooking.findOne({
+        userId: req.user.id,
+        sessionId: id,
+        status: { $in: ["confirmed", "scheduled", "completed"] },
+      }).select("status paymentStatus");
+      canSeeMeetingLink = bookingGrantsMeetingLink(booking);
+    }
+
+    const sessionQuery = Session.findById(id);
+    if (canSeeMeetingLink) sessionQuery.select("+meetingLink");
+
+    const session = await sessionQuery
       .populate("createdBy", "name email")
       .populate("updatedBy", "name email");
 
@@ -261,7 +306,7 @@ export const getSessionById = async (req, res) => {
     }
 
     return responseUtil.success(res, "Session fetched successfully", {
-      session,
+      session: maskSessionCreators(session, req),
     });
   } catch (error) {
     console.error("Get session by ID error:", error);
@@ -349,6 +394,7 @@ export const updateSession = async (req, res) => {
       new: true,
       runValidators: true,
     })
+      .select("+meetingLink")
       .populate("createdBy", "name email")
       .populate("updatedBy", "name email");
 
@@ -601,7 +647,7 @@ export const getAvailableSessions = async (req, res) => {
       .populate("createdBy", "name email");
 
     return responseUtil.success(res, "Available sessions fetched successfully", {
-      sessions,
+      sessions: maskSessionCreators(sessions, req),
     });
   } catch (error) {
     console.error("Get available sessions error:", error);
@@ -654,7 +700,7 @@ export const getSessionsByHost = async (req, res) => {
     const totalPages = Math.ceil(totalCount / limitNum);
 
     return responseUtil.success(res, "Sessions fetched successfully", {
-      sessions,
+      sessions: maskSessionCreators(sessions, req),
       pagination: {
         currentPage: pageNum,
         totalPages,
@@ -873,9 +919,14 @@ export const bookSession = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-    const { contactMethod, userNotes } = req.body;
+    const { contactMethod, userNotes, focusArea, sosReportId } = req.body;
 
     console.log("[Session] Booking session:", id, "for user:", userId);
+
+    const { extras, error: extrasError } = await resolveBookingExtras(userId, { focusArea, sosReportId });
+    if (extrasError) {
+      return responseUtil.badRequest(res, extrasError);
+    }
 
     const session = await Session.findById(id);
     if (!session) {
@@ -924,6 +975,7 @@ export const bookSession = async (req, res) => {
       userPhone: user.phone,
       contactMethod: contactMethod || "both",
       userNotes,
+      ...extras,
       paymentStatus: session.price > 0 ? "pending" : "free",
     });
 
@@ -941,6 +993,8 @@ export const bookSession = async (req, res) => {
         status: booking.status,
         bookedAt: booking.bookedAt,
         paymentStatus: booking.paymentStatus,
+        focusArea: booking.focusArea || null,
+        sosReportId: booking.sosReportId || null,
       },
       calendlyLink: session.calendlyLink,
       nextSteps:
@@ -979,13 +1033,17 @@ export const getUserBookings = async (req, res) => {
         .sort(sort)
         .skip(skip)
         .limit(limit)
-        .populate("sessionId", "title host duration imageUrl price category calendlyLink hostEmail hostPhone"),
+        .populate("sessionId", "title host duration imageUrl price category calendlyLink hostEmail hostPhone +meetingLink"),
       SessionBooking.countDocuments(filter),
     ]);
 
     // Transform bookings to only include calendlyLink for confirmed bookings
     const transformedBookings = bookings.map((booking) => {
       const bookingObj = booking.toObject();
+
+      if (bookingObj.sessionId) {
+        stripMeetingLink(bookingObj.sessionId, bookingGrantsMeetingLink(bookingObj));
+      }
 
       // Only include calendlyLink if booking is confirmed and paid
       if (bookingObj.sessionId && bookingObj.status === "confirmed") {
@@ -1022,7 +1080,10 @@ export const getBookingById = async (req, res) => {
     const { bookingId } = req.params;
     const userId = req.user.id;
 
-    const booking = await SessionBooking.findOne({ _id: bookingId, userId }).populate("sessionId");
+    const booking = await SessionBooking.findOne({ _id: bookingId, userId }).populate({
+      path: "sessionId",
+      select: "+meetingLink",
+    });
 
     if (!booking) {
       return responseUtil.notFound(res, "Booking not found");
@@ -1030,6 +1091,10 @@ export const getBookingById = async (req, res) => {
 
     // Transform booking to control calendlyLink visibility
     const bookingObj = booking.toObject();
+
+    if (bookingObj.sessionId) {
+      stripMeetingLink(bookingObj.sessionId, bookingGrantsMeetingLink(bookingObj));
+    }
 
     // Only include calendlyLink if booking is confirmed
     if (bookingObj.sessionId && bookingObj.status !== "confirmed") {
@@ -1130,7 +1195,12 @@ export const listBookingsAdmin = async (req, res) => {
         .skip(skip)
         .limit(limit)
         .populate("sessionId", "title host")
-        .populate("userId", "name email phone"),
+        .populate("userId", "name email phone")
+        .populate({
+          path: "sosReportId",
+          select: "status completedAt programId",
+          populate: { path: "programId", select: "title type" },
+        }),
       SessionBooking.countDocuments(filter),
     ]);
 

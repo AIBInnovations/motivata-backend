@@ -9,6 +9,7 @@ import cloudinary from "../../config/cloudinary.config.js";
 import responseUtil from "../../utils/response.util.js";
 import multer from "multer";
 import { CONTENT_CATEGORIES, CONTENT_MAX_WORDS, countContentWords } from "./content.constants.js";
+import { FULL_POST_ACCESS_ROLES } from "../Auth/adminPages.constants.js";
 
 const LINK_PATTERN = /^https?:\/\/\S+$/i;
 
@@ -40,7 +41,11 @@ export const upload = multer({
 // HELPERS
 // ============================================
 
-const formatAdminPost = (post) => ({
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const canManageAnyPost = (reqUser) => FULL_POST_ACCESS_ROLES.includes(reqUser?.role);
+
+const formatAdminPost = (post, currentAdminId = null) => ({
   id: post._id,
   title: post.title || "",
   subHeading: post.subHeading || "",
@@ -55,11 +60,13 @@ const formatAdminPost = (post) => ({
   likeCount: post.likeCount,
   shareCount: post.shareCount,
   author: {
-    id: post.author._id,
-    name: post.author.name,
+    id: post.author?._id || null,
+    name: post.author?.name || "",
   },
   isAdminPost: true,
+  isOwnPost: currentAdminId && post.author?._id ? post.author._id.toString() === currentAdminId : false,
   createdAt: post.createdAt,
+  updatedAt: post.updatedAt,
 });
 
 // ============================================
@@ -188,11 +195,16 @@ export const createAdminPost = async (req, res) => {
  */
 export const getAdminPosts = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 10, search } = req.query;
     const adminId = req.user.id;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const query = { author: adminId, authorType: "Admin", club: null };
+    const query = { isExplorePost: true, club: null };
+
+    if (search && String(search).trim()) {
+      const pattern = new RegExp(escapeRegex(String(search).trim().slice(0, 100)), "i");
+      query.$or = [{ title: pattern }, { subHeading: pattern }, { caption: pattern }, { content: pattern }];
+    }
 
     const [posts, totalCount] = await Promise.all([
       Post.find(query)
@@ -206,7 +218,7 @@ export const getAdminPosts = async (req, res) => {
     const totalPages = Math.ceil(totalCount / Number(limit));
 
     return responseUtil.success(res, "Posts fetched successfully", {
-      posts: posts.map(formatAdminPost),
+      posts: posts.map((post) => formatAdminPost(post, adminId)),
       pagination: {
         currentPage: Number(page),
         totalPages,
@@ -236,7 +248,10 @@ export const deleteAdminPost = async (req, res) => {
       return responseUtil.notFound(res, "Post not found");
     }
 
-    if (post.author.toString() !== adminId) {
+    const isOwnPost = post.author.toString() === adminId;
+    const canDeleteAny = canManageAnyPost(req.user) && post.isExplorePost;
+
+    if (!isOwnPost && !canDeleteAny) {
       return responseUtil.forbidden(res, "You can only delete your own posts");
     }
 
@@ -253,6 +268,54 @@ export const deleteAdminPost = async (req, res) => {
   }
 };
 
+export const updateAdminPost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const adminId = req.user.id;
+
+    const post = await Post.findById(postId);
+    if (!post || !post.isExplorePost) {
+      return responseUtil.notFound(res, "Post not found");
+    }
+
+    const isOwnPost = post.author.toString() === adminId;
+    if (!isOwnPost && !canManageAnyPost(req.user)) {
+      return responseUtil.forbidden(res, "You can only edit your own posts");
+    }
+
+    const updates = {};
+    for (const field of ["title", "subHeading", "category", "videoUrl", "linkUrl", "content", "caption", "mediaUrls"]) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+    if (req.body.mediaThumbnail !== undefined) {
+      updates.mediaThumbnail = req.body.mediaThumbnail || null;
+    }
+
+    post.set(updates);
+    await post.save();
+    await post.populate({ path: "author", select: "name email" });
+
+    return responseUtil.success(res, "Post updated successfully", {
+      post: formatAdminPost(post, adminId),
+    });
+  } catch (error) {
+    console.error("[ADMIN POST] Update post error:", error);
+    if (error.name === "ValidationError") {
+      const errors = Object.keys(error.errors).map((key) => ({
+        field: key,
+        message: error.errors[key].message,
+      }));
+      return responseUtil.validationError(res, "Validation failed", errors);
+    }
+    if (error.name === "CastError") {
+      return responseUtil.badRequest(res, "Invalid post ID");
+    }
+    return responseUtil.internalError(res, "Failed to update post", error.message);
+  }
+};
+
 export const getContentCategories = (_req, res) =>
   responseUtil.success(res, "Content categories fetched", {
     categories: CONTENT_CATEGORIES,
@@ -263,6 +326,7 @@ export default {
   getContentCategories,
   uploadAdminMedia,
   createAdminPost,
+  updateAdminPost,
   getAdminPosts,
   deleteAdminPost,
 };

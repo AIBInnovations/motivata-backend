@@ -9,6 +9,7 @@ import Event from '../../schema/Event.schema.js';
 import responseUtil from '../../utils/response.util.js';
 import PaymentServiceFactory from '../../services/payment/PaymentServiceFactory.js';
 import { reserveSeats, releaseSeatReservation } from '../SeatArrangement/seatArrangement.controller.js';
+import { evaluateBookingAudience } from '../Event/eventAccess.util.js';
 
 /**
  * Get payment service instance
@@ -39,6 +40,20 @@ export const createPaymentOrder = async (req, res) => {
 
       if (!event.isLive) {
         return responseUtil.badRequest(res, 'Event is not available for booking');
+      }
+
+      const audience = await evaluateBookingAudience(event, req.user);
+      if (!audience.allowed) {
+        if (audience.code) {
+          return responseUtil.custom(
+            res,
+            403,
+            audience.message,
+            { code: audience.code },
+            audience.message
+          );
+        }
+        return responseUtil.forbidden(res, audience.message);
       }
 
       const now = new Date();

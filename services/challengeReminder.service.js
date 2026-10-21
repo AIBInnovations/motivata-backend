@@ -11,22 +11,20 @@ import cron from "node-cron";
 import UserChallenge from "../src/Challenge/userChallenge.schema.js";
 import User from "../schema/User.schema.js";
 import { sendToMultipleDevices } from "../utils/fcm.util.js";
+import { dateKeyIST } from "../utils/timezone.util.js";
 
 const SCHEDULES = ["0 12 * * *", "0 18 * * *"];
+const TIMEZONE = "Asia/Kolkata";
 
 /**
  * Check whether a UserChallenge has today's tasks all done.
  */
 const hasCompletedToday = (userChallenge) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayTime = today.getTime();
+  const todayKey = dateKeyIST();
 
-  const entry = (userChallenge.dailyProgress || []).find((d) => {
-    const progressDate = new Date(d.date);
-    progressDate.setHours(0, 0, 0, 0);
-    return progressDate.getTime() === todayTime;
-  });
+  const entry = (userChallenge.dailyProgress || []).find(
+    (d) => dateKeyIST(d.date) === todayKey
+  );
 
   return Boolean(entry && entry.allTasksCompleted);
 };
@@ -52,7 +50,7 @@ const runReminderPass = async () => {
       return;
     }
 
-    const pending = activeUCs.filter((uc) => !hasCompletedToday(uc));
+    const pending = activeUCs.filter((uc) => uc.challengeId && !hasCompletedToday(uc));
 
     if (pending.length === 0) {
       console.log("[CHALLENGE-REMINDER] All active users up to date — nothing to send");
@@ -111,9 +109,9 @@ const runReminderPass = async () => {
  */
 export const startChallengeReminderJobs = () => {
   SCHEDULES.forEach((expr) => {
-    cron.schedule(expr, runReminderPass);
+    cron.schedule(expr, runReminderPass, { timezone: TIMEZONE });
   });
   console.log(
-    `[CHALLENGE-REMINDER] Reminder jobs scheduled at: ${SCHEDULES.join(", ")}`
+    `[CHALLENGE-REMINDER] Reminder jobs scheduled at: ${SCHEDULES.join(", ")} (${TIMEZONE})`
   );
 };
