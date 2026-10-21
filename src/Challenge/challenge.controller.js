@@ -676,7 +676,7 @@ export const getMyChallenges = async (req, res) => {
 
     return responseUtil.success(res, "Your challenges fetched successfully", {
       challenges: challengesWithProgress,
-      activeCount: challenges.filter((c) => c.status === "active").length,
+      activeCount: challenges.filter((c) => c.status === "active" && c.challengeId.title !== "Daily Challenge").length,
       maxAllowed: MAX_ACTIVE_CHALLENGES,
     });
   } catch (error) {

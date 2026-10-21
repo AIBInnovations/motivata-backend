@@ -206,7 +206,7 @@ userChallengeSchema.statics.countActiveByUser = async function (userId) {
   if (activeChallengeIds.length === 0) return 0;
 
   const Challenge = mongoose.model("Challenge");
-  const liveChallenges = await Challenge.find({ _id: { $in: activeChallengeIds } })
+  const liveChallenges = await Challenge.find({ _id: { $in: activeChallengeIds }, title: { $ne: "Daily Challenge" } })
     .select("_id")
     .lean();
   return liveChallenges.length;
