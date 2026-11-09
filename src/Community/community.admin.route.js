@@ -4,6 +4,7 @@ import {
   deleteWeeklyUpdate,
   listHelpRequests,
   resolveHelpRequest,
+  reopenHelpRequest,
   deleteHelpRequest,
 } from "./community.controller.js";
 import { authenticate, isAdmin } from "../../middleware/auth.middleware.js";
@@ -16,6 +17,7 @@ router.get("/weekly-updates", listWeeklyUpdates);
 router.delete("/weekly-updates/:id", deleteWeeklyUpdate);
 router.get("/help-requests", listHelpRequests);
 router.post("/help-requests/:id/resolve", resolveHelpRequest);
+router.post("/help-requests/:id/reopen", reopenHelpRequest);
 router.delete("/help-requests/:id", deleteHelpRequest);
 
 export default router;

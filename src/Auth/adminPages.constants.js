@@ -12,6 +12,7 @@ export const ADMIN_PAGE_KEYS = [
   "admin-club-posts",
   "explore-posts",
   "community",
+  "push-notifications",
   "occupations",
   "brands",
   "sessions",

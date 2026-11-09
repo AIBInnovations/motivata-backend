@@ -6,7 +6,6 @@ docs
 
 documents
 
-.env
 
 #*.md
 
@@ -20,3 +19,4 @@ logs
 scripts/backup/**/*.json
 .serena
 .envdatanotouch
+config.bat

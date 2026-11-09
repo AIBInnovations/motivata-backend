@@ -206,17 +206,38 @@ userChallengeSchema.statics.countActiveByUser = async function (userId) {
   if (activeChallengeIds.length === 0) return 0;
 
   const Challenge = mongoose.model("Challenge");
-  const liveChallenges = await Challenge.find({ _id: { $in: activeChallengeIds }, title: { $ne: "Daily Challenge" } })
+  const liveChallenges = await Challenge.find({
+    _id: { $in: activeChallengeIds },
+    title: { $ne: "Daily Challenge" },
+    isActive: { $ne: false },
+  })
     .select("_id")
     .lean();
   return liveChallenges.length;
 };
 
 userChallengeSchema.statics.reconcileStaleByUser = async function (userId) {
+  const now = new Date();
   await this.updateMany(
-    { userId, status: "active", endsAt: { $lt: new Date() } },
+    { userId, status: "active", endsAt: { $lt: now } },
     { $set: { status: "expired" } }
   );
+
+  const openEnded = await this.find({ userId, status: "active", endsAt: null })
+    .populate("challengeId", "durationDays")
+    .select("startedAt selectedDurationDays challengeId")
+    .lean();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const expiredIds = openEnded
+    .filter((uc) => {
+      const duration = uc.selectedDurationDays || uc.challengeId?.durationDays;
+      if (!uc.startedAt || !duration) return false;
+      return new Date(uc.startedAt).getTime() + duration * DAY_MS < now.getTime();
+    })
+    .map((uc) => uc._id);
+  if (expiredIds.length > 0) {
+    await this.updateMany({ _id: { $in: expiredIds } }, { $set: { status: "expired" } });
+  }
 };
 
 /**

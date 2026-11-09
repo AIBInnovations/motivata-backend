@@ -117,6 +117,45 @@ export const getChallengeRewardsForUser = async (req, res) => {
   }
 };
 
+export const getMyRewards = async (req, res) => {
+  try {
+    const claims = await RewardClaim.find({ userId: req.user.id })
+      .sort({ claimedAt: -1 })
+      .limit(100)
+      .populate({
+        path: "rewardId",
+        select: "title description rewardType rewardValue expiresAt",
+        match: { isDeleted: { $in: [true, false] } },
+      })
+      .populate("challengeId", "title")
+      .lean();
+
+    const rewards = claims
+      .filter((c) => c.rewardId)
+      .map((c) => ({
+        _id: c._id,
+        rewardId: c.rewardId._id,
+        title: c.rewardId.title,
+        description: c.rewardId.description || "",
+        rewardType: c.rewardId.rewardType,
+        rewardValue: c.rewardId.rewardValue || "",
+        expiresAt: c.rewardId.expiresAt || null,
+        challengeId: c.challengeId?._id || null,
+        challengeTitle: c.challengeId?.title || "",
+        redemptionCode: c.redemptionCode,
+        qrPayload: buildQrPayload(c.redemptionCode),
+        status: c.status,
+        claimedAt: c.claimedAt,
+        redeemedAt: c.redeemedAt || null,
+      }));
+
+    return responseUtil.success(res, "Your rewards fetched successfully", { rewards });
+  } catch (error) {
+    console.error("Get my rewards error:", error);
+    return responseUtil.internalError(res, "Failed to fetch your rewards", error.message);
+  }
+};
+
 export const claimReward = async (req, res) => {
   try {
     const { rewardId } = req.params;
