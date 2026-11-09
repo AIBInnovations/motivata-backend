@@ -950,11 +950,14 @@ export const deletePost = async (req, res) => {
     post.deletedAt = new Date();
     await post.save();
 
-    // Decrement club post count
     if (post.club) {
-      await Club.findByIdAndUpdate(post.club, {
-        $inc: { postCount: -1 },
-      });
+      const livePosts = await Post.countDocuments({ club: post.club, isDeleted: false });
+      await Club.findByIdAndUpdate(post.club, { $set: { postCount: livePosts } });
+    }
+    if (post.author) {
+      await User.findByIdAndUpdate(post.author, [
+        { $set: { postCount: { $max: [0, { $subtract: ["$postCount", 1] }] } } },
+      ]);
     }
 
     console.log(`[CLUB-ADMIN] Post ${postId} soft deleted by admin`);
