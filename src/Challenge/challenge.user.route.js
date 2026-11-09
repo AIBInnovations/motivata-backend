@@ -31,6 +31,7 @@ import {
 import {
   getChallengeRewardsForUser,
   claimReward,
+  getMyRewards,
 } from "./challengeReward.controller.js";
 import { challengeRewardSchemas } from "./challengeReward.validation.js";
 
@@ -101,6 +102,8 @@ router.get(
   validateParams(challengeRewardSchemas.challengeId),
   getChallengeRewardsForUser
 );
+
+router.get("/rewards/mine", getMyRewards);
 
 /**
  * @route   POST /api/app/challenges/rewards/:rewardId/claim
