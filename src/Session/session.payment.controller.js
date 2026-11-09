@@ -8,6 +8,7 @@ import Payment from "../../schema/Payment.schema.js";
 import Session from "../../schema/Session.schema.js";
 import SessionBooking from "../../schema/SessionBooking.schema.js";
 import User from "../../schema/User.schema.js";
+import UserMembership from "../../schema/UserMembership.schema.js";
 import responseUtil from "../../utils/response.util.js";
 import { resolveBookingExtras } from "./session.controller.js";
 
@@ -52,6 +53,13 @@ export const createSessionOrder = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) {
       return responseUtil.notFound(res, "User not found");
+    }
+
+    if (session.membersOnly || session.sessionType === "OTM") {
+      const isMember = user.phone ? await UserMembership.hasActiveMembership(user.phone) : false;
+      if (!isMember) {
+        return responseUtil.forbidden(res, "This session is available to Motivata members only");
+      }
     }
 
     // === CRITICAL: 1 USER PER SESSION VALIDATION ===

@@ -270,7 +270,8 @@ userMembershipSchema.methods.getCurrentStatus = function () {
   }
 
   // Lifetime memberships never expire
-  if (this.isLifetime) {
+  const noExpiry = !this.endDate || new Date(this.endDate).getTime() <= 1000;
+  if (this.isLifetime || noExpiry) {
     const now = new Date();
     if (this.startDate <= now) {
       return 'ACTIVE';

@@ -7,6 +7,8 @@ import mongoose from "mongoose";
 import ChallengeStory from "../../schema/ChallengeStory.schema.js";
 import ChallengeStoryView from "../../schema/ChallengeStoryView.schema.js";
 import UserChallenge from "../Challenge/userChallenge.schema.js";
+import DailyChallenge from "../Challenge/dailyChallenge.schema.js";
+import { dateKeyIST } from "../../utils/timezone.util.js";
 import responseUtil from "../../utils/response.util.js";
 import cloudinary from "../../config/cloudinary.config.js";
 
@@ -100,7 +102,17 @@ export const createStory = async (req, res) => {
       status: { $in: ["active", "completed"] },
     });
 
-    if (!userChallenge) {
+    const isTodaysDailyChallenge =
+      !userChallenge &&
+      mongoose.Types.ObjectId.isValid(challengeId) &&
+      !!(await DailyChallenge.exists({
+        _id: challengeId,
+        dateKey: dateKeyIST(),
+        isActive: true,
+        isDeleted: false,
+      }));
+
+    if (!userChallenge && !isTodaysDailyChallenge) {
       return responseUtil.forbidden(
         res,
         "You must have an active participation in this challenge to post a story"

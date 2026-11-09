@@ -16,7 +16,7 @@ import { maskCreators } from "../shared/creatorMask.util.js";
 
 const MAX_ACTIVE_CHALLENGES = 5;
 const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const CHALLENGE_SLOTS_FULL_MESSAGE = `You can only have ${MAX_ACTIVE_CHALLENGES} active challenges at a time. Please complete or abandon one first.`;
+const CHALLENGE_SLOTS_FULL_MESSAGE = `You're already doing ${MAX_ACTIVE_CHALLENGES} challenges, which is the most you can run at once. Finish or leave one to start this one.`;
 
 const notifyChallengeEnrolled = (userId, challenge) => {
   notifyUsers({
@@ -655,7 +655,7 @@ export const getMyChallenges = async (req, res) => {
     const fetchedChallenges = await UserChallenge.find(query)
       .populate({
         path: "challengeId",
-        select: "title description leaderName category subCategory difficulty tasks imageUrl icon durationDays allowedDurations createdBy",
+        select: "title description leaderName category subCategory difficulty tasks imageUrl icon durationDays allowedDurations createdBy isActive",
         populate: { path: "createdBy", select: "name" },
       })
       .sort({ lastActivityAt: -1 });
@@ -676,7 +676,9 @@ export const getMyChallenges = async (req, res) => {
 
     return responseUtil.success(res, "Your challenges fetched successfully", {
       challenges: challengesWithProgress,
-      activeCount: challenges.filter((c) => c.status === "active" && c.challengeId.title !== "Daily Challenge").length,
+      activeCount: challenges.filter(
+        (c) => c.status === "active" && c.challengeId.title !== "Daily Challenge" && c.challengeId.isActive !== false
+      ).length,
       maxAllowed: MAX_ACTIVE_CHALLENGES,
     });
   } catch (error) {

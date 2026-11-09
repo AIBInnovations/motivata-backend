@@ -955,7 +955,7 @@ export const bookSession = async (req, res) => {
       return responseUtil.notFound(res, "User not found");
     }
 
-    if (session.membersOnly) {
+    if (session.membersOnly || session.sessionType === "OTM") {
       const isMember = user.phone
         ? await UserMembership.hasActiveMembership(user.phone)
         : false;

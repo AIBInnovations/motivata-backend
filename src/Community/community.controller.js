@@ -60,7 +60,10 @@ const formatUpdate = (u, viewerId) => ({
   createdAt: u.createdAt,
 });
 
-const formatHelp = (h, viewerId) => ({
+const formatHelp = (h, viewerId, viewerIsAdmin = false) => {
+  const isOwn = viewerId ? String(h.user?._id || h.user) === String(viewerId) : false;
+  const hideContacts = h.status === "RESOLVED" && !isOwn && !viewerIsAdmin;
+  return {
   id: h._id,
   author: { id: h.user?._id || h.user, name: h.user?.name || h.authorName },
   tag: h.tag,
@@ -68,13 +71,14 @@ const formatHelp = (h, viewerId) => ({
   description: h.description,
   deadline: h.deadline,
   contactName: h.contactName,
-  contactPhone: h.contactPhone,
-  contactEmail: h.contactEmail,
+  contactPhone: hideContacts ? "" : h.contactPhone,
+  contactEmail: hideContacts ? "" : h.contactEmail,
   city: h.city,
   status: h.status,
-  isOwn: viewerId ? String(h.user?._id || h.user) === String(viewerId) : false,
+  isOwn,
   createdAt: h.createdAt,
-});
+  };
+};
 
 export const getCommunityMeta = async (req, res) => {
   try {
@@ -213,7 +217,7 @@ export const listHelpRequests = async (req, res) => {
     ]);
 
     return responseUtil.success(res, "Help requests fetched", {
-      requests: requests.map((h) => formatHelp(h, req.user?.id)),
+      requests: requests.map((h) => formatHelp(h, req.user?.id, req.user?.userType === "admin")),
       pagination: paginationOf(page, limit, totalCount),
     });
   } catch (error) {
@@ -309,6 +313,23 @@ export const resolveHelpRequest = async (req, res) => {
   }
 };
 
+export const reopenHelpRequest = async (req, res) => {
+  try {
+    const help = await HelpRequest.findById(req.params.id);
+    if (!help || help.isDeleted) return responseUtil.notFound(res, "Help request not found");
+    if (req.user.userType !== "admin" && String(help.user) !== String(req.user.id)) {
+      return responseUtil.forbidden(res, "Only the person who asked can reopen this request");
+    }
+    help.status = "OPEN";
+    help.resolvedAt = null;
+    await help.save();
+    return responseUtil.success(res, "Request reopened", { request: formatHelp(help, req.user.id) });
+  } catch (error) {
+    if (error.name === "CastError") return responseUtil.badRequest(res, "Invalid request ID");
+    return responseUtil.internalError(res, "Failed to update help request", error.message);
+  }
+};
+
 export const deleteHelpRequest = async (req, res) => {
   try {
     const help = await HelpRequest.findById(req.params.id);
@@ -334,5 +355,6 @@ export default {
   listHelpRequests,
   createHelpRequest,
   resolveHelpRequest,
+  reopenHelpRequest,
   deleteHelpRequest,
 };
