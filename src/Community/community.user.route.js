@@ -7,6 +7,7 @@ import {
   listHelpRequests,
   createHelpRequest,
   resolveHelpRequest,
+  reopenHelpRequest,
   deleteHelpRequest,
 } from "./community.controller.js";
 import { authenticate } from "../../middleware/auth.middleware.js";
@@ -22,6 +23,7 @@ router.delete("/weekly-updates/:id", deleteWeeklyUpdate);
 router.get("/help-requests", listHelpRequests);
 router.post("/help-requests", createHelpRequest);
 router.post("/help-requests/:id/resolve", resolveHelpRequest);
+router.post("/help-requests/:id/reopen", reopenHelpRequest);
 router.delete("/help-requests/:id", deleteHelpRequest);
 
 export default router;
