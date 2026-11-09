@@ -40,6 +40,7 @@ import adminRecommendationRoutes from "../src/Recommendation/recommendation.admi
 import adminCollegeRoutes from "../src/Referral/college.admin.route.js";
 import referralCodeRoutes from "../src/Referral/referralCode.route.js";
 import adminCommunityRoutes from "../src/Community/community.admin.route.js";
+import adminBroadcastRoutes from "../src/Notification/broadcast.admin.route.js";
 import adminOccupationRoutes from "../src/Occupation/occupation.admin.route.js";
 import adminBrandRoutes from "../src/Brand/brand.admin.route.js";
 import publicShareRoutes from "../src/Connect/share.public.route.js";
@@ -88,6 +89,7 @@ router.use("/user-memberships", guardAdminPage(["memberships"]));
 router.use("/clubs", guardAdminPage(["clubs-manage", "club-join-requests", "admin-club-posts"], { readsOpen: true }));
 router.use("/jobs", guardAdminPage(["job-posts", "job-applications", "opportunity-filters"]));
 router.use("/community", guardAdminPage(["community"]));
+router.use("/push-notifications", guardAdminPage(["push-notifications"]));
 router.use("/occupations", guardAdminPage(["occupations"], { readsOpen: true }));
 router.use("/services", guardAdminPage(["services-manage", "service-orders", "service-requests", "user-subscriptions"], { readsOpen: true }));
 router.use("/service-orders", guardAdminPage(["service-orders"]));
@@ -218,6 +220,8 @@ router.use("/connect", adminConnectPostRoutes);
 router.use("/jobs", adminJobRoutes);
 
 router.use("/community", adminCommunityRoutes);
+
+router.use("/push-notifications", adminBroadcastRoutes);
 
 router.use("/occupations", adminOccupationRoutes);
 

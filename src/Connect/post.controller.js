@@ -552,9 +552,8 @@ export const deletePost = async (req, res) => {
 
     // If post belongs to a club, decrement club's post count
     if (post.club) {
-      await Club.findByIdAndUpdate(post.club, [
-        { $set: { postCount: { $max: [0, { $subtract: ["$postCount", 1] }] } } },
-      ]);
+      const livePosts = await Post.countDocuments({ club: post.club, isDeleted: false });
+      await Club.findByIdAndUpdate(post.club, { $set: { postCount: livePosts } });
     }
 
     return responseUtil.success(res, "Post deleted successfully");

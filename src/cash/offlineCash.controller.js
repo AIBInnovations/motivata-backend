@@ -895,9 +895,8 @@ export const scanCashTicket = async (req, res) => {
       );
     }
 
-    if (enrollment.isTicketScanned) {
-      // Fetch voucher for already scanned ticket
-      const claimedVoucher = await Voucher.findOne({
+    const findClaimedVoucher = () =>
+      Voucher.findOne({
         claimedPhones: normalizedPhone,
         isActive: true,
         $or: [
@@ -906,6 +905,9 @@ export const scanCashTicket = async (req, res) => {
           { events: eventId }
         ]
       }).select('_id code title description');
+
+    if (enrollment.isTicketScanned) {
+      const claimedVoucher = await findClaimedVoucher();
 
       return responseUtil.success(res, "Ticket already scanned", {
         isValid: true,
@@ -926,11 +928,39 @@ export const scanCashTicket = async (req, res) => {
       });
     }
 
-    // Mark as scanned
+    const scannedAt = new Date();
+    const claimed = await CashEventEnrollment.findOneAndUpdate(
+      { _id: enrollment._id, status: "ACTIVE", isTicketScanned: { $ne: true } },
+      { $set: { isTicketScanned: true, ticketScannedAt: scannedAt, ticketScannedBy: req.user?.id || null } }
+    );
+
+    if (!claimed) {
+      const latest = await CashEventEnrollment.findById(enrollment._id).select("ticketScannedAt status isTicketScanned").lean();
+      if (latest && latest.status !== "ACTIVE") {
+        return responseUtil.badRequest(res, `Ticket is ${String(latest.status).toLowerCase()}`);
+      }
+      const claimedVoucher = await findClaimedVoucher();
+      return responseUtil.success(res, "Ticket already scanned", {
+        isValid: true,
+        isAlreadyScanned: true,
+        scannedAt: latest?.ticketScannedAt || null,
+        enrollment: {
+          id: enrollment._id,
+          name: enrollment.name,
+          phone: enrollment.phone,
+          event: enrollment.eventId,
+        },
+        voucher: claimedVoucher ? {
+          id: claimedVoucher._id,
+          code: claimedVoucher.code,
+          title: claimedVoucher.title,
+          description: claimedVoucher.description,
+        } : null,
+      });
+    }
+
     enrollment.isTicketScanned = true;
-    enrollment.ticketScannedAt = new Date();
-    enrollment.ticketScannedBy = req.user?.id || null;
-    await enrollment.save();
+    enrollment.ticketScannedAt = scannedAt;
 
     // Fetch voucher claimed by this phone for this event
     const claimedVoucher = await Voucher.findOne({

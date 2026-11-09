@@ -242,9 +242,10 @@ export const getMyRecommendations = async (req, res) => {
 
     const query = { author: req.user.id };
 
-    const [rawRecs, totalCount] = await Promise.all([
+    const [rawRecs, totalCount, viewerIsMember] = await Promise.all([
       Recommendation.find(query).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).lean(),
       Recommendation.countDocuments(query),
+      getIsMember(req.user),
     ]);
 
     const recommendations = (await enrichForViewer(rawRecs, req.user.id)).map((r) => presentAuthor(r, req));
@@ -252,6 +253,7 @@ export const getMyRecommendations = async (req, res) => {
 
     return responseUtil.success(res, "Your recommendations fetched successfully", {
       recommendations,
+      viewerIsMember,
       pagination: {
         currentPage: Number(page),
         totalPages,

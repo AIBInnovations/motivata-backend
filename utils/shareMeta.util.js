@@ -52,6 +52,15 @@ export const isGenericPost = (post, club) => {
   return !!post.club && !isOpenClub(club);
 };
 
+const PREVIEW_TRANSFORM = "w_1200,h_630,c_fill,g_auto,q_auto,f_jpg";
+
+export const previewImageUrl = (url) => {
+  if (!url || typeof url !== "string") return url || null;
+  if (!url.includes("res.cloudinary.com") || !url.includes("/image/upload/")) return url;
+  if (url.includes(`/image/upload/${PREVIEW_TRANSFORM}/`)) return url;
+  return url.replace("/image/upload/", `/image/upload/${PREVIEW_TRANSFORM}/`);
+};
+
 export const buildPostShare = (post) => {
   const title = truncateText(post.title || post.caption || post.content, TITLE_MAX) || "Motivata post";
   const description =
@@ -66,7 +75,7 @@ export const buildPostShare = (post) => {
     id: String(post._id),
     title,
     description,
-    imageUrl,
+    imageUrl: previewImageUrl(imageUrl),
     deepLink: `motivata://post/${post._id}`,
   };
 };
